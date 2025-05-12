@@ -17,8 +17,6 @@ namespace TeiasMongoAPI.Data.Repositories
         private ITMRepository? _tms;
         private IBuildingRepository? _buildings;
         private IAlternativeTMRepository? _alternativeTMs;
-        private IConcreteRepository? _concreteBlocks;
-        private IMasonryRepository? _masonryBlocks;
 
         public UnitOfWork(MongoDbContext context)
         {
@@ -31,8 +29,6 @@ namespace TeiasMongoAPI.Data.Repositories
         public ITMRepository TMs => _tms ??= new TMRepository(_context);
         public IBuildingRepository Buildings => _buildings ??= new BuildingRepository(_context);
         public IAlternativeTMRepository AlternativeTMs => _alternativeTMs ??= new AlternativeTMRepository(_context);
-        public IConcreteRepository ConcreteBlocks => _concreteBlocks ??= new ConcreteRepository(_context);
-        public IMasonryRepository MasonryBlocks => _masonryBlocks ??= new MasonryRepository(_context);
 
         public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {

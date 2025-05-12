@@ -1,9 +1,10 @@
 ﻿using MongoDB.Bson.Serialization.Attributes;
-using TeiasMongoAPI.Core.Models.Base;
 
 namespace TeiasMongoAPI.Core.Models.Block
 {
-    public abstract class ABlock : AEntityBase
+    [BsonDiscriminator(RootClass = true)]
+    [BsonKnownTypes(typeof(Concrete), typeof(Masonry))]
+    public abstract class ABlock
     {
         public string ID { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
