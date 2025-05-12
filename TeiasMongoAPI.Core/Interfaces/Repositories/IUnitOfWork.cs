@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace TeiasMongoAPI.Core.Interfaces.Repositories
 {
     public interface IUnitOfWork : IDisposable
     {
+        IUserRepository Users { get; }
         IClientRepository Clients { get; }
         IRegionRepository Regions { get; }
         ITMRepository TMs { get; }
@@ -13,6 +15,9 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         IConcreteRepository ConcreteBlocks { get; }
         IMasonryRepository MasonryBlocks { get; }
 
-        Task<int> SaveChangesAsync();
+        Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+        Task BeginTransactionAsync(CancellationToken cancellationToken = default);
+        Task CommitTransactionAsync(CancellationToken cancellationToken = default);
+        Task RollbackTransactionAsync(CancellationToken cancellationToken = default);
     }
 }

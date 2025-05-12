@@ -5,9 +5,9 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
 {
     public interface IBuildingRepository : IGenericRepository<Building>
     {
-        Task<IEnumerable<Building>> GetByTmIdAsync(ObjectId tmId);
-        Task<IEnumerable<Building>> GetByTypeAsync(BuildingType type);
-        Task<Building> GetByNameAsync(string name);
-        Task<IEnumerable<Building>> GetInScopeOfMETUAsync();
+        Task<IEnumerable<Building>> GetByTmIdAsync(ObjectId tmId, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Building>> GetByTypeAsync(BuildingType type, CancellationToken cancellationToken = default);
+        Task<Building> GetByNameAsync(string name, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Building>> GetInScopeOfMETUAsync(CancellationToken cancellationToken = default);
     }
 }
