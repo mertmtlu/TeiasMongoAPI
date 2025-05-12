@@ -10,10 +10,10 @@ namespace TeiasMongoAPI.Common.Attributes
     public class PropertyDescriptionAttribute : Attribute
     {
         public string Description { get; }
-        public string Unit { get; }
-        public string Example { get; }
+        public string? Unit { get; }
+        public string? Example { get; }
 
-        public PropertyDescriptionAttribute(string description, string unit = null, string example = null)
+        public PropertyDescriptionAttribute(string description, string? unit = null, string? example = null)
         {
             Description = description;
             Unit = unit;

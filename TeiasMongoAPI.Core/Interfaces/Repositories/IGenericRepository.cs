@@ -15,7 +15,7 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         Task<bool> ExistsAsync(ObjectId id, CancellationToken cancellationToken = default);
 
         // Additional methods that might be useful
-        Task<long> CountAsync(Expression<Func<T, bool>> filter = null, CancellationToken cancellationToken = default);
+        Task<long> CountAsync(Expression<Func<T, bool>>? filter = null, CancellationToken cancellationToken = default);
         Task<T> FindOneAsync(Expression<Func<T, bool>> filter, CancellationToken cancellationToken = default);
     }
 }
