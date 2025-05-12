@@ -10,7 +10,7 @@
         public string State { get; set; } = string.Empty; // Active, Inactive
         public List<int> Voltages { get; set; } = new();
         public int MaxVoltage { get; set; } // Calculated property
-        public DateTime ProvisionalAcceptanceDate { get; set; }
+        public DateOnly ProvisionalAcceptanceDate { get; set; }
         public LocationDto Location { get; set; } = new();
         public string City { get; set; } = string.Empty;
         public string County { get; set; } = string.Empty;

@@ -10,7 +10,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request
         public TMType Type { get; set; } = TMType.Default;
         public TMState State { get; set; } = TMState.Active;
         public required List<int> Voltages { get; set; }
-        public DateTime ProvisionalAcceptanceDate { get; set; }
+        public DateOnly ProvisionalAcceptanceDate { get; set; }
         public required LocationDto Location { get; set; }
         public string City { get; set; } = string.Empty;
         public string County { get; set; } = string.Empty;
@@ -144,7 +144,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request
     public class SoilDto
     {
         public bool HasSoilStudyReport { get; set; }
-        public DateTime SoilStudyReportDate { get; set; }
+        public DateOnly SoilStudyReportDate { get; set; }
         public string SoilClassDataSource { get; set; } = string.Empty;
         public string GeotechnicalReport { get; set; } = string.Empty;
         public string Results { get; set; } = string.Empty;

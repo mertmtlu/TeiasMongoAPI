@@ -32,7 +32,7 @@
     public class SoilDto
     {
         public bool HasSoilStudyReport { get; set; }
-        public DateTime SoilStudyReportDate { get; set; }
+        public DateOnly SoilStudyReportDate { get; set; }
         public string SoilClassDataSource { get; set; } = string.Empty;
         public string GeotechnicalReport { get; set; } = string.Empty;
         public string Results { get; set; } = string.Empty;

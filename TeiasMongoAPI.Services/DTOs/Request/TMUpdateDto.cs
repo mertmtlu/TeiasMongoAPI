@@ -8,7 +8,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request
         public TMType? Type { get; set; }
         public TMState? State { get; set; }
         public List<int>? Voltages { get; set; }
-        public DateTime? ProvisionalAcceptanceDate { get; set; }
+        public DateOnly? ProvisionalAcceptanceDate { get; set; }
         public LocationDto? Location { get; set; }
         public string? City { get; set; }
         public string? County { get; set; }
