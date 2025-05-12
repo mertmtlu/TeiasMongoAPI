@@ -16,7 +16,7 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         public TMState State { get; set; } = TMState.Active;
         public required List<int> Voltages { get; set; }
         [BsonIgnore] public int MaxVoltage { get => Voltages.Max(); }
-        public DateOnly ProvisionalAcceptanceDate { get; set; } = new DateOnly();
+        public DateTime ProvisionalAcceptanceDate { get; set; } = new();
         public required Location Location { get; set; }
         public string City { get; set; } = string.Empty;
         public string County { get; set; } = string.Empty;
