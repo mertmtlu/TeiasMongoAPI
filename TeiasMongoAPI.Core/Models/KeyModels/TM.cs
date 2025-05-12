@@ -1,10 +1,5 @@
 ﻿using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using TeiasMongoAPI.Core.Models.Base;
 using TeiasMongoAPI.Core.Models.Common;
 using TeiasMongoAPI.Core.Models.Hazard;

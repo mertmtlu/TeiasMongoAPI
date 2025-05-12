@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using TeiasMongoAPI.Core.Models.Common;
+﻿using TeiasMongoAPI.Core.Models.Common;
 
 namespace TeiasMongoAPI.Core.Models.TMRelatedProperties
 {
