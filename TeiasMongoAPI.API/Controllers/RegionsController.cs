@@ -31,7 +31,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet]
         [RequirePermission(UserPermissions.ViewRegions)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<RegionListDto>>>> GetAll(
+        public async Task<ActionResult<ApiResponse<PagedResponse<RegionListResponseDto>>>> GetAll(
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
         {
@@ -46,7 +46,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}")]
         [RequirePermission(UserPermissions.ViewRegions)]
-        public async Task<ActionResult<ApiResponse<RegionDetailDto>>> GetById(
+        public async Task<ActionResult<ApiResponse<RegionDetailResponseDto>>> GetById(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -64,7 +64,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-number/{regionNo}")]
         [RequirePermission(UserPermissions.ViewRegions)]
-        public async Task<ActionResult<ApiResponse<RegionDto>>> GetByNumber(
+        public async Task<ActionResult<ApiResponse<RegionResponseDto>>> GetByNumber(
             int regionNo,
             CancellationToken cancellationToken = default)
         {
@@ -79,7 +79,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-client/{clientId}")]
         [RequirePermission(UserPermissions.ViewRegions)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<RegionListDto>>>> GetByClientId(
+        public async Task<ActionResult<ApiResponse<PagedResponse<RegionListResponseDto>>>> GetByClientId(
             string clientId,
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
@@ -99,12 +99,12 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost]
         [RequirePermission(UserPermissions.CreateRegions)]
         [AuditLog("CreateRegion")]
-        public async Task<ActionResult<ApiResponse<RegionDto>>> Create(
+        public async Task<ActionResult<ApiResponse<RegionResponseDto>>> Create(
             [FromBody] RegionCreateDto dto,
             CancellationToken cancellationToken = default)
         {
             // Validate model state
-            var validationResult = ValidateModelState<RegionDto>();
+            var validationResult = ValidateModelState<RegionResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -119,7 +119,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("{id}")]
         [RequirePermission(UserPermissions.UpdateRegions)]
         [AuditLog("UpdateRegion")]
-        public async Task<ActionResult<ApiResponse<RegionDto>>> Update(
+        public async Task<ActionResult<ApiResponse<RegionResponseDto>>> Update(
             string id,
             [FromBody] RegionUpdateDto dto,
             CancellationToken cancellationToken = default)
@@ -128,7 +128,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<RegionDto>();
+            var validationResult = ValidateModelState<RegionResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -143,7 +143,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("{id}/cities")]
         [RequirePermission(UserPermissions.UpdateRegions)]
         [AuditLog("UpdateRegionCities")]
-        public async Task<ActionResult<ApiResponse<RegionDto>>> UpdateCities(
+        public async Task<ActionResult<ApiResponse<RegionResponseDto>>> UpdateCities(
             string id,
             [FromBody] RegionCityUpdateDto dto,
             CancellationToken cancellationToken = default)
@@ -152,7 +152,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<RegionDto>();
+            var validationResult = ValidateModelState<RegionResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -185,7 +185,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}/statistics")]
         [RequirePermission(UserPermissions.ViewRegions)]
-        public async Task<ActionResult<ApiResponse<RegionStatisticsDto>>> GetStatistics(
+        public async Task<ActionResult<ApiResponse<RegionStatisticsResponseDto>>> GetStatistics(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -195,7 +195,7 @@ namespace TeiasMongoAPI.API.Controllers
             return await ExecuteAsync(async () =>
             {
                 var region = await _regionService.GetByIdAsync(id, cancellationToken);
-                var stats = new RegionStatisticsDto
+                var stats = new RegionStatisticsResponseDto
                 {
                     RegionId = id,
                     CityCount = region.Cities.Count,
@@ -212,7 +212,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("in-city/{city}")]
         [RequirePermission(UserPermissions.ViewRegions)]
-        public async Task<ActionResult<ApiResponse<List<RegionSummaryDto>>>> GetRegionsInCity(
+        public async Task<ActionResult<ApiResponse<List<RegionSummaryResponseDto>>>> GetRegionsInCity(
             string city,
             CancellationToken cancellationToken = default)
         {
@@ -222,7 +222,7 @@ namespace TeiasMongoAPI.API.Controllers
                 var regions = await _regionService.GetAllAsync(new PaginationRequestDto { PageSize = 100 }, cancellationToken);
                 var regionsInCity = regions.Items
                     .Where(r => r.Cities.Contains(city, StringComparer.OrdinalIgnoreCase))
-                    .Select(r => new RegionSummaryDto
+                    .Select(r => new RegionSummaryResponseDto
                     {
                         Id = r.Id,
                         RegionId = r.RegionId,

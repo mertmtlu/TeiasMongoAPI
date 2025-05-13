@@ -33,7 +33,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet]
         [RequirePermission(UserPermissions.ViewTMs)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<TMListDto>>>> GetAll(
+        public async Task<ActionResult<ApiResponse<PagedResponse<TMListResponseDto>>>> GetAll(
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
         {
@@ -48,7 +48,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}")]
         [RequirePermission(UserPermissions.ViewTMs)]
-        public async Task<ActionResult<ApiResponse<TMDetailDto>>> GetById(
+        public async Task<ActionResult<ApiResponse<TMDetailResponseDto>>> GetById(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -66,7 +66,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-name/{name}")]
         [RequirePermission(UserPermissions.ViewTMs)]
-        public async Task<ActionResult<ApiResponse<TMDto>>> GetByName(
+        public async Task<ActionResult<ApiResponse<TMResponseDto>>> GetByName(
             string name,
             CancellationToken cancellationToken = default)
         {
@@ -81,7 +81,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-region/{regionId}")]
         [RequirePermission(UserPermissions.ViewTMs)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<TMListDto>>>> GetByRegionId(
+        public async Task<ActionResult<ApiResponse<PagedResponse<TMListResponseDto>>>> GetByRegionId(
             string regionId,
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
@@ -100,7 +100,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpPost("search")]
         [RequirePermission(UserPermissions.ViewTMs)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<TMListDto>>>> Search(
+        public async Task<ActionResult<ApiResponse<PagedResponse<TMListResponseDto>>>> Search(
             [FromBody] TMSearchDto searchDto,
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
@@ -117,12 +117,12 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost]
         [RequirePermission(UserPermissions.CreateTMs)]
         [AuditLog("CreateTM")]
-        public async Task<ActionResult<ApiResponse<TMDto>>> Create(
+        public async Task<ActionResult<ApiResponse<TMResponseDto>>> Create(
             [FromBody] TMCreateDto dto,
             CancellationToken cancellationToken = default)
         {
             // Validate model state
-            var validationResult = ValidateModelState<TMDto>();
+            var validationResult = ValidateModelState<TMResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -137,7 +137,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("{id}")]
         [RequirePermission(UserPermissions.UpdateTMs)]
         [AuditLog("UpdateTM")]
-        public async Task<ActionResult<ApiResponse<TMDto>>> Update(
+        public async Task<ActionResult<ApiResponse<TMResponseDto>>> Update(
             string id,
             [FromBody] TMUpdateDto dto,
             CancellationToken cancellationToken = default)
@@ -146,7 +146,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<TMDto>();
+            var validationResult = ValidateModelState<TMResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -161,7 +161,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("{id}/state")]
         [RequirePermission(UserPermissions.UpdateTMs)]
         [AuditLog("UpdateTMState")]
-        public async Task<ActionResult<ApiResponse<TMDto>>> UpdateState(
+        public async Task<ActionResult<ApiResponse<TMResponseDto>>> UpdateState(
             string id,
             [FromBody] TMStateUpdateDto dto,
             CancellationToken cancellationToken = default)
@@ -170,7 +170,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<TMDto>();
+            var validationResult = ValidateModelState<TMResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -185,7 +185,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("{id}/voltages")]
         [RequirePermission(UserPermissions.UpdateTMs)]
         [AuditLog("UpdateTMVoltages")]
-        public async Task<ActionResult<ApiResponse<TMDto>>> UpdateVoltages(
+        public async Task<ActionResult<ApiResponse<TMResponseDto>>> UpdateVoltages(
             string id,
             [FromBody] TMVoltageUpdateDto dto,
             CancellationToken cancellationToken = default)
@@ -194,7 +194,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<TMDto>();
+            var validationResult = ValidateModelState<TMResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -227,7 +227,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}/statistics")]
         [RequirePermission(UserPermissions.ViewTMs)]
-        public async Task<ActionResult<ApiResponse<TMStatisticsDto>>> GetStatistics(
+        public async Task<ActionResult<ApiResponse<TMStatisticsResponseDto>>> GetStatistics(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -237,7 +237,7 @@ namespace TeiasMongoAPI.API.Controllers
             return await ExecuteAsync(async () =>
             {
                 var tm = await _tmService.GetByIdAsync(id, cancellationToken);
-                var stats = new TMStatisticsDto
+                var stats = new TMStatisticsResponseDto
                 {
                     TMId = id,
                     BuildingCount = tm.BuildingCount,
@@ -255,7 +255,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}/hazard-summary")]
         [RequirePermission(UserPermissions.ViewTMs)]
-        public async Task<ActionResult<ApiResponse<TMHazardSummaryDto>>> GetHazardSummary(
+        public async Task<ActionResult<ApiResponse<TMHazardSummaryResponseDto>>> GetHazardSummary(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -265,22 +265,22 @@ namespace TeiasMongoAPI.API.Controllers
             return await ExecuteAsync(async () =>
             {
                 var tm = await _tmService.GetByIdAsync(id, cancellationToken);
-                var summary = new TMHazardSummaryDto
+                var summary = new TMHazardSummaryResponseDto
                 {
                     TMId = id,
-                    FireHazard = new HazardDto
+                    FireHazard = new HazardResponseDto
                     {
                         Score = tm.FireHazard.Score,
                         Level = tm.FireHazard.Level.ToString(),
                         Description = tm.FireHazard.PreviousIncidentDescription
                     },
-                    SecurityHazard = new HazardDto
+                    SecurityHazard = new HazardResponseDto
                     {
                         Score = tm.SecurityHazard.Score,
                         Level = tm.SecurityHazard.Level.ToString(),
                         HasCCTV = tm.SecurityHazard.HasCCTV
                     },
-                    FloodHazard = new HazardDto
+                    FloodHazard = new HazardResponseDto
                     {
                         Score = tm.FloodHazard.Score,
                         Level = tm.FloodHazard.Level.ToString(),
@@ -293,7 +293,7 @@ namespace TeiasMongoAPI.API.Controllers
         }
 
         // Helper method
-        private double CalculateOverallRiskScore(TMDetailDto tm)
+        private double CalculateOverallRiskScore(TMDetailResponseDto tm)
         {
             var scores = new[]
             {

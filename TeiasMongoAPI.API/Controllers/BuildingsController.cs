@@ -32,7 +32,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet]
         [RequirePermission(UserPermissions.ViewBuildings)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListDto>>>> GetAll(
+        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListResponseDto>>>> GetAll(
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
         {
@@ -47,7 +47,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}")]
         [RequirePermission(UserPermissions.ViewBuildings)]
-        public async Task<ActionResult<ApiResponse<BuildingDetailDto>>> GetById(
+        public async Task<ActionResult<ApiResponse<BuildingDetailResponseDto>>> GetById(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -65,7 +65,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-tm/{tmId}")]
         [RequirePermission(UserPermissions.ViewBuildings)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListDto>>>> GetByTmId(
+        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListResponseDto>>>> GetByTmId(
             string tmId,
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
@@ -84,7 +84,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpPost("search")]
         [RequirePermission(UserPermissions.ViewBuildings)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListDto>>>> Search(
+        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListResponseDto>>>> Search(
             [FromBody] BuildingSearchDto searchDto,
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
@@ -101,12 +101,12 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost]
         [RequirePermission(UserPermissions.CreateBuildings)]
         [AuditLog("CreateBuilding")]
-        public async Task<ActionResult<ApiResponse<BuildingDto>>> Create(
+        public async Task<ActionResult<ApiResponse<BuildingResponseDto>>> Create(
             [FromBody] BuildingCreateDto dto,
             CancellationToken cancellationToken = default)
         {
             // Validate model state
-            var validationResult = ValidateModelState<BuildingDto>();
+            var validationResult = ValidateModelState<BuildingResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -121,7 +121,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("{id}")]
         [RequirePermission(UserPermissions.UpdateBuildings)]
         [AuditLog("UpdateBuilding")]
-        public async Task<ActionResult<ApiResponse<BuildingDto>>> Update(
+        public async Task<ActionResult<ApiResponse<BuildingResponseDto>>> Update(
             string id,
             [FromBody] BuildingUpdateDto dto,
             CancellationToken cancellationToken = default)
@@ -130,7 +130,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<BuildingDto>();
+            var validationResult = ValidateModelState<BuildingResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -145,7 +145,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost("{id}/blocks")]
         [RequirePermission(UserPermissions.UpdateBuildings)]
         [AuditLog("AddBlockToBuilding")]
-        public async Task<ActionResult<ApiResponse<BuildingDto>>> AddBlock(
+        public async Task<ActionResult<ApiResponse<BuildingResponseDto>>> AddBlock(
             string id,
             [FromBody] BuildingBlockAddDto dto,
             CancellationToken cancellationToken = default)
@@ -154,7 +154,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<BuildingDto>();
+            var validationResult = ValidateModelState<BuildingResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -169,7 +169,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpDelete("{id}/blocks/{blockId}")]
         [RequirePermission(UserPermissions.UpdateBuildings)]
         [AuditLog("RemoveBlockFromBuilding")]
-        public async Task<ActionResult<ApiResponse<BuildingDto>>> RemoveBlock(
+        public async Task<ActionResult<ApiResponse<BuildingResponseDto>>> RemoveBlock(
             string id,
             string blockId,
             CancellationToken cancellationToken = default)
@@ -208,7 +208,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-type/{type}")]
         [RequirePermission(UserPermissions.ViewBuildings)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListDto>>>> GetByType(
+        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListResponseDto>>>> GetByType(
             BuildingType type,
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
@@ -226,7 +226,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("metu-scope")]
         [RequirePermission(UserPermissions.ViewBuildings)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListDto>>>> GetInMETUScope(
+        public async Task<ActionResult<ApiResponse<PagedResponse<BuildingListResponseDto>>>> GetInMETUScope(
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
         {
@@ -243,7 +243,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}/statistics")]
         [RequirePermission(UserPermissions.ViewBuildings)]
-        public async Task<ActionResult<ApiResponse<BuildingStatisticsDto>>> GetStatistics(
+        public async Task<ActionResult<ApiResponse<BuildingStatisticsResponseDto>>> GetStatistics(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -253,7 +253,7 @@ namespace TeiasMongoAPI.API.Controllers
             return await ExecuteAsync(async () =>
             {
                 var building = await _buildingService.GetByIdAsync(id, cancellationToken);
-                var stats = new BuildingStatisticsDto
+                var stats = new BuildingStatisticsResponseDto
                 {
                     BuildingId = id,
                     BlockCount = building.BlockCount,

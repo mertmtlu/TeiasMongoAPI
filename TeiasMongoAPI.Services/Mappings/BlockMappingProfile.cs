@@ -18,22 +18,22 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
 
             // Domain to Response
-            CreateMap<ABlock, BlockDto>()
+            CreateMap<ABlock, BlockResponseDto>()
                 .ForMember(dest => dest.ModelingType, opt => opt.MapFrom(src => src.ModelingType.ToString()))
                 .IncludeAllDerived();
 
-            CreateMap<Concrete, ConcreteBlockDto>()
+            CreateMap<Concrete, ConcreteBlockResponseDto>()
                 .ForMember(dest => dest.ModelingType, opt => opt.MapFrom(src => src.ModelingType.ToString()));
 
-            CreateMap<Masonry, MasonryBlockDto>()
+            CreateMap<Masonry, MasonryBlockResponseDto>()
                 .ForMember(dest => dest.ModelingType, opt => opt.MapFrom(src => src.ModelingType.ToString()));
 
-            CreateMap<ABlock, BlockSummaryDto>()
+            CreateMap<ABlock, BlockSummaryResponseDto>()
                 .ForMember(dest => dest.ModelingType, opt => opt.MapFrom(src => src.ModelingType.ToString()))
                 .ForMember(dest => dest.StoreyCount, opt => opt.MapFrom(src => src.StoreyHeight.Count));
 
             // MasonryUnitType mapping
-            CreateMap<MasonryUnitType, MasonryUnitTypeDto>();
+            CreateMap<MasonryUnitType, MasonryUnitTypeResponseDto>();
         }
     }
 }

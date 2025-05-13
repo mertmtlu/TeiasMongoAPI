@@ -10,7 +10,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.AlternativeTM
         public required string TmId { get; set; }
 
         [Required]
-        public required LocationDto Location { get; set; }
+        public required LocationRequestDto Location { get; set; }
 
         public AddressDto? Address { get; set; }
 

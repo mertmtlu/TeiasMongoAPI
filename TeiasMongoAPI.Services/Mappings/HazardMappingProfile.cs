@@ -14,14 +14,14 @@ namespace TeiasMongoAPI.Services.Mappings
         {
             // Pollution (special case - not inheriting from AHazard)
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Hazard.PollutionDto, Pollution>();
-            CreateMap<Pollution, TeiasMongoAPI.Services.DTOs.Response.Hazard.PollutionDto>()
+            CreateMap<Pollution, TeiasMongoAPI.Services.DTOs.Response.Hazard.PollutionResponseDto>()
                 .ForMember(dest => dest.PollutantLevel, opt => opt.MapFrom(src => src.PollutantLevel.ToString()));
 
             // Fire Hazard
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Hazard.FireHazardDto, FireHazard>()
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertStringDictionaryToEnum<FireEliminationMethod>(src.EliminationCosts)));
-            CreateMap<FireHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.FireHazardDto>()
+            CreateMap<FireHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.FireHazardResponseDto>()
                 .ForMember(dest => dest.Level, opt => opt.MapFrom(src => src.Level.ToString()))
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertEnumDictionaryToString(src.EliminationCosts)));
@@ -30,7 +30,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Hazard.SecurityHazardDto, SecurityHazard>()
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertStringDictionaryToEnum<SecurityEliminationMethod>(src.EliminationCosts)));
-            CreateMap<SecurityHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.SecurityHazardDto>()
+            CreateMap<SecurityHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.SecurityHazardResponseDto>()
                 .ForMember(dest => dest.Level, opt => opt.MapFrom(src => src.Level.ToString()))
                 .ForMember(dest => dest.PerimeterFenceType, opt => opt.MapFrom(src => src.PerimeterFenceType.ToString()))
                 .ForMember(dest => dest.WallCondition, opt => opt.MapFrom(src => src.WallCondition.ToString()))
@@ -41,7 +41,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Hazard.NoiseHazardDto, NoiseHazard>()
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertStringDictionaryToEnum<NoiseEliminationMethod>(src.EliminationCosts)));
-            CreateMap<NoiseHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.NoiseHazardDto>()
+            CreateMap<NoiseHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.NoiseHazardResponseDto>()
                 .ForMember(dest => dest.Level, opt => opt.MapFrom(src => src.Level.ToString()))
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertEnumDictionaryToString(src.EliminationCosts)));
@@ -51,7 +51,7 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.FirstHillLocation, opt => opt.MapFrom(src => src.FirstHillLocation))
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertStringDictionaryToEnum<AvalancheEliminationMethod>(src.EliminationCosts)));
-            CreateMap<AvalancheHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.AvalancheHazardDto>()
+            CreateMap<AvalancheHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.AvalancheHazardResponseDto>()
                 .ForMember(dest => dest.Level, opt => opt.MapFrom(src => src.Level.ToString()))
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertEnumDictionaryToString(src.EliminationCosts)));
@@ -60,7 +60,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Hazard.LandslideHazardDto, LandslideHazard>()
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertStringDictionaryToEnum<LandslideEliminationMethod>(src.EliminationCosts)));
-            CreateMap<LandslideHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.LandslideHazardDto>()
+            CreateMap<LandslideHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.LandslideHazardResponseDto>()
                 .ForMember(dest => dest.Level, opt => opt.MapFrom(src => src.Level.ToString()))
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertEnumDictionaryToString(src.EliminationCosts)));
@@ -69,7 +69,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Hazard.RockFallHazardDto, RockFallHazard>()
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertStringDictionaryToEnum<RockFallEliminationMethod>(src.EliminationCosts)));
-            CreateMap<RockFallHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.RockFallHazardDto>()
+            CreateMap<RockFallHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.RockFallHazardResponseDto>()
                 .ForMember(dest => dest.Level, opt => opt.MapFrom(src => src.Level.ToString()))
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertEnumDictionaryToString(src.EliminationCosts)));
@@ -78,7 +78,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Hazard.FloodHazardDto, FloodHazard>()
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertStringDictionaryToEnum<FloodEliminationMethod>(src.EliminationCosts)));
-            CreateMap<FloodHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.FloodHazardDto>()
+            CreateMap<FloodHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.FloodHazardResponseDto>()
                 .ForMember(dest => dest.Level, opt => opt.MapFrom(src => src.Level.ToString()))
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertEnumDictionaryToString(src.EliminationCosts)));
@@ -87,7 +87,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Hazard.TsunamiHazardDto, TsunamiHazard>()
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertStringDictionaryToEnum<TsunamiEliminationMethod>(src.EliminationCosts)));
-            CreateMap<TsunamiHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.TsunamiHazardDto>()
+            CreateMap<TsunamiHazard, TeiasMongoAPI.Services.DTOs.Response.Hazard.TsunamiHazardResponseDto>()
                 .ForMember(dest => dest.Level, opt => opt.MapFrom(src => src.Level.ToString()))
                 .ForMember(dest => dest.EliminationCosts, opt => opt.MapFrom(src =>
                     ConvertEnumDictionaryToString(src.EliminationCosts)));

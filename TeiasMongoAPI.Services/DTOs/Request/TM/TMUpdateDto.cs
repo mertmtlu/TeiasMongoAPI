@@ -13,7 +13,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.TM
         public TMState? State { get; set; }
         public List<int>? Voltages { get; set; }
         public DateOnly? ProvisionalAcceptanceDate { get; set; }
-        public LocationDto? Location { get; set; }
+        public LocationRequestDto? Location { get; set; }
         public AddressDto? Address { get; set; }
         public EarthquakeLevelDto? DD1 { get; set; }
         public EarthquakeLevelDto? DD2 { get; set; }

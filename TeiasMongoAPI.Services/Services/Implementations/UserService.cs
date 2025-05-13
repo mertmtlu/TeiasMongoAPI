@@ -58,25 +58,25 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var dto = _mapper.Map<UserDetailDto>(user);
 
             // Get assigned regions
-            var assignedRegions = new List<DTOs.Response.Region.RegionSummaryDto>();
+            var assignedRegions = new List<DTOs.Response.Region.RegionSummaryResponseDto>();
             foreach (var regionId in user.AssignedRegions)
             {
                 var region = await _unitOfWork.Regions.GetByIdAsync(regionId, cancellationToken);
                 if (region != null)
                 {
-                    assignedRegions.Add(_mapper.Map<DTOs.Response.Region.RegionSummaryDto>(region));
+                    assignedRegions.Add(_mapper.Map<DTOs.Response.Region.RegionSummaryResponseDto>(region));
                 }
             }
             dto.AssignedRegions = assignedRegions;
 
             // Get assigned TMs
-            var assignedTMs = new List<DTOs.Response.TM.TMSummaryDto>();
+            var assignedTMs = new List<DTOs.Response.TM.TMSummaryResponseDto>();
             foreach (var tmId in user.AssignedTMs)
             {
                 var tm = await _unitOfWork.TMs.GetByIdAsync(tmId, cancellationToken);
                 if (tm != null)
                 {
-                    assignedTMs.Add(_mapper.Map<DTOs.Response.TM.TMSummaryDto>(tm));
+                    assignedTMs.Add(_mapper.Map<DTOs.Response.TM.TMSummaryResponseDto>(tm));
                 }
             }
             dto.AssignedTMs = assignedTMs;

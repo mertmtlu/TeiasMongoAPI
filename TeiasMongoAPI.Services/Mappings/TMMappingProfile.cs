@@ -34,13 +34,13 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
 
             // Domain to Response
-            CreateMap<TM, TMDto>()
+            CreateMap<TM, TMResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.RegionID.ToString()))
                 .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.Id))
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()))
                 .ForMember(dest => dest.State, opt => opt.MapFrom(src => src.State.ToString()))
-                .ForMember(dest => dest.Address, opt => opt.MapFrom(src => new AddressDto
+                .ForMember(dest => dest.Address, opt => opt.MapFrom(src => new AddressResponseDto
                 {
                     City = src.City,
                     County = src.County,
@@ -48,18 +48,18 @@ namespace TeiasMongoAPI.Services.Mappings
                     Street = src.Street
                 }));
 
-            CreateMap<TM, TMSummaryDto>()
+            CreateMap<TM, TMSummaryResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.Id))
                 .ForMember(dest => dest.State, opt => opt.MapFrom(src => src.State.ToString()));
 
-            CreateMap<TM, TMListDto>()
+            CreateMap<TM, TMListResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.Id))
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()))
                 .ForMember(dest => dest.State, opt => opt.MapFrom(src => src.State.ToString()));
 
-            CreateMap<TM, TMDetailDto>()
+            CreateMap<TM, TMDetailResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.RegionID.ToString()))
                 .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.Id))

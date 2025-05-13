@@ -24,7 +24,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Hazard
         public string? Incident { get; set; }
         public string? IncidentDescription { get; set; }
         public double SnowDepth { get; set; }
-        public LocationDto? FirstHillLocation { get; set; }
+        public LocationRequestDto? FirstHillLocation { get; set; }
         public double ElevationDifference { get; set; }
     }
 }

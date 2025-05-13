@@ -30,10 +30,10 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
 
             // Domain to Response
-            CreateMap<AlternativeTM, AlternativeTMDto>()
+            CreateMap<AlternativeTM, AlternativeTMResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.TmId, opt => opt.MapFrom(src => src.TmID.ToString()))
-                .ForMember(dest => dest.Address, opt => opt.MapFrom(src => new AddressDto
+                .ForMember(dest => dest.Address, opt => opt.MapFrom(src => new AddressResponseDto
                 {
                     City = src.City,
                     County = src.County,
@@ -41,14 +41,14 @@ namespace TeiasMongoAPI.Services.Mappings
                     Street = src.Street
                 }));
 
-            CreateMap<AlternativeTM, AlternativeTMSummaryDto>()
+            CreateMap<AlternativeTM, AlternativeTMSummaryResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.OverallRiskScore, opt => opt.MapFrom(src => CalculateOverallRiskScore(src)));
 
-            CreateMap<AlternativeTM, AlternativeTMDetailDto>()
+            CreateMap<AlternativeTM, AlternativeTMDetailResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.TmId, opt => opt.MapFrom(src => src.TmID.ToString()))
-                .ForMember(dest => dest.Address, opt => opt.MapFrom(src => new AddressDto
+                .ForMember(dest => dest.Address, opt => opt.MapFrom(src => new AddressResponseDto
                 {
                     City = src.City,
                     County = src.County,

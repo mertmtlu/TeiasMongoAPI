@@ -6,7 +6,7 @@ using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.AlternativeTM;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.DTOs.Response.Hazard;
-using RequestLocationDto = TeiasMongoAPI.Services.DTOs.Request.Common.LocationDto;
+using RequestLocationDto = TeiasMongoAPI.Services.DTOs.Request.Common.LocationRequestDto;
 using RequestAddressDto = TeiasMongoAPI.Services.DTOs.Request.Common.AddressDto;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
@@ -21,7 +21,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
         }
 
-        public async Task<AlternativeTMDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+        public async Task<AlternativeTMDetailResponseDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var alternativeTM = await _unitOfWork.AlternativeTMs.GetByIdAsync(objectId, cancellationToken);
@@ -31,11 +31,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Alternative TM with ID {id} not found.");
             }
 
-            var dto = _mapper.Map<AlternativeTMDetailDto>(alternativeTM);
+            var dto = _mapper.Map<AlternativeTMDetailResponseDto>(alternativeTM);
 
             // Get TM info
             var tm = await _unitOfWork.TMs.GetByIdAsync(alternativeTM.TmID, cancellationToken);
-            dto.TM = _mapper.Map<TeiasMongoAPI.Services.DTOs.Response.TM.TMSummaryDto>(tm);
+            dto.TM = _mapper.Map<TeiasMongoAPI.Services.DTOs.Response.TM.TMSummaryResponseDto>(tm);
 
             // Calculate hazard summary
             dto.HazardSummary = CalculateHazardSummary(alternativeTM);
@@ -43,7 +43,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return dto;
         }
 
-        public async Task<PagedResponse<AlternativeTMSummaryDto>> GetByTmIdAsync(string tmId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<AlternativeTMSummaryResponseDto>> GetByTmIdAsync(string tmId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var tmObjectId = ParseObjectId(tmId);
             var alternativeTMs = await _unitOfWork.AlternativeTMs.GetByTmIdAsync(tmObjectId, cancellationToken);
@@ -56,7 +56,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = _mapper.Map<List<AlternativeTMSummaryDto>>(paginatedAlternatives);
+            var dtos = _mapper.Map<List<AlternativeTMSummaryResponseDto>>(paginatedAlternatives);
 
             // Calculate overall risk scores
             foreach (var dto in dtos)
@@ -65,10 +65,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dto.OverallRiskScore = CalculateOverallRiskScore(alternative);
             }
 
-            return new PagedResponse<AlternativeTMSummaryDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<AlternativeTMSummaryResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<AlternativeTMDto> CreateAsync(AlternativeTMCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<AlternativeTMResponseDto> CreateAsync(AlternativeTMCreateDto dto, CancellationToken cancellationToken = default)
         {
             // Validate TM exists
             var tmId = ParseObjectId(dto.TmId);
@@ -81,10 +81,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var alternativeTM = _mapper.Map<AlternativeTM>(dto);
             var createdAlternativeTM = await _unitOfWork.AlternativeTMs.CreateAsync(alternativeTM, cancellationToken);
 
-            return _mapper.Map<AlternativeTMDto>(createdAlternativeTM);
+            return _mapper.Map<AlternativeTMResponseDto>(createdAlternativeTM);
         }
 
-        public async Task<AlternativeTMDto> UpdateAsync(string id, AlternativeTMUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<AlternativeTMResponseDto> UpdateAsync(string id, AlternativeTMUpdateDto dto, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var existingAlternativeTM = await _unitOfWork.AlternativeTMs.GetByIdAsync(objectId, cancellationToken);
@@ -113,7 +113,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Failed to update alternative TM with ID {id}.");
             }
 
-            return _mapper.Map<AlternativeTMDto>(existingAlternativeTM);
+            return _mapper.Map<AlternativeTMResponseDto>(existingAlternativeTM);
         }
 
         public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -129,7 +129,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await _unitOfWork.AlternativeTMs.DeleteAsync(objectId, cancellationToken);
         }
 
-        public async Task<List<AlternativeTMComparisonDto>> CompareAlternativesAsync(string tmId, CancellationToken cancellationToken = default)
+        public async Task<List<AlternativeTMComparisonResponseDto>> CompareAlternativesAsync(string tmId, CancellationToken cancellationToken = default)
         {
             var tmObjectId = ParseObjectId(tmId);
             var tm = await _unitOfWork.TMs.GetByIdAsync(tmObjectId, cancellationToken);
@@ -140,11 +140,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             var alternatives = await _unitOfWork.AlternativeTMs.GetByTmIdAsync(tmObjectId, cancellationToken);
-            var comparisonResults = new List<AlternativeTMComparisonDto>();
+            var comparisonResults = new List<AlternativeTMComparisonResponseDto>();
 
             foreach (var alternative in alternatives)
             {
-                var comparison = new AlternativeTMComparisonDto
+                var comparison = new AlternativeTMComparisonResponseDto
                 {
                     Id = alternative._ID.ToString(),
                     Location = _mapper.Map<RequestLocationDto>(alternative.Location),
@@ -161,7 +161,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return comparisonResults.OrderByDescending(c => c.ComparisonScore.OverallImprovement).ToList();
         }
 
-        public async Task<PagedResponse<AlternativeTMSummaryDto>> GetByCityAsync(string city, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<AlternativeTMSummaryResponseDto>> GetByCityAsync(string city, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var alternativeTMs = await _unitOfWork.AlternativeTMs.GetByCityAsync(city, cancellationToken);
             var alternativeTMsList = alternativeTMs.ToList();
@@ -173,7 +173,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = _mapper.Map<List<AlternativeTMSummaryDto>>(paginatedAlternatives);
+            var dtos = _mapper.Map<List<AlternativeTMSummaryResponseDto>>(paginatedAlternatives);
 
             // Calculate overall risk scores
             foreach (var dto in dtos)
@@ -182,10 +182,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dto.OverallRiskScore = CalculateOverallRiskScore(alternative);
             }
 
-            return new PagedResponse<AlternativeTMSummaryDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<AlternativeTMSummaryResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<PagedResponse<AlternativeTMSummaryDto>> GetByCountyAsync(string county, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<AlternativeTMSummaryResponseDto>> GetByCountyAsync(string county, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var alternativeTMs = await _unitOfWork.AlternativeTMs.GetByCountyAsync(county, cancellationToken);
             var alternativeTMsList = alternativeTMs.ToList();
@@ -197,7 +197,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = _mapper.Map<List<AlternativeTMSummaryDto>>(paginatedAlternatives);
+            var dtos = _mapper.Map<List<AlternativeTMSummaryResponseDto>>(paginatedAlternatives);
 
             // Calculate overall risk scores
             foreach (var dto in dtos)
@@ -206,12 +206,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dto.OverallRiskScore = CalculateOverallRiskScore(alternative);
             }
 
-            return new PagedResponse<AlternativeTMSummaryDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<AlternativeTMSummaryResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        private HazardSummaryDto CalculateHazardSummary(AlternativeTM tm)
+        private HazardSummaryResponseDto CalculateHazardSummary(AlternativeTM tm)
         {
-            var summary = new HazardSummaryDto
+            var summary = new HazardSummaryResponseDto
             {
                 FireHazardScore = tm.FireHazard.Score,
                 SecurityHazardScore = tm.SecurityHazard.Score,

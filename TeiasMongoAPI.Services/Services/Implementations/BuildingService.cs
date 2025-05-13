@@ -23,7 +23,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _blockService = blockService;
         }
 
-        public async Task<BuildingDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+        public async Task<BuildingDetailResponseDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var building = await _unitOfWork.Buildings.GetByIdAsync(objectId, cancellationToken);
@@ -33,20 +33,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Building with ID {id} not found.");
             }
 
-            var dto = _mapper.Map<BuildingDetailDto>(building);
+            var dto = _mapper.Map<BuildingDetailResponseDto>(building);
 
             // Get TM info
             var tm = await _unitOfWork.TMs.GetByIdAsync(building.TmID, cancellationToken);
-            dto.TM = _mapper.Map<TeiasMongoAPI.Services.DTOs.Response.TM.TMSummaryDto>(tm);
+            dto.TM = _mapper.Map<TeiasMongoAPI.Services.DTOs.Response.TM.TMSummaryResponseDto>(tm);
 
             // Map blocks
-            dto.Blocks = _mapper.Map<List<TeiasMongoAPI.Services.DTOs.Response.Block.BlockDto>>(building.Blocks);
+            dto.Blocks = _mapper.Map<List<TeiasMongoAPI.Services.DTOs.Response.Block.BlockResponseDto>>(building.Blocks);
             dto.BlockCount = building.Blocks.Count;
 
             return dto;
         }
 
-        public async Task<PagedResponse<BuildingListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<BuildingListResponseDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var buildings = await _unitOfWork.Buildings.GetAllAsync(cancellationToken);
             var buildingsList = buildings.ToList();
@@ -58,10 +58,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = new List<BuildingListDto>();
+            var dtos = new List<BuildingListResponseDto>();
             foreach (var building in paginatedBuildings)
             {
-                var dto = _mapper.Map<BuildingListDto>(building);
+                var dto = _mapper.Map<BuildingListResponseDto>(building);
 
                 // Get TM name
                 var tm = await _unitOfWork.TMs.GetByIdAsync(building.TmID, cancellationToken);
@@ -70,10 +70,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<BuildingListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<BuildingListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<PagedResponse<BuildingListDto>> GetByTmIdAsync(string tmId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<BuildingListResponseDto>> GetByTmIdAsync(string tmId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var tmObjectId = ParseObjectId(tmId);
             var buildings = await _unitOfWork.Buildings.GetByTmIdAsync(tmObjectId, cancellationToken);
@@ -86,20 +86,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = new List<BuildingListDto>();
+            var dtos = new List<BuildingListResponseDto>();
             var tm = await _unitOfWork.TMs.GetByIdAsync(tmObjectId, cancellationToken);
 
             foreach (var building in paginatedBuildings)
             {
-                var dto = _mapper.Map<BuildingListDto>(building);
+                var dto = _mapper.Map<BuildingListResponseDto>(building);
                 dto.TmName = tm?.Name ?? "Unknown";
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<BuildingListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<BuildingListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<PagedResponse<BuildingListDto>> SearchAsync(BuildingSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<BuildingListResponseDto>> SearchAsync(BuildingSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var allBuildings = await _unitOfWork.Buildings.GetAllAsync(cancellationToken);
             var filteredBuildings = allBuildings.AsQueryable();
@@ -140,10 +140,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = new List<BuildingListDto>();
+            var dtos = new List<BuildingListResponseDto>();
             foreach (var building in paginatedBuildings)
             {
-                var dto = _mapper.Map<BuildingListDto>(building);
+                var dto = _mapper.Map<BuildingListResponseDto>(building);
 
                 // Get TM name
                 var tm = await _unitOfWork.TMs.GetByIdAsync(building.TmID, cancellationToken);
@@ -152,10 +152,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<BuildingListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<BuildingListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<BuildingDto> CreateAsync(BuildingCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<BuildingResponseDto> CreateAsync(BuildingCreateDto dto, CancellationToken cancellationToken = default)
         {
             // Validate TM exists
             var tmId = ParseObjectId(dto.TmId);
@@ -175,10 +175,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var building = _mapper.Map<Building>(dto);
             var createdBuilding = await _unitOfWork.Buildings.CreateAsync(building, cancellationToken);
 
-            return _mapper.Map<BuildingDto>(createdBuilding);
+            return _mapper.Map<BuildingResponseDto>(createdBuilding);
         }
 
-        public async Task<BuildingDto> UpdateAsync(string id, BuildingUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<BuildingResponseDto> UpdateAsync(string id, BuildingUpdateDto dto, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var existingBuilding = await _unitOfWork.Buildings.GetByIdAsync(objectId, cancellationToken);
@@ -218,7 +218,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Failed to update building with ID {id}.");
             }
 
-            return _mapper.Map<BuildingDto>(existingBuilding);
+            return _mapper.Map<BuildingResponseDto>(existingBuilding);
         }
 
         public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -240,7 +240,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await _unitOfWork.Buildings.DeleteAsync(objectId, cancellationToken);
         }
 
-        public async Task<BuildingDto> AddBlockAsync(string buildingId, BuildingBlockAddDto dto, CancellationToken cancellationToken = default)
+        public async Task<BuildingResponseDto> AddBlockAsync(string buildingId, BuildingBlockAddDto dto, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var building = await _unitOfWork.Buildings.GetByIdAsync(buildingObjectId, cancellationToken);
@@ -263,7 +263,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             throw new NotImplementedException("Block creation/retrieval logic needs to be implemented. Blocks should be created using the BlockService first.");
         }
 
-        public async Task<BuildingDto> RemoveBlockAsync(string buildingId, BuildingBlockRemoveDto dto, CancellationToken cancellationToken = default)
+        public async Task<BuildingResponseDto> RemoveBlockAsync(string buildingId, BuildingBlockRemoveDto dto, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var building = await _unitOfWork.Buildings.GetByIdAsync(buildingObjectId, cancellationToken);
@@ -289,7 +289,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             var updatedBuilding = await _unitOfWork.Buildings.GetByIdAsync(buildingObjectId, cancellationToken);
-            return _mapper.Map<BuildingDto>(updatedBuilding);
+            return _mapper.Map<BuildingResponseDto>(updatedBuilding);
         }
     }
 }

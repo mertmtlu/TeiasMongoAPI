@@ -9,7 +9,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.User
         public List<string> AssignedRegionIds { get; set; } = new();
         public List<string> AssignedTMIds { get; set; } = new();
         public DateTime? ModifiedDate { get; set; }
-        public List<RegionSummaryDto> AssignedRegions { get; set; } = new();
-        public List<TMSummaryDto> AssignedTMs { get; set; } = new();
+        public List<RegionSummaryResponseDto> AssignedRegions { get; set; } = new();
+        public List<TMSummaryResponseDto> AssignedTMs { get; set; } = new();
     }
 }

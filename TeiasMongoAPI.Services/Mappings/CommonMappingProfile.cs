@@ -10,8 +10,8 @@ namespace TeiasMongoAPI.Services.Mappings
         public CommonMappingProfile()
         {
             // Location mappings
-            CreateMap<TeiasMongoAPI.Services.DTOs.Request.Common.LocationDto, Location>();
-            CreateMap<Location, TeiasMongoAPI.Services.DTOs.Response.Common.LocationDto>();
+            CreateMap<TeiasMongoAPI.Services.DTOs.Request.Common.LocationRequestDto, Location>();
+            CreateMap<Location, TeiasMongoAPI.Services.DTOs.Response.Common.LocationResponseDto>();
 
             // Address mappings - to TM model (using fully qualified names)
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Common.AddressDto, TM>()
@@ -29,7 +29,7 @@ namespace TeiasMongoAPI.Services.Mappings
 
             // Earthquake level mappings (using fully qualified names)
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Common.EarthquakeLevelDto, EarthquakeLevel>();
-            CreateMap<EarthquakeLevel, TeiasMongoAPI.Services.DTOs.Response.TM.EarthquakeLevelDto>();
+            CreateMap<EarthquakeLevel, TeiasMongoAPI.Services.DTOs.Response.TM.EarthquakeLevelResponseDto>();
 
             // Soil mappings (using fully qualified names)
             CreateMap<TeiasMongoAPI.Services.DTOs.Request.Common.SoilDto, Soil>()
@@ -44,7 +44,7 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.StructureType, opt => opt.MapFrom(src => src.StructureType ?? string.Empty))
                 .ForMember(dest => dest.VASS, opt => opt.MapFrom(src => src.VASS ?? string.Empty));
 
-            CreateMap<Soil, TeiasMongoAPI.Services.DTOs.Response.TM.SoilDto>()
+            CreateMap<Soil, TeiasMongoAPI.Services.DTOs.Response.TM.SoilResponseDto>()
                 .ForMember(dest => dest.SoilClassTDY2007, opt => opt.MapFrom(src => src.SoilClassTDY2007.ToString()))
                 .ForMember(dest => dest.SoilClassTBDY2018, opt => opt.MapFrom(src => src.SoilClassTBDY2018.ToString()))
                 .ForMember(dest => dest.FinalDecisionOnOldData, opt => opt.MapFrom(src => src.FinalDecisionOnOldData.ToString()))

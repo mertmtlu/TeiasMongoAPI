@@ -7,7 +7,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Hazard
     public class PollutionDto
     {
         [Required]
-        public required LocationDto PollutantLocation { get; set; }
+        public required LocationRequestDto PollutantLocation { get; set; }
 
         [Required]
         public int PollutantNo { get; set; }

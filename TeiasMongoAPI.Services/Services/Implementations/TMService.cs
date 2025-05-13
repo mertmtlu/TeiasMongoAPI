@@ -19,7 +19,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
         }
 
-        public async Task<TMDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+        public async Task<TMDetailResponseDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var tm = await _unitOfWork.TMs.GetByIdAsync(objectId, cancellationToken);
@@ -29,25 +29,25 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"TM with ID {id} not found.");
             }
 
-            var dto = _mapper.Map<TMDetailDto>(tm);
+            var dto = _mapper.Map<TMDetailResponseDto>(tm);
 
             // Get region info
             var region = await _unitOfWork.Regions.GetByIdAsync(tm.RegionID, cancellationToken);
-            dto.Region = _mapper.Map<TeiasMongoAPI.Services.DTOs.Response.Region.RegionSummaryDto>(region);
+            dto.Region = _mapper.Map<TeiasMongoAPI.Services.DTOs.Response.Region.RegionSummaryResponseDto>(region);
 
             // Get buildings
             var buildings = await _unitOfWork.Buildings.GetByTmIdAsync(objectId, cancellationToken);
             dto.BuildingCount = buildings.Count();
-            dto.Buildings = _mapper.Map<List<DTOs.Response.Building.BuildingSummaryDto>>(buildings);
+            dto.Buildings = _mapper.Map<List<DTOs.Response.Building.BuildingSummaryResponseDto>>(buildings);
 
             // Get alternative TMs
             var alternativeTMs = await _unitOfWork.AlternativeTMs.GetByTmIdAsync(objectId, cancellationToken);
-            dto.AlternativeTMs = _mapper.Map<List<DTOs.Response.AlternativeTM.AlternativeTMSummaryDto>>(alternativeTMs);
+            dto.AlternativeTMs = _mapper.Map<List<DTOs.Response.AlternativeTM.AlternativeTMSummaryResponseDto>>(alternativeTMs);
 
             return dto;
         }
 
-        public async Task<PagedResponse<TMListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<TMListResponseDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var tms = await _unitOfWork.TMs.GetAllAsync(cancellationToken);
             var tmsList = tms.ToList();
@@ -59,10 +59,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = new List<TMListDto>();
+            var dtos = new List<TMListResponseDto>();
             foreach (var tm in paginatedTMs)
             {
-                var dto = _mapper.Map<TMListDto>(tm);
+                var dto = _mapper.Map<TMListResponseDto>(tm);
 
                 // Get region name
                 var region = await _unitOfWork.Regions.GetByIdAsync(tm.RegionID, cancellationToken);
@@ -75,10 +75,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<TMListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<TMListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<PagedResponse<TMListDto>> GetByRegionIdAsync(string regionId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<TMListResponseDto>> GetByRegionIdAsync(string regionId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var regionObjectId = ParseObjectId(regionId);
             var tms = await _unitOfWork.TMs.GetByRegionIdAsync(regionObjectId, cancellationToken);
@@ -91,12 +91,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = new List<TMListDto>();
+            var dtos = new List<TMListResponseDto>();
             var region = await _unitOfWork.Regions.GetByIdAsync(regionObjectId, cancellationToken);
 
             foreach (var tm in paginatedTMs)
             {
-                var dto = _mapper.Map<TMListDto>(tm);
+                var dto = _mapper.Map<TMListResponseDto>(tm);
                 dto.RegionName = region?.Headquarters ?? "Unknown";
 
                 // Get building count
@@ -106,10 +106,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<TMListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<TMListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<PagedResponse<TMListDto>> SearchAsync(TMSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<TMListResponseDto>> SearchAsync(TMSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var allTMs = await _unitOfWork.TMs.GetAllAsync(cancellationToken);
             var filteredTMs = allTMs.AsQueryable();
@@ -177,10 +177,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = new List<TMListDto>();
+            var dtos = new List<TMListResponseDto>();
             foreach (var tm in paginatedTMs)
             {
-                var dto = _mapper.Map<TMListDto>(tm);
+                var dto = _mapper.Map<TMListResponseDto>(tm);
 
                 // Get region name
                 var region = await _unitOfWork.Regions.GetByIdAsync(tm.RegionID, cancellationToken);
@@ -193,10 +193,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<TMListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<TMListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<TMDto> CreateAsync(TMCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<TMResponseDto> CreateAsync(TMCreateDto dto, CancellationToken cancellationToken = default)
         {
             // Validate region exists
             var regionId = ParseObjectId(dto.RegionId);
@@ -216,10 +216,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var tm = _mapper.Map<TM>(dto);
             var createdTM = await _unitOfWork.TMs.CreateAsync(tm, cancellationToken);
 
-            return _mapper.Map<TMDto>(createdTM);
+            return _mapper.Map<TMResponseDto>(createdTM);
         }
 
-        public async Task<TMDto> UpdateAsync(string id, TMUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<TMResponseDto> UpdateAsync(string id, TMUpdateDto dto, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var existingTM = await _unitOfWork.TMs.GetByIdAsync(objectId, cancellationToken);
@@ -258,7 +258,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Failed to update TM with ID {id}.");
             }
 
-            return _mapper.Map<TMDto>(existingTM);
+            return _mapper.Map<TMResponseDto>(existingTM);
         }
 
         public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -287,7 +287,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await _unitOfWork.TMs.DeleteAsync(objectId, cancellationToken);
         }
 
-        public async Task<TMDto> UpdateStateAsync(string id, TMStateUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<TMResponseDto> UpdateStateAsync(string id, TMStateUpdateDto dto, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var tm = await _unitOfWork.TMs.GetByIdAsync(objectId, cancellationToken);
@@ -305,10 +305,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Failed to update state for TM with ID {id}.");
             }
 
-            return _mapper.Map<TMDto>(tm);
+            return _mapper.Map<TMResponseDto>(tm);
         }
 
-        public async Task<TMDto> UpdateVoltagesAsync(string id, TMVoltageUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<TMResponseDto> UpdateVoltagesAsync(string id, TMVoltageUpdateDto dto, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var tm = await _unitOfWork.TMs.GetByIdAsync(objectId, cancellationToken);
@@ -326,10 +326,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Failed to update voltages for TM with ID {id}.");
             }
 
-            return _mapper.Map<TMDto>(tm);
+            return _mapper.Map<TMResponseDto>(tm);
         }
 
-        public async Task<TMDto> GetByNameAsync(string name, CancellationToken cancellationToken = default)
+        public async Task<TMResponseDto> GetByNameAsync(string name, CancellationToken cancellationToken = default)
         {
             var tm = await _unitOfWork.TMs.GetByNameAsync(name, cancellationToken);
 
@@ -338,7 +338,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"TM with name '{name}' not found.");
             }
 
-            return _mapper.Map<TMDto>(tm);
+            return _mapper.Map<TMResponseDto>(tm);
         }
     }
 }

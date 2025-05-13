@@ -31,7 +31,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet]
         [RequirePermission(UserPermissions.ViewBlocks)]
-        public async Task<ActionResult<ApiResponse<List<BlockDto>>>> GetAll(
+        public async Task<ActionResult<ApiResponse<List<BlockResponseDto>>>> GetAll(
             string buildingId,
             CancellationToken cancellationToken = default)
         {
@@ -49,7 +49,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{blockId}")]
         [RequirePermission(UserPermissions.ViewBlocks)]
-        public async Task<ActionResult<ApiResponse<BlockDto>>> GetById(
+        public async Task<ActionResult<ApiResponse<BlockResponseDto>>> GetById(
             string buildingId,
             string blockId,
             CancellationToken cancellationToken = default)
@@ -68,7 +68,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{blockId}/summary")]
         [RequirePermission(UserPermissions.ViewBlocks)]
-        public async Task<ActionResult<ApiResponse<BlockSummaryDto>>> GetSummary(
+        public async Task<ActionResult<ApiResponse<BlockSummaryResponseDto>>> GetSummary(
             string buildingId,
             string blockId,
             CancellationToken cancellationToken = default)
@@ -87,7 +87,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("concrete")]
         [RequirePermission(UserPermissions.ViewBlocks)]
-        public async Task<ActionResult<ApiResponse<List<ConcreteBlockDto>>>> GetConcreteBlocks(
+        public async Task<ActionResult<ApiResponse<List<ConcreteBlockResponseDto>>>> GetConcreteBlocks(
             string buildingId,
             CancellationToken cancellationToken = default)
         {
@@ -105,7 +105,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("masonry")]
         [RequirePermission(UserPermissions.ViewBlocks)]
-        public async Task<ActionResult<ApiResponse<List<MasonryBlockDto>>>> GetMasonryBlocks(
+        public async Task<ActionResult<ApiResponse<List<MasonryBlockResponseDto>>>> GetMasonryBlocks(
             string buildingId,
             CancellationToken cancellationToken = default)
         {
@@ -124,7 +124,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost("concrete")]
         [RequirePermission(UserPermissions.CreateBlocks)]
         [AuditLog("CreateConcreteBlock")]
-        public async Task<ActionResult<ApiResponse<ConcreteBlockDto>>> CreateConcrete(
+        public async Task<ActionResult<ApiResponse<ConcreteBlockResponseDto>>> CreateConcrete(
             string buildingId,
             [FromBody] ConcreteCreateDto dto,
             CancellationToken cancellationToken = default)
@@ -133,7 +133,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<ConcreteBlockDto>();
+            var validationResult = ValidateModelState<ConcreteBlockResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -148,7 +148,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost("masonry")]
         [RequirePermission(UserPermissions.CreateBlocks)]
         [AuditLog("CreateMasonryBlock")]
-        public async Task<ActionResult<ApiResponse<MasonryBlockDto>>> CreateMasonry(
+        public async Task<ActionResult<ApiResponse<MasonryBlockResponseDto>>> CreateMasonry(
             string buildingId,
             [FromBody] MasonryCreateDto dto,
             CancellationToken cancellationToken = default)
@@ -157,7 +157,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<MasonryBlockDto>();
+            var validationResult = ValidateModelState<MasonryBlockResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -172,7 +172,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("concrete/{blockId}")]
         [RequirePermission(UserPermissions.UpdateBlocks)]
         [AuditLog("UpdateConcreteBlock")]
-        public async Task<ActionResult<ApiResponse<ConcreteBlockDto>>> UpdateConcrete(
+        public async Task<ActionResult<ApiResponse<ConcreteBlockResponseDto>>> UpdateConcrete(
             string buildingId,
             string blockId,
             [FromBody] ConcreteUpdateDto dto,
@@ -182,7 +182,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<ConcreteBlockDto>();
+            var validationResult = ValidateModelState<ConcreteBlockResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -197,7 +197,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("masonry/{blockId}")]
         [RequirePermission(UserPermissions.UpdateBlocks)]
         [AuditLog("UpdateMasonryBlock")]
-        public async Task<ActionResult<ApiResponse<MasonryBlockDto>>> UpdateMasonry(
+        public async Task<ActionResult<ApiResponse<MasonryBlockResponseDto>>> UpdateMasonry(
             string buildingId,
             string blockId,
             [FromBody] MasonryUpdateDto dto,
@@ -207,7 +207,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<MasonryBlockDto>();
+            var validationResult = ValidateModelState<MasonryBlockResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -241,7 +241,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{blockId}/statistics")]
         [RequirePermission(UserPermissions.ViewBlocks)]
-        public async Task<ActionResult<ApiResponse<BlockStatisticsDto>>> GetStatistics(
+        public async Task<ActionResult<ApiResponse<BlockStatisticsResponseDto>>> GetStatistics(
             string buildingId,
             string blockId,
             CancellationToken cancellationToken = default)
@@ -252,7 +252,7 @@ namespace TeiasMongoAPI.API.Controllers
             return await ExecuteAsync(async () =>
             {
                 var block = await _blockService.GetBlockAsync(buildingId, blockId, cancellationToken);
-                var stats = new BlockStatisticsDto
+                var stats = new BlockStatisticsResponseDto
                 {
                     BlockId = blockId,
                     ModelingType = block.ModelingType,
@@ -272,7 +272,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost("{blockId}/copy")]
         [RequirePermission(UserPermissions.CreateBlocks)]
         [AuditLog("CopyBlock")]
-        public async Task<ActionResult<ApiResponse<BlockDto>>> CopyBlock(
+        public async Task<ActionResult<ApiResponse<BlockResponseDto>>> CopyBlock(
             string buildingId,
             string blockId,
             [FromBody] CopyBlockDto dto,
@@ -287,7 +287,7 @@ namespace TeiasMongoAPI.API.Controllers
                 var block = await _blockService.GetBlockAsync(buildingId, blockId, cancellationToken);
 
                 // Create a copy with new ID
-                if (block is ConcreteBlockDto concreteBlockSource)
+                if (block is ConcreteBlockResponseDto concreteBlockSource)
                 {
                     var createDto = new ConcreteCreateDto
                     {
@@ -305,10 +305,10 @@ namespace TeiasMongoAPI.API.Controllers
                     };
                     var createdConcreteBlock = await _blockService.CreateConcreteBlockAsync(buildingId, createDto, cancellationToken);
                     // Cast ConcreteBlockDto to BlockDto
-                    BlockDto result = createdConcreteBlock;
+                    BlockResponseDto result = createdConcreteBlock;
                     return result;
                 }
-                else if (block is MasonryBlockDto masonryBlockSource)
+                else if (block is MasonryBlockResponseDto masonryBlockSource)
                 {
                     var createDto = new MasonryCreateDto
                     {
@@ -323,7 +323,7 @@ namespace TeiasMongoAPI.API.Controllers
                     };
                     var createdMasonryBlock = await _blockService.CreateMasonryBlockAsync(buildingId, createDto, cancellationToken);
                     // Cast MasonryBlockDto to BlockDto
-                    BlockDto result = createdMasonryBlock;
+                    BlockResponseDto result = createdMasonryBlock;
                     return result;
                 }
                 else

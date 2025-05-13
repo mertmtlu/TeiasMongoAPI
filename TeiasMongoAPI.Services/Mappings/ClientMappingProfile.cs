@@ -16,15 +16,15 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
 
             // Domain to Response
-            CreateMap<Client, ClientDto>()
+            CreateMap<Client, ClientResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()));
-            CreateMap<Client, ClientSummaryDto>()
+            CreateMap<Client, ClientSummaryResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()));
-            CreateMap<Client, ClientListDto>()
+            CreateMap<Client, ClientListResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()));
-            CreateMap<Client, ClientDetailDto>()
+            CreateMap<Client, ClientDetailResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()));
         }

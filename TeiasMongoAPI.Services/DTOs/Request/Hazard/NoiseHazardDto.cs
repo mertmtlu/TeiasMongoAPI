@@ -23,7 +23,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Hazard
         public double DistanceToInventory { get; set; }
 
         public Dictionary<BuildingType, double>? NoiseMeasurementsForBuildings { get; set; }
-        public Dictionary<LocationDto, double>? NoiseMeasurementsForCoordinates { get; set; }
+        public Dictionary<LocationRequestDto, double>? NoiseMeasurementsForCoordinates { get; set; }
         public bool ResidentialArea { get; set; }
         public bool Exists { get; set; }
         public bool ExtremeNoise { get; set; }

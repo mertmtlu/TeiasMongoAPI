@@ -31,7 +31,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}")]
         [RequirePermission(UserPermissions.ViewAlternativeTMs)]
-        public async Task<ActionResult<ApiResponse<AlternativeTMDetailDto>>> GetById(
+        public async Task<ActionResult<ApiResponse<AlternativeTMDetailResponseDto>>> GetById(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -49,7 +49,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-tm/{tmId}")]
         [RequirePermission(UserPermissions.ViewAlternativeTMs)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<AlternativeTMSummaryDto>>>> GetByTmId(
+        public async Task<ActionResult<ApiResponse<PagedResponse<AlternativeTMSummaryResponseDto>>>> GetByTmId(
             string tmId,
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
@@ -68,7 +68,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-city/{city}")]
         [RequirePermission(UserPermissions.ViewAlternativeTMs)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<AlternativeTMSummaryDto>>>> GetByCity(
+        public async Task<ActionResult<ApiResponse<PagedResponse<AlternativeTMSummaryResponseDto>>>> GetByCity(
             string city,
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
@@ -84,7 +84,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-county/{county}")]
         [RequirePermission(UserPermissions.ViewAlternativeTMs)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<AlternativeTMSummaryDto>>>> GetByCounty(
+        public async Task<ActionResult<ApiResponse<PagedResponse<AlternativeTMSummaryResponseDto>>>> GetByCounty(
             string county,
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
@@ -101,12 +101,12 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost]
         [RequirePermission(UserPermissions.CreateAlternativeTMs)]
         [AuditLog("CreateAlternativeTM")]
-        public async Task<ActionResult<ApiResponse<AlternativeTMDto>>> Create(
+        public async Task<ActionResult<ApiResponse<AlternativeTMResponseDto>>> Create(
             [FromBody] AlternativeTMCreateDto dto,
             CancellationToken cancellationToken = default)
         {
             // Validate model state
-            var validationResult = ValidateModelState<AlternativeTMDto>();
+            var validationResult = ValidateModelState<AlternativeTMResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -121,7 +121,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("{id}")]
         [RequirePermission(UserPermissions.UpdateAlternativeTMs)]
         [AuditLog("UpdateAlternativeTM")]
-        public async Task<ActionResult<ApiResponse<AlternativeTMDto>>> Update(
+        public async Task<ActionResult<ApiResponse<AlternativeTMResponseDto>>> Update(
             string id,
             [FromBody] AlternativeTMUpdateDto dto,
             CancellationToken cancellationToken = default)
@@ -130,7 +130,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<AlternativeTMDto>();
+            var validationResult = ValidateModelState<AlternativeTMResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -163,7 +163,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("compare/{tmId}")]
         [RequirePermission(UserPermissions.ViewAlternativeTMs)]
-        public async Task<ActionResult<ApiResponse<List<AlternativeTMComparisonDto>>>> CompareAlternatives(
+        public async Task<ActionResult<ApiResponse<List<AlternativeTMComparisonResponseDto>>>> CompareAlternatives(
             string tmId,
             CancellationToken cancellationToken = default)
         {
@@ -182,7 +182,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost("create-from-tm/{tmId}")]
         [RequirePermission(UserPermissions.CreateAlternativeTMs)]
         [AuditLog("CreateAlternativeTMFromTM")]
-        public async Task<ActionResult<ApiResponse<AlternativeTMDto>>> CreateFromTM(
+        public async Task<ActionResult<ApiResponse<AlternativeTMResponseDto>>> CreateFromTM(
             string tmId,
             [FromBody] CreateFromTMDto dto,
             CancellationToken cancellationToken = default)
@@ -190,7 +190,7 @@ namespace TeiasMongoAPI.API.Controllers
             var objectIdResult = ParseObjectId(tmId);
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
-            return await ExecuteAsync<AlternativeTMDto>(async () =>
+            return await ExecuteAsync<AlternativeTMResponseDto>(async () =>
             {
                 // This would need to be implemented in the service
                 throw new NotImplementedException("Create from TM functionality not yet implemented");

@@ -7,13 +7,13 @@ namespace TeiasMongoAPI.Services.Interfaces
 {
     public interface IAlternativeTMService
     {
-        Task<AlternativeTMDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default);
-        Task<PagedResponse<AlternativeTMSummaryDto>> GetByTmIdAsync(string tmId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<AlternativeTMDto> CreateAsync(AlternativeTMCreateDto dto, CancellationToken cancellationToken = default);
-        Task<AlternativeTMDto> UpdateAsync(string id, AlternativeTMUpdateDto dto, CancellationToken cancellationToken = default);
+        Task<AlternativeTMDetailResponseDto> GetByIdAsync(string id, CancellationToken cancellationToken = default);
+        Task<PagedResponse<AlternativeTMSummaryResponseDto>> GetByTmIdAsync(string tmId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<AlternativeTMResponseDto> CreateAsync(AlternativeTMCreateDto dto, CancellationToken cancellationToken = default);
+        Task<AlternativeTMResponseDto> UpdateAsync(string id, AlternativeTMUpdateDto dto, CancellationToken cancellationToken = default);
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
-        Task<List<AlternativeTMComparisonDto>> CompareAlternativesAsync(string tmId, CancellationToken cancellationToken = default);
-        Task<PagedResponse<AlternativeTMSummaryDto>> GetByCityAsync(string city, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<PagedResponse<AlternativeTMSummaryDto>> GetByCountyAsync(string county, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<List<AlternativeTMComparisonResponseDto>> CompareAlternativesAsync(string tmId, CancellationToken cancellationToken = default);
+        Task<PagedResponse<AlternativeTMSummaryResponseDto>> GetByCityAsync(string city, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<PagedResponse<AlternativeTMSummaryResponseDto>> GetByCountyAsync(string county, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
     }
 }

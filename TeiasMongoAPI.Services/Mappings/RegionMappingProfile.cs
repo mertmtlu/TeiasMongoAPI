@@ -21,21 +21,21 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
 
             // Domain to Response
-            CreateMap<Region, RegionDto>()
+            CreateMap<Region, RegionResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.ClientId, opt => opt.MapFrom(src => src.ClientID.ToString()))
                 .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id)); // Numeric ID
 
-            CreateMap<Region, RegionSummaryDto>()
+            CreateMap<Region, RegionSummaryResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id))
                 .ForMember(dest => dest.CityCount, opt => opt.MapFrom(src => src.Cities.Count));
 
-            CreateMap<Region, RegionListDto>()
+            CreateMap<Region, RegionListResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id));
 
-            CreateMap<Region, RegionDetailDto>()
+            CreateMap<Region, RegionDetailResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.ClientId, opt => opt.MapFrom(src => src.ClientID.ToString()))
                 .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id));

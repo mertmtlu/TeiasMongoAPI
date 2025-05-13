@@ -31,7 +31,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet]
         [RequirePermission(UserPermissions.ViewClients)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<ClientListDto>>>> GetAll(
+        public async Task<ActionResult<ApiResponse<PagedResponse<ClientListResponseDto>>>> GetAll(
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
         {
@@ -46,7 +46,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}")]
         [RequirePermission(UserPermissions.ViewClients)]
-        public async Task<ActionResult<ApiResponse<ClientDetailDto>>> GetById(
+        public async Task<ActionResult<ApiResponse<ClientDetailResponseDto>>> GetById(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -64,7 +64,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("by-name/{name}")]
         [RequirePermission(UserPermissions.ViewClients)]
-        public async Task<ActionResult<ApiResponse<ClientDto>>> GetByName(
+        public async Task<ActionResult<ApiResponse<ClientResponseDto>>> GetByName(
             string name,
             CancellationToken cancellationToken = default)
         {
@@ -80,12 +80,12 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPost]
         [RequirePermission(UserPermissions.CreateClients)]
         [AuditLog("CreateClient")]
-        public async Task<ActionResult<ApiResponse<ClientDto>>> Create(
+        public async Task<ActionResult<ApiResponse<ClientResponseDto>>> Create(
             [FromBody] ClientCreateDto dto,
             CancellationToken cancellationToken = default)
         {
             // Validate model state
-            var validationResult = ValidateModelState<ClientDto>();
+            var validationResult = ValidateModelState<ClientResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -101,7 +101,7 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpPut("{id}")]
         [RequirePermission(UserPermissions.UpdateClients)]
         [AuditLog("UpdateClient")]
-        public async Task<ActionResult<ApiResponse<ClientDto>>> Update(
+        public async Task<ActionResult<ApiResponse<ClientResponseDto>>> Update(
             string id,
             [FromBody] ClientUpdateDto dto,
             CancellationToken cancellationToken = default)
@@ -110,7 +110,7 @@ namespace TeiasMongoAPI.API.Controllers
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
             // Validate model state
-            var validationResult = ValidateModelState<ClientDto>();
+            var validationResult = ValidateModelState<ClientResponseDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
@@ -143,7 +143,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}/statistics")]
         [RequirePermission(UserPermissions.ViewClients)]
-        public async Task<ActionResult<ApiResponse<ClientStatisticsDto>>> GetStatistics(
+        public async Task<ActionResult<ApiResponse<ClientStatisticsResponseDto>>> GetStatistics(
             string id,
             CancellationToken cancellationToken = default)
         {
@@ -153,7 +153,7 @@ namespace TeiasMongoAPI.API.Controllers
             return await ExecuteAsync(async () =>
             {
                 var client = await _clientService.GetByIdAsync(id, cancellationToken);
-                var stats = new ClientStatisticsDto
+                var stats = new ClientStatisticsResponseDto
                 {
                     ClientId = id,
                     RegionCount = client.RegionCount,

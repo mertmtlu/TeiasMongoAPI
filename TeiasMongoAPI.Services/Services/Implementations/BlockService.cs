@@ -17,7 +17,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
         }
 
-        public async Task<BlockDto> GetBlockAsync(string buildingId, string blockId, CancellationToken cancellationToken = default)
+        public async Task<BlockResponseDto> GetBlockAsync(string buildingId, string blockId, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var block = await _unitOfWork.Buildings.GetBlockAsync(buildingObjectId, blockId, cancellationToken);
@@ -27,34 +27,34 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Block with ID {blockId} not found in building {buildingId}.");
             }
 
-            return _mapper.Map<BlockDto>(block);
+            return _mapper.Map<BlockResponseDto>(block);
         }
 
-        public async Task<List<BlockDto>> GetBlocksAsync(string buildingId, CancellationToken cancellationToken = default)
+        public async Task<List<BlockResponseDto>> GetBlocksAsync(string buildingId, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var blocks = await _unitOfWork.Buildings.GetBlocksAsync(buildingObjectId, cancellationToken);
 
-            return _mapper.Map<List<BlockDto>>(blocks);
+            return _mapper.Map<List<BlockResponseDto>>(blocks);
         }
 
-        public async Task<List<ConcreteBlockDto>> GetConcreteBlocksAsync(string buildingId, CancellationToken cancellationToken = default)
+        public async Task<List<ConcreteBlockResponseDto>> GetConcreteBlocksAsync(string buildingId, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var concreteBlocks = await _unitOfWork.Buildings.GetBlocksByTypeAsync<Concrete>(buildingObjectId, cancellationToken);
 
-            return _mapper.Map<List<ConcreteBlockDto>>(concreteBlocks);
+            return _mapper.Map<List<ConcreteBlockResponseDto>>(concreteBlocks);
         }
 
-        public async Task<List<MasonryBlockDto>> GetMasonryBlocksAsync(string buildingId, CancellationToken cancellationToken = default)
+        public async Task<List<MasonryBlockResponseDto>> GetMasonryBlocksAsync(string buildingId, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var masonryBlocks = await _unitOfWork.Buildings.GetBlocksByTypeAsync<Masonry>(buildingObjectId, cancellationToken);
 
-            return _mapper.Map<List<MasonryBlockDto>>(masonryBlocks);
+            return _mapper.Map<List<MasonryBlockResponseDto>>(masonryBlocks);
         }
 
-        public async Task<ConcreteBlockDto> CreateConcreteBlockAsync(string buildingId, ConcreteCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<ConcreteBlockResponseDto> CreateConcreteBlockAsync(string buildingId, ConcreteCreateDto dto, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var building = await _unitOfWork.Buildings.GetByIdAsync(buildingObjectId, cancellationToken);
@@ -82,10 +82,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var updatedBuilding = await _unitOfWork.Buildings.GetByIdAsync(buildingObjectId, cancellationToken);
             var createdBlock = updatedBuilding.Blocks.OfType<Concrete>().FirstOrDefault(b => b.ID == dto.ID);
 
-            return _mapper.Map<ConcreteBlockDto>(createdBlock);
+            return _mapper.Map<ConcreteBlockResponseDto>(createdBlock);
         }
 
-        public async Task<MasonryBlockDto> CreateMasonryBlockAsync(string buildingId, MasonryCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<MasonryBlockResponseDto> CreateMasonryBlockAsync(string buildingId, MasonryCreateDto dto, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var building = await _unitOfWork.Buildings.GetByIdAsync(buildingObjectId, cancellationToken);
@@ -113,10 +113,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var updatedBuilding = await _unitOfWork.Buildings.GetByIdAsync(buildingObjectId, cancellationToken);
             var createdBlock = updatedBuilding.Blocks.OfType<Masonry>().FirstOrDefault(b => b.ID == dto.ID);
 
-            return _mapper.Map<MasonryBlockDto>(createdBlock);
+            return _mapper.Map<MasonryBlockResponseDto>(createdBlock);
         }
 
-        public async Task<ConcreteBlockDto> UpdateConcreteBlockAsync(string buildingId, string blockId, ConcreteUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<ConcreteBlockResponseDto> UpdateConcreteBlockAsync(string buildingId, string blockId, ConcreteUpdateDto dto, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var block = await _unitOfWork.Buildings.GetBlockAsync(buildingObjectId, blockId, cancellationToken);
@@ -149,10 +149,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Failed to update concrete block {blockId} in building {buildingId}.");
             }
 
-            return _mapper.Map<ConcreteBlockDto>(concreteBlock);
+            return _mapper.Map<ConcreteBlockResponseDto>(concreteBlock);
         }
 
-        public async Task<MasonryBlockDto> UpdateMasonryBlockAsync(string buildingId, string blockId, MasonryUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<MasonryBlockResponseDto> UpdateMasonryBlockAsync(string buildingId, string blockId, MasonryUpdateDto dto, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var block = await _unitOfWork.Buildings.GetBlockAsync(buildingObjectId, blockId, cancellationToken);
@@ -185,7 +185,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Failed to update masonry block {blockId} in building {buildingId}.");
             }
 
-            return _mapper.Map<MasonryBlockDto>(masonryBlock);
+            return _mapper.Map<MasonryBlockResponseDto>(masonryBlock);
         }
 
         public async Task<bool> DeleteBlockAsync(string buildingId, string blockId, CancellationToken cancellationToken = default)
@@ -201,7 +201,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await _unitOfWork.Buildings.RemoveBlockAsync(buildingObjectId, blockId, cancellationToken);
         }
 
-        public async Task<BlockSummaryDto> GetBlockSummaryAsync(string buildingId, string blockId, CancellationToken cancellationToken = default)
+        public async Task<BlockSummaryResponseDto> GetBlockSummaryAsync(string buildingId, string blockId, CancellationToken cancellationToken = default)
         {
             var buildingObjectId = ParseObjectId(buildingId);
             var block = await _unitOfWork.Buildings.GetBlockAsync(buildingObjectId, blockId, cancellationToken);
@@ -211,7 +211,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Block with ID {blockId} not found in building {buildingId}.");
             }
 
-            return _mapper.Map<BlockSummaryDto>(block);
+            return _mapper.Map<BlockSummaryResponseDto>(block);
         }
     }
 }

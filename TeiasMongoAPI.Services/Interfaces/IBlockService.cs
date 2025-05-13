@@ -5,15 +5,15 @@ namespace TeiasMongoAPI.Services.Interfaces
 {
     public interface IBlockService
     {
-        Task<BlockDto> GetBlockAsync(string buildingId, string blockId, CancellationToken cancellationToken = default);
-        Task<List<BlockDto>> GetBlocksAsync(string buildingId, CancellationToken cancellationToken = default);
-        Task<List<ConcreteBlockDto>> GetConcreteBlocksAsync(string buildingId, CancellationToken cancellationToken = default);
-        Task<List<MasonryBlockDto>> GetMasonryBlocksAsync(string buildingId, CancellationToken cancellationToken = default);
-        Task<ConcreteBlockDto> CreateConcreteBlockAsync(string buildingId, ConcreteCreateDto dto, CancellationToken cancellationToken = default);
-        Task<MasonryBlockDto> CreateMasonryBlockAsync(string buildingId, MasonryCreateDto dto, CancellationToken cancellationToken = default);
-        Task<ConcreteBlockDto> UpdateConcreteBlockAsync(string buildingId, string blockId, ConcreteUpdateDto dto, CancellationToken cancellationToken = default);
-        Task<MasonryBlockDto> UpdateMasonryBlockAsync(string buildingId, string blockId, MasonryUpdateDto dto, CancellationToken cancellationToken = default);
+        Task<BlockResponseDto> GetBlockAsync(string buildingId, string blockId, CancellationToken cancellationToken = default);
+        Task<List<BlockResponseDto>> GetBlocksAsync(string buildingId, CancellationToken cancellationToken = default);
+        Task<List<ConcreteBlockResponseDto>> GetConcreteBlocksAsync(string buildingId, CancellationToken cancellationToken = default);
+        Task<List<MasonryBlockResponseDto>> GetMasonryBlocksAsync(string buildingId, CancellationToken cancellationToken = default);
+        Task<ConcreteBlockResponseDto> CreateConcreteBlockAsync(string buildingId, ConcreteCreateDto dto, CancellationToken cancellationToken = default);
+        Task<MasonryBlockResponseDto> CreateMasonryBlockAsync(string buildingId, MasonryCreateDto dto, CancellationToken cancellationToken = default);
+        Task<ConcreteBlockResponseDto> UpdateConcreteBlockAsync(string buildingId, string blockId, ConcreteUpdateDto dto, CancellationToken cancellationToken = default);
+        Task<MasonryBlockResponseDto> UpdateMasonryBlockAsync(string buildingId, string blockId, MasonryUpdateDto dto, CancellationToken cancellationToken = default);
         Task<bool> DeleteBlockAsync(string buildingId, string blockId, CancellationToken cancellationToken = default);
-        Task<BlockSummaryDto> GetBlockSummaryAsync(string buildingId, string blockId, CancellationToken cancellationToken = default);
+        Task<BlockSummaryResponseDto> GetBlockSummaryAsync(string buildingId, string blockId, CancellationToken cancellationToken = default);
     }
 }

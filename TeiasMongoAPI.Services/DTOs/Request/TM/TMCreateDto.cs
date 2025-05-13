@@ -28,7 +28,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.TM
         public DateOnly? ProvisionalAcceptanceDate { get; set; }
 
         [Required]
-        public required LocationDto Location { get; set; }
+        public required LocationRequestDto Location { get; set; }
 
         public AddressDto? Address { get; set; }
 

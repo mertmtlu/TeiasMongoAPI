@@ -18,7 +18,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
         }
 
-        public async Task<ClientDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+        public async Task<ClientDetailResponseDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var client = await _unitOfWork.Clients.GetByIdAsync(objectId, cancellationToken);
@@ -28,17 +28,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Client with ID {id} not found.");
             }
 
-            var dto = _mapper.Map<ClientDetailDto>(client);
+            var dto = _mapper.Map<ClientDetailResponseDto>(client);
 
             // Get related regions
             var regions = await _unitOfWork.Regions.GetByClientIdAsync(objectId, cancellationToken);
             dto.RegionCount = regions.Count();
-            dto.Regions = _mapper.Map<List<DTOs.Response.Region.RegionSummaryDto>>(regions);
+            dto.Regions = _mapper.Map<List<DTOs.Response.Region.RegionSummaryResponseDto>>(regions);
 
             return dto;
         }
 
-        public async Task<PagedResponse<ClientListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<ClientListResponseDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var clients = await _unitOfWork.Clients.GetAllAsync(cancellationToken);
             var clientsList = clients.ToList();
@@ -50,10 +50,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = new List<ClientListDto>();
+            var dtos = new List<ClientListResponseDto>();
             foreach (var client in paginatedClients)
             {
-                var dto = _mapper.Map<ClientListDto>(client);
+                var dto = _mapper.Map<ClientListResponseDto>(client);
 
                 // Get region count
                 var regions = await _unitOfWork.Regions.GetByClientIdAsync(client._ID, cancellationToken);
@@ -71,10 +71,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<ClientListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<ClientListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<ClientDto> CreateAsync(ClientCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<ClientResponseDto> CreateAsync(ClientCreateDto dto, CancellationToken cancellationToken = default)
         {
             // Check if client with same name exists
             var existingClient = await _unitOfWork.Clients.GetByNameAsync(dto.Name, cancellationToken);
@@ -86,10 +86,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var client = _mapper.Map<Client>(dto);
             var createdClient = await _unitOfWork.Clients.CreateAsync(client, cancellationToken);
 
-            return _mapper.Map<ClientDto>(createdClient);
+            return _mapper.Map<ClientResponseDto>(createdClient);
         }
 
-        public async Task<ClientDto> UpdateAsync(string id, ClientUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<ClientResponseDto> UpdateAsync(string id, ClientUpdateDto dto, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var existingClient = await _unitOfWork.Clients.GetByIdAsync(objectId, cancellationToken);
@@ -117,7 +117,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Failed to update client with ID {id}.");
             }
 
-            return _mapper.Map<ClientDto>(existingClient);
+            return _mapper.Map<ClientResponseDto>(existingClient);
         }
 
         public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -140,7 +140,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await _unitOfWork.Clients.DeleteAsync(objectId, cancellationToken);
         }
 
-        public async Task<ClientDto> GetByNameAsync(string name, CancellationToken cancellationToken = default)
+        public async Task<ClientResponseDto> GetByNameAsync(string name, CancellationToken cancellationToken = default)
         {
             var client = await _unitOfWork.Clients.GetByNameAsync(name, cancellationToken);
 
@@ -149,7 +149,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Client with name '{name}' not found.");
             }
 
-            return _mapper.Map<ClientDto>(client);
+            return _mapper.Map<ClientResponseDto>(client);
         }
     }
 }
