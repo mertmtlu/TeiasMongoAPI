@@ -13,6 +13,8 @@ using TeiasMongoAPI.Services.DTOs.Response.User;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
 using TeiasMongoAPI.Services.Security;
+using TeiasMongoAPI.Core.Models.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -21,18 +23,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IConfiguration _configuration;
         private readonly IUserService _userService;
         private readonly IPasswordHashingService _passwordHashingService;
+        private readonly RefreshTokenSettings _refreshTokenSettings;
 
         public AuthenticationService(
-            IUnitOfWork unitOfWork,
-            IMapper mapper,
-            IConfiguration configuration,
-            IUserService userService,
-            IPasswordHashingService passwordHashingService)
-            : base(unitOfWork, mapper)
+        IUnitOfWork unitOfWork,
+        IMapper mapper,
+        IConfiguration configuration,
+        IUserService userService,
+        IPasswordHashingService passwordHashingService,
+        IOptions<RefreshTokenSettings> refreshTokenSettings)
+        : base(unitOfWork, mapper)
         {
             _configuration = configuration;
             _userService = userService;
             _passwordHashingService = passwordHashingService;
+            _refreshTokenSettings = refreshTokenSettings.Value;
         }
 
         public async Task<AuthenticationResponseDto> LoginAsync(UserLoginDto dto, string? ipAddress = null, CancellationToken cancellationToken = default)
@@ -52,6 +57,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (!user.IsEmailVerified)
             {
                 throw new UnauthorizedAccessException("Email not verified. Please verify your email first.");
+            }
+
+            // Cleanup expired tokens on login if enabled
+            if (_refreshTokenSettings.CleanupOnLogin)
+            {
+                await _unitOfWork.Users.CleanupExpiredRefreshTokensAsync(
+                    user._ID,
+                    _refreshTokenSettings.RetentionDays,
+                    cancellationToken);
+            }
+
+            // Check if we need to enforce max tokens per user
+            if (user.RefreshTokens.Count >= _refreshTokenSettings.MaxTokensPerUser)
+            {
+                // Remove oldest inactive tokens
+                var tokensToRemove = user.RefreshTokens
+                    .Where(rt => !rt.IsActive)
+                    .OrderBy(rt => rt.Created)
+                    .Take(user.RefreshTokens.Count - _refreshTokenSettings.MaxTokensPerUser + 1)
+                    .ToList();
+
+                foreach (var token in tokensToRemove)
+                {
+                    user.RefreshTokens.Remove(token);
+                }
+
+                await _unitOfWork.Users.UpdateAsync(user._ID, user, cancellationToken);
             }
 
             // Generate tokens
@@ -345,7 +377,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new RefreshToken
             {
                 Token = Convert.ToBase64String(randomBytes),
-                Expires = DateTime.UtcNow.AddDays(7),
+                Expires = DateTime.UtcNow.AddDays(_refreshTokenSettings.ExpirationDays),
                 Created = DateTime.UtcNow,
                 CreatedByIp = ipAddress
             };

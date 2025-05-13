@@ -21,5 +21,7 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         Task<bool> UpdateRefreshTokenAsync(ObjectId userId, RefreshToken refreshToken, CancellationToken cancellationToken = default);
         Task<bool> RevokeRefreshTokenAsync(ObjectId userId, string refreshToken, string revokedByIp, CancellationToken cancellationToken = default);
         Task<bool> RevokeAllUserRefreshTokensAsync(ObjectId userId, string revokedByIp, CancellationToken cancellationToken = default);
+        Task<bool> CleanupExpiredRefreshTokensAsync(ObjectId userId, int retentionDays = 30, CancellationToken cancellationToken = default);
+        Task<int> CleanupAllExpiredRefreshTokensAsync(int retentionDays = 30, CancellationToken cancellationToken = default);
     }
 }

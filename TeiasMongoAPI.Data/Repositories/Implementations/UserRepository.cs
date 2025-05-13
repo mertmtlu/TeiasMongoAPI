@@ -149,5 +149,60 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
 
             return await UpdateAsync(userId, user, cancellationToken);
         }
+
+        // Add to TeiasMongoAPI.Data/Repositories/Implementations/UserRepository.cs
+
+        public async Task<bool> CleanupExpiredRefreshTokensAsync(ObjectId userId, int retentionDays = 30, CancellationToken cancellationToken = default)
+        {
+            var user = await GetByIdAsync(userId, cancellationToken);
+            if (user == null) return false;
+
+            var cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
+            var tokensBeforeCleanup = user.RefreshTokens.Count;
+
+            // Keep active tokens and recently revoked tokens (for audit trail)
+            user.RefreshTokens = user.RefreshTokens
+                .Where(rt => rt.IsActive ||
+                            (rt.Revoked.HasValue && rt.Revoked.Value > cutoffDate))
+                .ToList();
+
+            // Only update if tokens were actually removed
+            if (tokensBeforeCleanup != user.RefreshTokens.Count)
+            {
+                return await UpdateAsync(userId, user, cancellationToken);
+            }
+
+            return true;
+        }
+
+        public async Task<int> CleanupAllExpiredRefreshTokensAsync(int retentionDays = 30, CancellationToken cancellationToken = default)
+        {
+            var filter = Builders<User>.Filter.Empty;
+            var cutoffDate = DateTime.UtcNow.AddDays(-retentionDays);
+            var totalCleaned = 0;
+
+            // Find users with expired tokens
+            var usersWithTokens = await _context.Users
+                .Find(filter)
+                .ToListAsync(cancellationToken);
+
+            foreach (var user in usersWithTokens)
+            {
+                var originalCount = user.RefreshTokens.Count;
+
+                user.RefreshTokens = user.RefreshTokens
+                    .Where(rt => rt.IsActive ||
+                                (rt.Revoked.HasValue && rt.Revoked.Value > cutoffDate))
+                    .ToList();
+
+                if (originalCount != user.RefreshTokens.Count)
+                {
+                    await UpdateAsync(user._ID, user, cancellationToken);
+                    totalCleaned++;
+                }
+            }
+
+            return totalCleaned;
+        }
     }
 }
