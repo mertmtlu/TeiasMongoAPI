@@ -15,8 +15,4 @@
     <ProjectReference Include="..\TeiasMongoAPI.Services\TeiasMongoAPI.Services.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Controllers\" />
-  </ItemGroup>
-
 </Project>
