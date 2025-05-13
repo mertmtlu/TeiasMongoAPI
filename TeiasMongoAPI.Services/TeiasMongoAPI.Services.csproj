@@ -15,8 +15,6 @@
 
   <ItemGroup>
     <Folder Include="Extensions\" />
-    <Folder Include="Services\Base\" />
-    <Folder Include="Services\Implementations\" />
     <Folder Include="Validators\" />
   </ItemGroup>
 
