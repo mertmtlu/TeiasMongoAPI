@@ -12,6 +12,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Auth;
 using TeiasMongoAPI.Services.DTOs.Response.User;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Security;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -19,23 +20,26 @@ namespace TeiasMongoAPI.Services.Services.Implementations
     {
         private readonly IConfiguration _configuration;
         private readonly IUserService _userService;
+        private readonly IPasswordHashingService _passwordHashingService;
 
         public AuthenticationService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
             IConfiguration configuration,
-            IUserService userService)
+            IUserService userService,
+            IPasswordHashingService passwordHashingService)
             : base(unitOfWork, mapper)
         {
             _configuration = configuration;
             _userService = userService;
+            _passwordHashingService = passwordHashingService;
         }
 
         public async Task<AuthenticationResponseDto> LoginAsync(UserLoginDto dto, string? ipAddress = null, CancellationToken cancellationToken = default)
         {
             var user = await _unitOfWork.Users.GetByEmailOrUsernameAsync(dto.UsernameOrEmail, cancellationToken);
 
-            if (user == null || !VerifyPassword(dto.Password, user.PasswordHash))
+            if (user == null || !_passwordHashingService.VerifyPassword(dto.Password, user.PasswordHash))
             {
                 throw new UnauthorizedAccessException("Invalid username/email or password.");
             }
@@ -205,6 +209,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PasswordResetResponseDto> ResetPasswordAsync(UserPasswordResetDto dto, CancellationToken cancellationToken = default)
         {
+            // Validate new password complexity
+            if (!_passwordHashingService.IsPasswordComplex(dto.NewPassword))
+            {
+                return new PasswordResetResponseDto
+                {
+                    Success = false,
+                    Message = PasswordRequirements.GetPasswordPolicy()
+                };
+            }
+
             var user = await _unitOfWork.Users.GetByPasswordResetTokenAsync(dto.ResetToken, cancellationToken);
 
             if (user == null)
@@ -216,7 +230,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 };
             }
 
-            user.PasswordHash = HashPassword(dto.NewPassword);
+            user.PasswordHash = _passwordHashingService.HashPassword(dto.NewPassword);
             user.PasswordResetToken = null;
             user.PasswordResetTokenExpiry = null;
             user.ModifiedDate = DateTime.UtcNow;
@@ -235,6 +249,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<bool> ChangePasswordAsync(string userId, UserPasswordChangeDto dto, CancellationToken cancellationToken = default)
         {
+            // Validate new password complexity
+            if (!_passwordHashingService.IsPasswordComplex(dto.NewPassword))
+            {
+                throw new InvalidOperationException(PasswordRequirements.GetPasswordPolicy());
+            }
+
             var objectId = ParseObjectId(userId);
             var user = await _unitOfWork.Users.GetByIdAsync(objectId, cancellationToken);
 
@@ -244,12 +264,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Verify current password
-            if (!VerifyPassword(dto.CurrentPassword, user.PasswordHash))
+            if (!_passwordHashingService.VerifyPassword(dto.CurrentPassword, user.PasswordHash))
             {
                 throw new UnauthorizedAccessException("Current password is incorrect.");
             }
 
-            user.PasswordHash = HashPassword(dto.NewPassword);
+            user.PasswordHash = _passwordHashingService.HashPassword(dto.NewPassword);
             user.ModifiedDate = DateTime.UtcNow;
 
             return await _unitOfWork.Users.UpdateAsync(objectId, user, cancellationToken);
@@ -321,44 +341,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         private RefreshToken GenerateRefreshToken(string? ipAddress)
         {
-            using (var rngCryptoServiceProvider = new RNGCryptoServiceProvider())
+            var randomBytes = RandomNumberGenerator.GetBytes(64);
+            return new RefreshToken
             {
-                var randomBytes = new byte[64];
-                rngCryptoServiceProvider.GetBytes(randomBytes);
-                return new RefreshToken
-                {
-                    Token = Convert.ToBase64String(randomBytes),
-                    Expires = DateTime.UtcNow.AddDays(7),
-                    Created = DateTime.UtcNow,
-                    CreatedByIp = ipAddress
-                };
-            }
+                Token = Convert.ToBase64String(randomBytes),
+                Expires = DateTime.UtcNow.AddDays(7),
+                Created = DateTime.UtcNow,
+                CreatedByIp = ipAddress
+            };
         }
 
         private string GeneratePasswordResetToken()
         {
-            using (var rngCryptoServiceProvider = new RNGCryptoServiceProvider())
-            {
-                var randomBytes = new byte[32];
-                rngCryptoServiceProvider.GetBytes(randomBytes);
-                return Convert.ToBase64String(randomBytes);
-            }
-        }
-
-        private bool VerifyPassword(string password, string passwordHash)
-        {
-            // Simple hash verification - in production, use BCrypt or similar
-            var hashedPassword = HashPassword(password);
-            return hashedPassword == passwordHash;
-        }
-
-        private string HashPassword(string password)
-        {
-            using (var sha256 = SHA256.Create())
-            {
-                byte[] hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(password));
-                return Convert.ToBase64String(hashedBytes);
-            }
+            var randomBytes = RandomNumberGenerator.GetBytes(32);
+            return Convert.ToBase64String(randomBytes);
         }
     }
 }

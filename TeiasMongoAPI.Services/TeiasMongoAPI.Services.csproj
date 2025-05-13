@@ -1,29 +1,29 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <ItemGroup>
-    <ProjectReference Include="..\TeiasMongoAPI.Data\TeiasMongoAPI.Data.csproj" />
-    <ProjectReference Include="..\TeiasMongoAPI.Core\TeiasMongoAPI.Core.csproj" />
-    <ProjectReference Include="..\TeiasMongoAPI.Common\TeiasMongoAPI.Common.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\TeiasMongoAPI.Data\TeiasMongoAPI.Data.csproj" />
+		<ProjectReference Include="..\TeiasMongoAPI.Core\TeiasMongoAPI.Core.csproj" />
+		<ProjectReference Include="..\TeiasMongoAPI.Common\TeiasMongoAPI.Common.csproj" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="AutoMapper" Version="12.0.1" />
-    <PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
-    <PackageReference Include="FluentValidation" Version="12.0.0" />
-    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.9.0" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="AutoMapper" Version="12.0.1" />
+		<PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+		<PackageReference Include="FluentValidation" Version="12.0.0" />
+		<PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
+		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.9.0" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Extensions\" />
-    <Folder Include="Validators\" />
-  </ItemGroup>
+	<ItemGroup>
+		<Folder Include="Extensions\" />
+		<Folder Include="Validators\" />
+	</ItemGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
 
 </Project>

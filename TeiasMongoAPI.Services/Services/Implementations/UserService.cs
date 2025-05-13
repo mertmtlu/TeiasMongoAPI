@@ -9,16 +9,19 @@ using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.DTOs.Response.User;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Security;
 using System.Security.Cryptography;
-using System.Text;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
     public class UserService : BaseService, IUserService
     {
-        public UserService(IUnitOfWork unitOfWork, IMapper mapper)
+        private readonly IPasswordHashingService _passwordHashingService;
+
+        public UserService(IUnitOfWork unitOfWork, IMapper mapper, IPasswordHashingService passwordHashingService)
             : base(unitOfWork, mapper)
         {
+            _passwordHashingService = passwordHashingService;
         }
 
         public async Task<UserDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
@@ -154,6 +157,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<UserDto> CreateAsync(UserRegisterDto dto, CancellationToken cancellationToken = default)
         {
+            // Validate password complexity
+            if (!_passwordHashingService.IsPasswordComplex(dto.Password))
+            {
+                throw new InvalidOperationException(PasswordRequirements.GetPasswordPolicy());
+            }
+
             // Check if user with same email exists
             if (await _unitOfWork.Users.EmailExistsAsync(dto.Email, cancellationToken))
             {
@@ -167,8 +176,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             var user = _mapper.Map<User>(dto);
-            user.PasswordHash = HashPassword(dto.Password);
+            user.PasswordHash = _passwordHashingService.HashPassword(dto.Password);
             user.EmailVerificationToken = GenerateVerificationToken();
+
+            // Ensure permissions are populated based on roles
+            user.Permissions = RolePermissions.GetUserPermissions(user);
 
             var createdUser = await _unitOfWork.Users.CreateAsync(user, cancellationToken);
 
@@ -251,6 +263,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             user.Roles = dto.Roles;
+            // Update permissions based on new roles
+            user.Permissions = RolePermissions.GetUserPermissions(user);
             user.ModifiedDate = DateTime.UtcNow;
 
             var success = await _unitOfWork.Users.UpdateAsync(objectId, user, cancellationToken);
@@ -436,15 +450,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             return _mapper.Map<UserProfileDto>(user);
-        }
-
-        private string HashPassword(string password)
-        {
-            using (var sha256 = SHA256.Create())
-            {
-                byte[] hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(password));
-                return Convert.ToBase64String(hashedBytes);
-            }
         }
 
         private string GenerateVerificationToken()

@@ -18,7 +18,11 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Email, opt => opt.MapFrom(src => src.Email.ToLower()))
                 .ForMember(dest => dest.FirstName, opt => opt.MapFrom(src => src.FirstName ?? string.Empty))
                 .ForMember(dest => dest.LastName, opt => opt.MapFrom(src => src.LastName ?? string.Empty))
-                .ForMember(dest => dest.Roles, opt => opt.MapFrom(src => new List<string> { UserRoles.Viewer }));
+                .ForMember(dest => dest.Roles, opt => opt.MapFrom(src => new List<string> { UserRoles.Viewer }))
+                .ForMember(dest => dest.Permissions, opt => opt.Ignore()) // Will be set based on roles in service
+                .ForMember(dest => dest.IsActive, opt => opt.MapFrom(src => true))
+                .ForMember(dest => dest.IsEmailVerified, opt => opt.MapFrom(src => false))
+                .ForMember(dest => dest.CreatedDate, opt => opt.MapFrom(src => DateTime.UtcNow));
 
             CreateMap<UserUpdateDto, User>()
                 .ForMember(dest => dest.Email, opt => opt.MapFrom(src => src.Email != null ? src.Email.ToLower() : null))
