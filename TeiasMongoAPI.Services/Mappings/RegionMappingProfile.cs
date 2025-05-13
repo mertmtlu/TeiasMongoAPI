@@ -1,30 +1,44 @@
 ﻿using AutoMapper;
+using MongoDB.Bson;
 using TeiasMongoAPI.Core.Models.KeyModels;
 using TeiasMongoAPI.Services.DTOs.Request.Region;
 using TeiasMongoAPI.Services.DTOs.Response.Region;
 
-public class RegionMappingProfile : Profile
+namespace TeiasMongoAPI.Services.Mappings
 {
-    public RegionMappingProfile()
+    public class RegionMappingProfile : Profile
     {
-        // Request to Domain
-        CreateMap<RegionCreateDto, Region>()
-            .ForMember(dest => dest.ClientID, opt => opt.MapFrom(src => ObjectId.Parse(src.ClientId)));
-        CreateMap<RegionUpdateDto, Region>()
-            .ForMember(dest => dest.ClientID, opt => opt.MapFrom(src => src.ClientId != null ? ObjectId.Parse(src.ClientId) : ObjectId.Empty))
-            .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
+        public RegionMappingProfile()
+        {
+            // Request to Domain
+            CreateMap<RegionCreateDto, Region>()
+                .ForMember(dest => dest.ClientID, opt => opt.MapFrom(src =>
+                    string.IsNullOrEmpty(src.ClientId) ? ObjectId.Empty : ObjectId.Parse(src.ClientId)));
 
-        // Domain to Response
-        CreateMap<Region, RegionDto>()
-            .ForMember(dest => dest.ClientId, opt => opt.MapFrom(src => src.ClientID.ToString()))
-            .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id));
-        CreateMap<Region, RegionSummaryDto>()
-            .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id))
-            .ForMember(dest => dest.CityCount, opt => opt.MapFrom(src => src.Cities.Count));
-        CreateMap<Region, RegionListDto>()
-            .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id));
-        CreateMap<Region, RegionDetailDto>()
-            .ForMember(dest => dest.ClientId, opt => opt.MapFrom(src => src.ClientID.ToString()))
-            .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id));
+            CreateMap<RegionUpdateDto, Region>()
+                .ForMember(dest => dest.ClientID, opt => opt.MapFrom(src =>
+                    string.IsNullOrEmpty(src.ClientId) ? ObjectId.Empty : ObjectId.Parse(src.ClientId)))
+                .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
+
+            // Domain to Response
+            CreateMap<Region, RegionDto>()
+                .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
+                .ForMember(dest => dest.ClientId, opt => opt.MapFrom(src => src.ClientID.ToString()))
+                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id)); // Numeric ID
+
+            CreateMap<Region, RegionSummaryDto>()
+                .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
+                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id))
+                .ForMember(dest => dest.CityCount, opt => opt.MapFrom(src => src.Cities.Count));
+
+            CreateMap<Region, RegionListDto>()
+                .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
+                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id));
+
+            CreateMap<Region, RegionDetailDto>()
+                .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
+                .ForMember(dest => dest.ClientId, opt => opt.MapFrom(src => src.ClientID.ToString()))
+                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id));
+        }
     }
 }
