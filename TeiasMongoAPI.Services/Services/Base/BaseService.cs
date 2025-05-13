@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 
@@ -8,11 +9,13 @@ namespace TeiasMongoAPI.Services.Services.Base
     {
         protected readonly IUnitOfWork _unitOfWork;
         protected readonly IMapper _mapper;
+        protected readonly ILogger _logger;
 
-        protected BaseService(IUnitOfWork unitOfWork, IMapper mapper)
+        protected BaseService(IUnitOfWork unitOfWork, IMapper mapper, ILogger logger)
         {
             _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
             _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         protected ObjectId ParseObjectId(string id)

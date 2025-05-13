@@ -24,5 +24,6 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<bool> ActivateAsync(string id, CancellationToken cancellationToken = default);
         Task<bool> DeactivateAsync(string id, CancellationToken cancellationToken = default);
         Task<UserProfileDto> GetProfileAsync(string id, CancellationToken cancellationToken = default);
+        Task<bool> RevokeAllTokensAsync(string userId, string revokedByIp, CancellationToken cancellationToken = default);
     }
 }

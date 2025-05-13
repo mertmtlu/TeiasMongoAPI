@@ -11,6 +11,7 @@ using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
 using TeiasMongoAPI.Services.Security;
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -18,10 +19,30 @@ namespace TeiasMongoAPI.Services.Services.Implementations
     {
         private readonly IPasswordHashingService _passwordHashingService;
 
-        public UserService(IUnitOfWork unitOfWork, IMapper mapper, IPasswordHashingService passwordHashingService)
-            : base(unitOfWork, mapper)
+        public UserService(
+            IUnitOfWork unitOfWork,
+            IMapper mapper,
+            IPasswordHashingService passwordHashingService,
+            ILogger<UserService> logger)
+            : base(unitOfWork, mapper, logger)
         {
             _passwordHashingService = passwordHashingService;
+        }
+
+        public async Task<bool> RevokeAllTokensAsync(string userId, string revokedByIp, CancellationToken cancellationToken = default)
+        {
+            var objectId = ParseObjectId(userId);
+            var user = await _unitOfWork.Users.GetByIdAsync(objectId, cancellationToken);
+
+            if (user == null)
+            {
+                throw new KeyNotFoundException($"User with ID {userId} not found.");
+            }
+
+            // Log the action
+            _logger.LogInformation("Revoking all tokens for user {UserId} from IP {IP}", userId, revokedByIp);
+
+            return await _unitOfWork.Users.RevokeAllUserRefreshTokensAsync(objectId, revokedByIp, cancellationToken);
         }
 
         public async Task<UserDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
@@ -37,25 +58,25 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var dto = _mapper.Map<UserDetailDto>(user);
 
             // Get assigned regions
-            var assignedRegions = new List<TeiasMongoAPI.Services.DTOs.Response.Region.RegionSummaryDto>();
+            var assignedRegions = new List<DTOs.Response.Region.RegionSummaryDto>();
             foreach (var regionId in user.AssignedRegions)
             {
                 var region = await _unitOfWork.Regions.GetByIdAsync(regionId, cancellationToken);
                 if (region != null)
                 {
-                    assignedRegions.Add(_mapper.Map<TeiasMongoAPI.Services.DTOs.Response.Region.RegionSummaryDto>(region));
+                    assignedRegions.Add(_mapper.Map<DTOs.Response.Region.RegionSummaryDto>(region));
                 }
             }
             dto.AssignedRegions = assignedRegions;
 
             // Get assigned TMs
-            var assignedTMs = new List<TeiasMongoAPI.Services.DTOs.Response.TM.TMSummaryDto>();
+            var assignedTMs = new List<DTOs.Response.TM.TMSummaryDto>();
             foreach (var tmId in user.AssignedTMs)
             {
                 var tm = await _unitOfWork.TMs.GetByIdAsync(tmId, cancellationToken);
                 if (tm != null)
                 {
-                    assignedTMs.Add(_mapper.Map<TeiasMongoAPI.Services.DTOs.Response.TM.TMSummaryDto>(tm));
+                    assignedTMs.Add(_mapper.Map<DTOs.Response.TM.TMSummaryDto>(tm));
                 }
             }
             dto.AssignedTMs = assignedTMs;

@@ -2,24 +2,22 @@
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.KeyModels;
 using TeiasMongoAPI.Services.DTOs.Request.AlternativeTM;
-using TeiasMongoAPI.Services.DTOs.Request.Common;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.AlternativeTM;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.DTOs.Response.Hazard;
 using RequestLocationDto = TeiasMongoAPI.Services.DTOs.Request.Common.LocationDto;
 using RequestAddressDto = TeiasMongoAPI.Services.DTOs.Request.Common.AddressDto;
-using ResponseLocationDto = TeiasMongoAPI.Services.DTOs.Response.Common.LocationDto;
-using ResponseAddressDto = TeiasMongoAPI.Services.DTOs.Response.Common.AddressDto;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
+using Microsoft.Extensions.Logging;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
     public class AlternativeTMService : BaseService, IAlternativeTMService
     {
-        public AlternativeTMService(IUnitOfWork unitOfWork, IMapper mapper)
-            : base(unitOfWork, mapper)
+        public AlternativeTMService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<AlternativeTMService> logger)
+            : base(unitOfWork, mapper, logger)
         {
         }
 

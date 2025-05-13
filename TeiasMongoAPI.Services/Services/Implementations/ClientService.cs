@@ -7,13 +7,14 @@ using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Client;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Services.Base;
+using Microsoft.Extensions.Logging;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
     public class ClientService : BaseService, IClientService
     {
-        public ClientService(IUnitOfWork unitOfWork, IMapper mapper)
-            : base(unitOfWork, mapper)
+        public ClientService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<ClientService> logger)
+            : base(unitOfWork, mapper, logger)
         {
         }
 
@@ -32,7 +33,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Get related regions
             var regions = await _unitOfWork.Regions.GetByClientIdAsync(objectId, cancellationToken);
             dto.RegionCount = regions.Count();
-            dto.Regions = _mapper.Map<List<TeiasMongoAPI.Services.DTOs.Response.Region.RegionSummaryDto>>(regions);
+            dto.Regions = _mapper.Map<List<DTOs.Response.Region.RegionSummaryDto>>(regions);
 
             return dto;
         }

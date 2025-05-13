@@ -15,6 +15,7 @@ using TeiasMongoAPI.Services.Services.Base;
 using TeiasMongoAPI.Services.Security;
 using TeiasMongoAPI.Core.Models.Configuration;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -31,8 +32,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         IConfiguration configuration,
         IUserService userService,
         IPasswordHashingService passwordHashingService,
-        IOptions<RefreshTokenSettings> refreshTokenSettings)
-        : base(unitOfWork, mapper)
+        IOptions<RefreshTokenSettings> refreshTokenSettings,
+        ILogger<AuthenticationService> logger)
+        : base(unitOfWork, mapper, logger)
         {
             _configuration = configuration;
             _userService = userService;

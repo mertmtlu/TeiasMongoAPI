@@ -1,4 +1,6 @@
 ﻿using AutoMapper;
+using DnsClient.Internal;
+using Microsoft.Extensions.Logging;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Block;
 using TeiasMongoAPI.Services.DTOs.Request.Block;
@@ -10,8 +12,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 {
     public class BlockService : BaseService, IBlockService
     {
-        public BlockService(IUnitOfWork unitOfWork, IMapper mapper)
-            : base(unitOfWork, mapper)
+        public BlockService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<BlockService> logger)
+            : base(unitOfWork, mapper, logger)
         {
         }
 

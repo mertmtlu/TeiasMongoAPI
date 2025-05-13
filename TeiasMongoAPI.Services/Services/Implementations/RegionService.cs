@@ -7,13 +7,14 @@ using TeiasMongoAPI.Services.DTOs.Request.Region;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.DTOs.Response.Region;
 using TeiasMongoAPI.Services.Services.Base;
+using Microsoft.Extensions.Logging;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
     public class RegionService : BaseService, IRegionService
     {
-        public RegionService(IUnitOfWork unitOfWork, IMapper mapper)
-            : base(unitOfWork, mapper)
+        public RegionService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<RegionService> logger)
+            : base(unitOfWork, mapper, logger)
         {
         }
 

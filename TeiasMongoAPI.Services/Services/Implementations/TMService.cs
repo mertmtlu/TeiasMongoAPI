@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using Microsoft.Extensions.Logging;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.KeyModels;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
@@ -13,8 +14,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 {
     public class TMService : BaseService, ITMService
     {
-        public TMService(IUnitOfWork unitOfWork, IMapper mapper)
-            : base(unitOfWork, mapper)
+        public TMService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<TMService> logger)
+            : base(unitOfWork, mapper, logger)
         {
         }
 
