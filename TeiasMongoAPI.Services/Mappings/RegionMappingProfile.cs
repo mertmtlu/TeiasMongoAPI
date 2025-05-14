@@ -24,21 +24,21 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<Region, RegionResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.ClientId, opt => opt.MapFrom(src => src.ClientID.ToString()))
-                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id)); // Numeric ID
+                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.RegionID)); // Numeric ID
 
             CreateMap<Region, RegionSummaryResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
-                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id))
+                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.RegionID))
                 .ForMember(dest => dest.CityCount, opt => opt.MapFrom(src => src.Cities.Count));
 
             CreateMap<Region, RegionListResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
-                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id));
+                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.RegionID));
 
             CreateMap<Region, RegionDetailResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.ClientId, opt => opt.MapFrom(src => src.ClientID.ToString()))
-                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.Id));
+                .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.RegionID));
         }
     }
 }

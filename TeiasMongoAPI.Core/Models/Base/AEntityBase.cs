@@ -15,6 +15,7 @@ namespace TeiasMongoAPI.Core.Models.Base
     public abstract class AEntityBase
     {
         [BsonId]
+        [BsonRepresentation(BsonType.ObjectId)]
         public ObjectId _ID { get; set; }
     }
 }

@@ -37,7 +37,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<TM, TMResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.RegionID.ToString()))
-                .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.Id))
+                .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.TmID))
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()))
                 .ForMember(dest => dest.State, opt => opt.MapFrom(src => src.State.ToString()))
                 .ForMember(dest => dest.Address, opt => opt.MapFrom(src => new AddressResponseDto
@@ -50,19 +50,19 @@ namespace TeiasMongoAPI.Services.Mappings
 
             CreateMap<TM, TMSummaryResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
-                .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.Id))
+                .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.TmID))
                 .ForMember(dest => dest.State, opt => opt.MapFrom(src => src.State.ToString()));
 
             CreateMap<TM, TMListResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
-                .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.Id))
+                .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.TmID))
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()))
                 .ForMember(dest => dest.State, opt => opt.MapFrom(src => src.State.ToString()));
 
             CreateMap<TM, TMDetailResponseDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.RegionId, opt => opt.MapFrom(src => src.RegionID.ToString()))
-                .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.Id))
+                .ForMember(dest => dest.TMId, opt => opt.MapFrom(src => src.TmID))
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()))
                 .ForMember(dest => dest.State, opt => opt.MapFrom(src => src.State.ToString()));
         }

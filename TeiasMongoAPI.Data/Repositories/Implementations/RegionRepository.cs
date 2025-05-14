@@ -26,7 +26,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         public async Task<Region> GetByNoAsync(int regionNo, CancellationToken cancellationToken = default)
         {
             return await _context.Regions
-                .Find(r => r.Id == regionNo)
+                .Find(r => r.RegionID == regionNo)
                 .FirstOrDefaultAsync(cancellationToken);
         }
 

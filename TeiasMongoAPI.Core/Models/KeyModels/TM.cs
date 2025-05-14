@@ -10,7 +10,7 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
     public class TM : AEntityBase
     {
         public required ObjectId RegionID { get; set; }
-        public int Id { get; set; }
+        public int TmID { get; set; }
         public required string Name { get; set; }
         public TMType Type { get; set; } = TMType.Default;
         public TMState State { get; set; } = TMState.Active;

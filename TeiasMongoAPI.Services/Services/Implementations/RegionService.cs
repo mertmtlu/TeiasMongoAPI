@@ -152,7 +152,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // If updating region ID, check uniqueness
-            if (dto.Id.HasValue && dto.Id.Value != existingRegion.Id)
+            if (dto.Id.HasValue && dto.Id.Value != existingRegion.RegionID)
             {
                 var regionWithSameId = await _unitOfWork.Regions.GetByNoAsync(dto.Id.Value, cancellationToken);
                 if (regionWithSameId != null)
