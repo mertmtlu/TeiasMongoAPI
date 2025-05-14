@@ -209,6 +209,55 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new PagedResponse<AlternativeTMSummaryResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
+        public async Task<AlternativeTMResponseDto> CreateFromTMAsync(string tmId, CreateFromTMDto dto, CancellationToken cancellationToken = default)
+        {
+            var tmObjectId = ParseObjectId(tmId);
+            var tm = await _unitOfWork.TMs.GetByIdAsync(tmObjectId, cancellationToken);
+
+            if (tm == null)
+            {
+                throw new KeyNotFoundException($"TM with ID {tmId} not found.");
+            }
+
+            // Create alternative TM based on the existing TM
+            var alternativeTM = new AlternativeTM
+            {
+                TmID = tmObjectId,
+                Location = _mapper.Map<Core.Models.Common.Location>(dto.Location),
+                City = dto.Address?.City ?? string.Empty,
+                County = dto.Address?.County ?? string.Empty,
+                District = dto.Address?.District ?? string.Empty,
+                Street = dto.Address?.Street ?? string.Empty,
+                DD1 = dto.CopyEarthquakeData ? tm.DD1 : new Core.Models.TMRelatedProperties.EarthquakeLevel(),
+                DD2 = dto.CopyEarthquakeData ? tm.DD2 : new Core.Models.TMRelatedProperties.EarthquakeLevel(),
+                DD3 = dto.CopyEarthquakeData ? tm.DD3 : new Core.Models.TMRelatedProperties.EarthquakeLevel(),
+                EarthquakeScenario = dto.CopyEarthquakeData ? tm.EarthquakeScenario : null,
+                Pollution = dto.CopyHazardData ? tm.Pollution : new Core.Models.TMRelatedProperties.Pollution
+                {
+                    PollutantLocation = dto.Location != null ? _mapper.Map<Core.Models.Common.Location>(dto.Location) : new Core.Models.Common.Location { Latitude = 0, Longitude = 0 },
+                    PollutantNo = 0
+                },
+                FireHazard = dto.CopyHazardData ? tm.FireHazard : new Core.Models.Hazard.FireHazard { PreviousIncidentOccurred = false, DistanceToInventory = 0 },
+                SecurityHazard = dto.CopyHazardData ? tm.SecurityHazard : new Core.Models.Hazard.SecurityHazard { PreviousIncidentOccurred = false, DistanceToInventory = 0 },
+                NoiseHazard = dto.CopyHazardData ? tm.NoiseHazard : new Core.Models.Hazard.NoiseHazard { PreviousIncidentOccurred = false, DistanceToInventory = 0 },
+                AvalancheHazard = dto.CopyHazardData ? tm.AvalancheHazard : new Core.Models.Hazard.AvalancheHazard
+                {
+                    PreviousIncidentOccurred = false,
+                    DistanceToInventory = 0,
+                    FirstHillLocation = dto.Location != null ? _mapper.Map<Core.Models.Common.Location>(dto.Location) : new Core.Models.Common.Location { Latitude = 0, Longitude = 0 }
+                },
+                LandslideHazard = dto.CopyHazardData ? tm.LandslideHazard : new Core.Models.Hazard.LandslideHazard { PreviousIncidentOccurred = false, DistanceToInventory = 0 },
+                RockFallHazard = dto.CopyHazardData ? tm.RockFallHazard : new Core.Models.Hazard.RockFallHazard { PreviousIncidentOccurred = false, DistanceToInventory = 0 },
+                FloodHazard = dto.CopyHazardData ? tm.FloodHazard : new Core.Models.Hazard.FloodHazard { PreviousIncidentOccurred = false, DistanceToInventory = 0 },
+                TsunamiHazard = dto.CopyHazardData ? tm.TsunamiHazard : new Core.Models.Hazard.TsunamiHazard { PreviousIncidentOccurred = false, DistanceToInventory = 0 },
+                Soil = dto.CopyHazardData ? tm.Soil : new Core.Models.TMRelatedProperties.Soil()
+            };
+
+            var createdAlternativeTM = await _unitOfWork.AlternativeTMs.CreateAsync(alternativeTM, cancellationToken);
+
+            return _mapper.Map<AlternativeTMResponseDto>(createdAlternativeTM);
+        }
+
         private HazardSummaryResponseDto CalculateHazardSummary(AlternativeTM tm)
         {
             var summary = new HazardSummaryResponseDto

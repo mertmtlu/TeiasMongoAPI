@@ -15,5 +15,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
         Task<RegionResponseDto> GetByNoAsync(int regionNo, CancellationToken cancellationToken = default);
         Task<RegionResponseDto> UpdateCitiesAsync(string id, RegionCityUpdateDto dto, CancellationToken cancellationToken = default);
+        Task<RegionStatisticsResponseDto> GetStatisticsAsync(string id, CancellationToken cancellationToken = default);
+        Task<List<RegionSummaryResponseDto>> GetRegionsInCityAsync(string city, CancellationToken cancellationToken = default);
     }
 }

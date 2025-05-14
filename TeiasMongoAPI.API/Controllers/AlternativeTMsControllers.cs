@@ -176,6 +176,7 @@ namespace TeiasMongoAPI.API.Controllers
             }, $"Compare alternatives for TM {tmId}");
         }
 
+        // Replace the existing CreateFromTM method in AlternativeTMsController:
         /// <summary>
         /// Create alternative TM from existing TM
         /// </summary>
@@ -190,10 +191,13 @@ namespace TeiasMongoAPI.API.Controllers
             var objectIdResult = ParseObjectId(tmId);
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
-            return await ExecuteAsync<AlternativeTMResponseDto>(async () =>
+            // Validate model state
+            var validationResult = ValidateModelState<AlternativeTMResponseDto>();
+            if (validationResult != null) return validationResult;
+
+            return await ExecuteAsync(async () =>
             {
-                // This would need to be implemented in the service
-                throw new NotImplementedException("Create from TM functionality not yet implemented");
+                return await _alternativeTMService.CreateFromTMAsync(tmId, dto, cancellationToken);
             }, $"Create alternative TM from TM {tmId}");
         }
     }

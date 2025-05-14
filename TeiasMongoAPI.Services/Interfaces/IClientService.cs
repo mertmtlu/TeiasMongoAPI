@@ -13,5 +13,6 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<ClientResponseDto> UpdateAsync(string id, ClientUpdateDto dto, CancellationToken cancellationToken = default);
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
         Task<ClientResponseDto> GetByNameAsync(string name, CancellationToken cancellationToken = default);
+        Task<ClientStatisticsResponseDto> GetStatisticsAsync(string id, CancellationToken cancellationToken = default);
     }
 }

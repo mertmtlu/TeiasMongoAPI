@@ -17,5 +17,6 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
         Task<BuildingResponseDto> AddBlockAsync(string buildingId, BuildingBlockAddDto dto, CancellationToken cancellationToken = default);
         Task<BuildingResponseDto> RemoveBlockAsync(string buildingId, BuildingBlockRemoveDto dto, CancellationToken cancellationToken = default);
+        Task<BuildingStatisticsResponseDto> GetStatisticsAsync(string buildingId, CancellationToken cancellationToken = default);
     }
 }

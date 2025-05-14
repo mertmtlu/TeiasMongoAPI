@@ -235,5 +235,61 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             return _mapper.Map<RegionResponseDto>(region);
         }
+
+        public async Task<RegionStatisticsResponseDto> GetStatisticsAsync(string id, CancellationToken cancellationToken = default)
+        {
+            var objectId = ParseObjectId(id);
+            var region = await _unitOfWork.Regions.GetByIdAsync(objectId, cancellationToken);
+
+            if (region == null)
+            {
+                throw new KeyNotFoundException($"Region with ID {id} not found.");
+            }
+
+            // Get TM statistics
+            var tms = await _unitOfWork.TMs.GetByRegionIdAsync(objectId, cancellationToken);
+            var tmsList = tms.ToList();
+
+            // Calculate building count
+            var buildingCount = 0;
+            foreach (var tm in tmsList)
+            {
+                var buildings = await _unitOfWork.Buildings.GetByTmIdAsync(tm._ID, cancellationToken);
+                buildingCount += buildings.Count();
+            }
+
+            // Create TMs per city statistics
+            var tmsPerCity = new Dictionary<string, int>();
+            foreach (var city in region.Cities)
+            {
+                var tmsInCity = tmsList.Count(tm => tm.City == city);
+                if (tmsInCity > 0)
+                {
+                    tmsPerCity[city] = tmsInCity;
+                }
+            }
+
+            return new RegionStatisticsResponseDto
+            {
+                RegionId = id,
+                CityCount = region.Cities.Count,
+                TMCount = tmsList.Count,
+                ActiveTMCount = tmsList.Count(tm => tm.State == TMState.Active),
+                BuildingCount = buildingCount,
+                TMsPerCity = tmsPerCity
+            };
+        }
+
+        public async Task<List<RegionSummaryResponseDto>> GetRegionsInCityAsync(string city, CancellationToken cancellationToken = default)
+        {
+            var allRegions = await _unitOfWork.Regions.GetAllAsync(cancellationToken);
+            var regionsInCity = allRegions
+                .Where(r => r.Cities.Contains(city, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+            var dtos = _mapper.Map<List<RegionSummaryResponseDto>>(regionsInCity);
+
+            return dtos;
+        }
     }
 }

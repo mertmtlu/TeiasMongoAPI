@@ -213,5 +213,66 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             return _mapper.Map<BlockSummaryResponseDto>(block);
         }
+
+        public async Task<BlockStatisticsResponseDto> GetBlockStatisticsAsync(string buildingId, string blockId, CancellationToken cancellationToken = default)
+        {
+            var block = await GetBlockAsync(buildingId, blockId, cancellationToken);
+
+            return new BlockStatisticsResponseDto
+            {
+                BlockId = blockId,
+                ModelingType = block.ModelingType,
+                Area = block.XAxisLength * block.YAxisLength,
+                Height = block.TotalHeight,
+                StoreyCount = block.StoreyHeight.Count,
+                AspectRatio = block.LongLength / block.ShortLength,
+                VolumeEstimate = block.XAxisLength * block.YAxisLength * block.TotalHeight
+            };
+        }
+
+        public async Task<BlockResponseDto> CopyBlockAsync(string buildingId, string blockId, CopyBlockDto dto, CancellationToken cancellationToken = default)
+        {
+            var block = await GetBlockAsync(buildingId, blockId, cancellationToken);
+
+            if (block is ConcreteBlockResponseDto concreteBlockSource)
+            {
+                var createDto = new ConcreteCreateDto
+                {
+                    ID = dto.NewBlockId,
+                    Name = dto.NewName ?? $"{block.Name} (Copy)",
+                    XAxisLength = block.XAxisLength,
+                    YAxisLength = block.YAxisLength,
+                    StoreyHeight = block.StoreyHeight,
+                    CompressiveStrengthOfConcrete = concreteBlockSource.CompressiveStrengthOfConcrete,
+                    YieldStrengthOfSteel = concreteBlockSource.YieldStrengthOfSteel,
+                    TransverseReinforcementSpacing = concreteBlockSource.TransverseReinforcementSpacing,
+                    ReinforcementRatio = concreteBlockSource.ReinforcementRatio,
+                    HookExists = concreteBlockSource.HookExists,
+                    IsStrengthened = concreteBlockSource.IsStrengthened
+                };
+
+                var createdBlock = await CreateConcreteBlockAsync(buildingId, createDto, cancellationToken);
+                return _mapper.Map<BlockResponseDto>(createdBlock);
+            }
+            else if (block is MasonryBlockResponseDto masonryBlockSource)
+            {
+                var createDto = new MasonryCreateDto
+                {
+                    ID = dto.NewBlockId,
+                    Name = dto.NewName ?? $"{block.Name} (Copy)",
+                    XAxisLength = block.XAxisLength,
+                    YAxisLength = block.YAxisLength,
+                    StoreyHeight = block.StoreyHeight,
+                    UnitTypeList = new List<MasonryUnitType>() // Note: proper implementation needed for unit type mapping
+                };
+
+                var createdBlock = await CreateMasonryBlockAsync(buildingId, createDto, cancellationToken);
+                return _mapper.Map<BlockResponseDto>(createdBlock);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Unknown block type: {block.ModelingType}");
+            }
+        }
     }
 }

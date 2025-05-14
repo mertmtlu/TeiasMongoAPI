@@ -18,5 +18,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<TMResponseDto> UpdateStateAsync(string id, TMStateUpdateDto dto, CancellationToken cancellationToken = default);
         Task<TMResponseDto> UpdateVoltagesAsync(string id, TMVoltageUpdateDto dto, CancellationToken cancellationToken = default);
         Task<TMResponseDto> GetByNameAsync(string name, CancellationToken cancellationToken = default);
+        Task<TMStatisticsResponseDto> GetStatisticsAsync(string id, CancellationToken cancellationToken = default);
+        Task<TMHazardSummaryResponseDto> GetHazardSummaryAsync(string id, CancellationToken cancellationToken = default);
     }
 }

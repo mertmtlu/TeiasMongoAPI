@@ -252,19 +252,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                var building = await _buildingService.GetByIdAsync(id, cancellationToken);
-                var stats = new BuildingStatisticsResponseDto
-                {
-                    BuildingId = id,
-                    BlockCount = building.BlockCount,
-                    ConcreteBlockCount = building.Blocks.Count(b => b.ModelingType == "Concrete"),
-                    MasonryBlockCount = building.Blocks.Count(b => b.ModelingType == "Masonry"),
-                    TotalArea = building.Blocks.Sum(b => b.XAxisLength * b.YAxisLength),
-                    MaxHeight = building.Blocks.Max(b => b.TotalHeight),
-                    Code = building.Code,
-                    BKS = building.BKS
-                };
-                return stats;
+                return await _buildingService.GetStatisticsAsync(id, cancellationToken);
             }, $"Get statistics for building {id}");
         }
     }

@@ -291,5 +291,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var updatedBuilding = await _unitOfWork.Buildings.GetByIdAsync(buildingObjectId, cancellationToken);
             return _mapper.Map<BuildingResponseDto>(updatedBuilding);
         }
+
+        public async Task<BuildingStatisticsResponseDto> GetStatisticsAsync(string buildingId, CancellationToken cancellationToken = default)
+        {
+            var building = await GetByIdAsync(buildingId, cancellationToken);
+
+            return new BuildingStatisticsResponseDto
+            {
+                BuildingId = buildingId,
+                BlockCount = building.BlockCount,
+                ConcreteBlockCount = building.Blocks.Count(b => b.ModelingType == "Concrete"),
+                MasonryBlockCount = building.Blocks.Count(b => b.ModelingType == "Masonry"),
+                TotalArea = building.Blocks.Sum(b => b.XAxisLength * b.YAxisLength),
+                MaxHeight = building.Blocks.Any() ? building.Blocks.Max(b => b.TotalHeight) : 0,
+                Code = building.Code,
+                BKS = building.BKS
+            };
+        }
     }
 }

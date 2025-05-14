@@ -17,6 +17,8 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
             _context = context;
         }
 
+        #region Building-related operations
+
         public async Task<IEnumerable<Building>> GetByTmIdAsync(ObjectId tmId, CancellationToken cancellationToken = default)
         {
             return await _context.Buildings
@@ -45,7 +47,10 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 .ToListAsync(cancellationToken);
         }
 
-        // Block-related operations
+        #endregion
+
+        #region Block-related operations
+
         public async Task<bool> AddBlockAsync(ObjectId buildingId, ABlock block, CancellationToken cancellationToken = default)
         {
             var filter = Builders<Building>.Filter.Eq(b => b._ID, buildingId);
@@ -102,5 +107,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
             var building = await GetByIdAsync(buildingId, cancellationToken);
             return building?.Blocks.OfType<T>() ?? Enumerable.Empty<T>();
         }
+
+        #endregion
     }
 }

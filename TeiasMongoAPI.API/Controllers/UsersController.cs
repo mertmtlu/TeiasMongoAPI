@@ -314,17 +314,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                var userDetail = await _userService.GetByIdAsync(id, cancellationToken);
-                var permissions = RolePermissions.GetUserPermissions(new User
-                {
-                    _ID = MongoDB.Bson.ObjectId.Parse(id),
-                    Email = userDetail.Email,
-                    Username = userDetail.Username,
-                    PasswordHash = string.Empty, // Not needed for permission calculation
-                    Roles = userDetail.Roles,
-                    Permissions = userDetail.Permissions
-                });
-                return permissions;
+                return await _userService.GetEffectivePermissionsAsync(id, cancellationToken);
             }, $"Get effective permissions for user {id}");
         }
 

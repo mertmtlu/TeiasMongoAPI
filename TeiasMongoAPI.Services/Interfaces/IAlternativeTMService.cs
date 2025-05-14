@@ -15,5 +15,6 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<List<AlternativeTMComparisonResponseDto>> CompareAlternativesAsync(string tmId, CancellationToken cancellationToken = default);
         Task<PagedResponse<AlternativeTMSummaryResponseDto>> GetByCityAsync(string city, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<AlternativeTMSummaryResponseDto>> GetByCountyAsync(string county, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<AlternativeTMResponseDto> CreateFromTMAsync(string tmId, CreateFromTMDto dto, CancellationToken cancellationToken = default);
     }
 }

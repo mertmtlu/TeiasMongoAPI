@@ -15,5 +15,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<MasonryBlockResponseDto> UpdateMasonryBlockAsync(string buildingId, string blockId, MasonryUpdateDto dto, CancellationToken cancellationToken = default);
         Task<bool> DeleteBlockAsync(string buildingId, string blockId, CancellationToken cancellationToken = default);
         Task<BlockSummaryResponseDto> GetBlockSummaryAsync(string buildingId, string blockId, CancellationToken cancellationToken = default);
+        Task<BlockStatisticsResponseDto> GetBlockStatisticsAsync(string buildingId, string blockId, CancellationToken cancellationToken = default);
+        Task<BlockResponseDto> CopyBlockAsync(string buildingId, string blockId, CopyBlockDto dto, CancellationToken cancellationToken = default);
     }
 }

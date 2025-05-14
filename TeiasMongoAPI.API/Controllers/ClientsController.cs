@@ -152,18 +152,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                var client = await _clientService.GetByIdAsync(id, cancellationToken);
-                var stats = new ClientStatisticsResponseDto
-                {
-                    ClientId = id,
-                    RegionCount = client.RegionCount,
-                    TotalTMs = client.Regions.Sum(r =>
-                    {
-                        // This would normally come from a more efficient aggregation query
-                        return 0; // Placeholder
-                    })
-                };
-                return stats;
+                return await _clientService.GetStatisticsAsync(id, cancellationToken);
             }, $"Get statistics for client {id}");
         }
     }

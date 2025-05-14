@@ -473,6 +473,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<UserProfileDto>(user);
         }
 
+        public async Task<List<string>> GetEffectivePermissionsAsync(string id, CancellationToken cancellationToken = default)
+        {
+            var objectId = ParseObjectId(id);
+            var user = await _unitOfWork.Users.GetByIdAsync(objectId, cancellationToken);
+
+            if (user == null)
+            {
+                throw new KeyNotFoundException($"User with ID {id} not found.");
+            }
+
+            // Get all permissions for the user (role-based + direct permissions)
+            return RolePermissions.GetUserPermissions(user);
+        }
+
         private string GenerateVerificationToken()
         {
             return Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));

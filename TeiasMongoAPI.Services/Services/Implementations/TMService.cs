@@ -1,14 +1,18 @@
 ﻿using AutoMapper;
+using DnsClient;
 using Microsoft.Extensions.Logging;
+using System.ComponentModel;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.KeyModels;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Request.Search;
 using TeiasMongoAPI.Services.DTOs.Request.TM;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
+using TeiasMongoAPI.Services.DTOs.Response.Hazard;
 using TeiasMongoAPI.Services.DTOs.Response.TM;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
+using ZstdSharp.Unsafe;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -337,8 +341,67 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 throw new KeyNotFoundException($"TM with name '{name}' not found.");
             }
-
             return _mapper.Map<TMResponseDto>(tm);
+        }
+
+        public async Task<TMStatisticsResponseDto> GetStatisticsAsync(string id, CancellationToken cancellationToken = default)
+        {
+            var tm = await GetByIdAsync(id, cancellationToken);
+
+            return new TMStatisticsResponseDto
+            {
+                TMId = id,
+                BuildingCount = tm.BuildingCount,
+                MaxVoltage = tm.MaxVoltage,
+                AlternativeTMCount = tm.AlternativeTMs.Count,
+                OverallRiskScore = CalculateOverallRiskScore(tm),
+                DaysSinceAcceptance = (DateTime.Now - tm.ProvisionalAcceptanceDate).Days
+            };
+        }
+
+        public async Task<TMHazardSummaryResponseDto> GetHazardSummaryAsync(string id, CancellationToken cancellationToken = default)
+        {
+            var tm = await GetByIdAsync(id, cancellationToken);
+
+            return new TMHazardSummaryResponseDto
+            {
+                TMId = id,
+                FireHazard = new HazardResponseDto
+                {
+                    Score = tm.FireHazard.Score,
+                    Level = tm.FireHazard.Level.ToString(),
+                    Description = tm.FireHazard.PreviousIncidentDescription
+                },
+                SecurityHazard = new HazardResponseDto
+                {
+                    Score = tm.SecurityHazard.Score,
+                    Level = tm.SecurityHazard.Level.ToString(),
+                    HasCCTV = tm.SecurityHazard.HasCCTV
+                },
+                FloodHazard = new HazardResponseDto
+                {
+                    Score = tm.FloodHazard.Score,
+                    Level = tm.FloodHazard.Level.ToString(),
+                    Description = tm.FloodHazard.IncidentDescription
+                },
+                OverallRiskScore = CalculateOverallRiskScore(tm)
+            };
+        }
+
+        private double CalculateOverallRiskScore(TMDetailResponseDto tm)
+        {
+            var scores = new[]
+            {
+                tm.FireHazard.Score,
+                tm.SecurityHazard.Score,
+                tm.NoiseHazard.Score,
+                tm.AvalancheHazard.Score,
+                tm.LandslideHazard.Score,
+                tm.RockFallHazard.Score,
+                tm.FloodHazard.Score,
+                tm.TsunamiHazard.Score
+            };
+            return scores.Max();
         }
     }
 }

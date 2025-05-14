@@ -236,17 +236,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                var tm = await _tmService.GetByIdAsync(id, cancellationToken);
-                var stats = new TMStatisticsResponseDto
-                {
-                    TMId = id,
-                    BuildingCount = tm.BuildingCount,
-                    MaxVoltage = tm.MaxVoltage,
-                    AlternativeTMCount = tm.AlternativeTMs.Count,
-                    OverallRiskScore = CalculateOverallRiskScore(tm),
-                    DaysSinceAcceptance = (DateTime.Now - tm.ProvisionalAcceptanceDate).Days
-                };
-                return stats;
+                return await _tmService.GetStatisticsAsync(id, cancellationToken);
             }, $"Get statistics for TM {id}");
         }
 
@@ -264,49 +254,8 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                var tm = await _tmService.GetByIdAsync(id, cancellationToken);
-                var summary = new TMHazardSummaryResponseDto
-                {
-                    TMId = id,
-                    FireHazard = new HazardResponseDto
-                    {
-                        Score = tm.FireHazard.Score,
-                        Level = tm.FireHazard.Level.ToString(),
-                        Description = tm.FireHazard.PreviousIncidentDescription
-                    },
-                    SecurityHazard = new HazardResponseDto
-                    {
-                        Score = tm.SecurityHazard.Score,
-                        Level = tm.SecurityHazard.Level.ToString(),
-                        HasCCTV = tm.SecurityHazard.HasCCTV
-                    },
-                    FloodHazard = new HazardResponseDto
-                    {
-                        Score = tm.FloodHazard.Score,
-                        Level = tm.FloodHazard.Level.ToString(),
-                        Description = tm.FloodHazard.IncidentDescription
-                    },
-                    OverallRiskScore = CalculateOverallRiskScore(tm)
-                };
-                return summary;
+                return await _tmService.GetHazardSummaryAsync(id, cancellationToken);
             }, $"Get hazard summary for TM {id}");
-        }
-
-        // Helper method
-        private double CalculateOverallRiskScore(TMDetailResponseDto tm)
-        {
-            var scores = new[]
-            {
-                tm.FireHazard.Score,
-                tm.SecurityHazard.Score,
-                tm.NoiseHazard.Score,
-                tm.AvalancheHazard.Score,
-                tm.LandslideHazard.Score,
-                tm.RockFallHazard.Score,
-                tm.FloodHazard.Score,
-                tm.TsunamiHazard.Score
-            };
-            return scores.Average();
         }
     }
 }

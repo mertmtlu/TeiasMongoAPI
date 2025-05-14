@@ -7,7 +7,6 @@ using TeiasMongoAPI.Services.DTOs.Request.Block;
 using TeiasMongoAPI.Services.DTOs.Response.Block;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Interfaces;
-using System.Linq;
 
 namespace TeiasMongoAPI.API.Controllers
 {
@@ -251,18 +250,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                var block = await _blockService.GetBlockAsync(buildingId, blockId, cancellationToken);
-                var stats = new BlockStatisticsResponseDto
-                {
-                    BlockId = blockId,
-                    ModelingType = block.ModelingType,
-                    Area = block.XAxisLength * block.YAxisLength,
-                    Height = block.TotalHeight,
-                    StoreyCount = block.StoreyHeight.Count,
-                    AspectRatio = block.LongLength / block.ShortLength,
-                    VolumeEstimate = block.XAxisLength * block.YAxisLength * block.TotalHeight
-                };
-                return stats;
+                return await _blockService.GetBlockStatisticsAsync(buildingId, blockId, cancellationToken);
             }, $"Get statistics for block {blockId} in building {buildingId}");
         }
 
@@ -281,55 +269,13 @@ namespace TeiasMongoAPI.API.Controllers
             var objectIdResult = ParseObjectId(buildingId, "buildingId");
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
-            // This is a simplified implementation - in a real system, you might want to add this to IBlockService
+            // Validate model state
+            var validationResult = ValidateModelState<BlockResponseDto>();
+            if (validationResult != null) return validationResult;
+
             return await ExecuteAsync(async () =>
             {
-                var block = await _blockService.GetBlockAsync(buildingId, blockId, cancellationToken);
-
-                // Create a copy with new ID
-                if (block is ConcreteBlockResponseDto concreteBlockSource)
-                {
-                    var createDto = new ConcreteCreateDto
-                    {
-                        ID = dto.NewBlockId,
-                        Name = dto.NewName ?? $"{block.Name} (Copy)",
-                        XAxisLength = block.XAxisLength,
-                        YAxisLength = block.YAxisLength,
-                        StoreyHeight = block.StoreyHeight,
-                        CompressiveStrengthOfConcrete = concreteBlockSource.CompressiveStrengthOfConcrete,
-                        YieldStrengthOfSteel = concreteBlockSource.YieldStrengthOfSteel,
-                        TransverseReinforcementSpacing = concreteBlockSource.TransverseReinforcementSpacing,
-                        ReinforcementRatio = concreteBlockSource.ReinforcementRatio,
-                        HookExists = concreteBlockSource.HookExists,
-                        IsStrengthened = concreteBlockSource.IsStrengthened
-                    };
-                    var createdConcreteBlock = await _blockService.CreateConcreteBlockAsync(buildingId, createDto, cancellationToken);
-                    // Cast ConcreteBlockDto to BlockDto
-                    BlockResponseDto result = createdConcreteBlock;
-                    return result;
-                }
-                else if (block is MasonryBlockResponseDto masonryBlockSource)
-                {
-                    var createDto = new MasonryCreateDto
-                    {
-                        ID = dto.NewBlockId,
-                        Name = dto.NewName ?? $"{block.Name} (Copy)",
-                        XAxisLength = block.XAxisLength,
-                        YAxisLength = block.YAxisLength,
-                        StoreyHeight = block.StoreyHeight,
-                        // Note: UnitTypeList mapping would need proper implementation
-                        // For now, creating empty list as MasonryUnitType is not fully defined
-                        UnitTypeList = new List<TeiasMongoAPI.Core.Models.Block.MasonryUnitType>()
-                    };
-                    var createdMasonryBlock = await _blockService.CreateMasonryBlockAsync(buildingId, createDto, cancellationToken);
-                    // Cast MasonryBlockDto to BlockDto
-                    BlockResponseDto result = createdMasonryBlock;
-                    return result;
-                }
-                else
-                {
-                    throw new InvalidOperationException($"Unknown block type: {block.ModelingType}");
-                }
+                return await _blockService.CopyBlockAsync(buildingId, blockId, dto, cancellationToken);
             }, $"Copy block {blockId} in building {buildingId}");
         }
     }

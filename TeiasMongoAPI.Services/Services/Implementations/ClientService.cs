@@ -151,5 +151,50 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             return _mapper.Map<ClientResponseDto>(client);
         }
+
+        public async Task<ClientStatisticsResponseDto> GetStatisticsAsync(string id, CancellationToken cancellationToken = default)
+        {
+            var objectId = ParseObjectId(id);
+            var client = await _unitOfWork.Clients.GetByIdAsync(objectId, cancellationToken);
+
+            if (client == null)
+            {
+                throw new KeyNotFoundException($"Client with ID {id} not found.");
+            }
+
+            // Get regions
+            var regions = await _unitOfWork.Regions.GetByClientIdAsync(objectId, cancellationToken);
+            var regionsList = regions.ToList();
+
+            // Calculate total TMs and buildings
+            var totalTMs = 0;
+            var totalBuildings = 0;
+            var activeTMs = 0;
+
+            foreach (var region in regionsList)
+            {
+                var tms = await _unitOfWork.TMs.GetByRegionIdAsync(region._ID, cancellationToken);
+                var tmsList = tms.ToList();
+
+                totalTMs += tmsList.Count;
+                activeTMs += tmsList.Count(tm => tm.State == TMState.Active);
+
+                // Count buildings for each TM
+                foreach (var tm in tmsList)
+                {
+                    var buildings = await _unitOfWork.Buildings.GetByTmIdAsync(tm._ID, cancellationToken);
+                    totalBuildings += buildings.Count();
+                }
+            }
+
+            return new ClientStatisticsResponseDto
+            {
+                ClientId = id,
+                RegionCount = regionsList.Count,
+                TotalTMs = totalTMs,
+                TotalBuildings = totalBuildings,
+                ActiveTMs = activeTMs
+            };
+        }
     }
 }
