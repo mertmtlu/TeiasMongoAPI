@@ -176,7 +176,6 @@ namespace TeiasMongoAPI.API.Controllers
             }, $"Compare alternatives for TM {tmId}");
         }
 
-        // Replace the existing CreateFromTM method in AlternativeTMsController:
         /// <summary>
         /// Create alternative TM from existing TM
         /// </summary>
