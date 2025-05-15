@@ -12,7 +12,6 @@ namespace TeiasMongoAPI.Services.DTOs.Response.User
         public string FullName { get; set; } = string.Empty;
         public List<string> Roles { get; set; } = new();
         public bool IsActive { get; set; }
-        public bool IsEmailVerified { get; set; }
         public DateTime? LastLoginDate { get; set; }
         public DateTime CreatedDate { get; set; }
     }

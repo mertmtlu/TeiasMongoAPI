@@ -38,13 +38,13 @@ namespace TeiasMongoAPI.API
             {
                 c.SwaggerDoc("v1", new OpenApiInfo
                 {
-                    Title = "Teias Mongo API",
-                    Version = "v1",
-                    Description = "API for managing Teias infrastructure data",
+                    Title = "API",
+                    Version = "v2",
+                    Description = "API for managing infrastructure data",
                     Contact = new OpenApiContact
                     {
-                        Name = "Teias Team",
-                        Email = "support@teias.com"
+                        Name = "Me",
+                        Email = "mertmtl0109@gmail.com"
                     }
                 });
 

@@ -27,14 +27,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly RefreshTokenSettings _refreshTokenSettings;
 
         public AuthenticationService(
-        IUnitOfWork unitOfWork,
-        IMapper mapper,
-        IConfiguration configuration,
-        IUserService userService,
-        IPasswordHashingService passwordHashingService,
-        IOptions<RefreshTokenSettings> refreshTokenSettings,
-        ILogger<AuthenticationService> logger)
-        : base(unitOfWork, mapper, logger)
+            IUnitOfWork unitOfWork,
+            IMapper mapper,
+            IConfiguration configuration,
+            IUserService userService,
+            IPasswordHashingService passwordHashingService,
+            IOptions<RefreshTokenSettings> refreshTokenSettings,
+            ILogger<AuthenticationService> logger)
+            : base(unitOfWork, mapper, logger)
         {
             _configuration = configuration;
             _userService = userService;
@@ -56,10 +56,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new UnauthorizedAccessException("User account is not active.");
             }
 
-            if (!user.IsEmailVerified)
-            {
-                throw new UnauthorizedAccessException("Email not verified. Please verify your email first.");
-            }
+            // Removed: Email verification check
 
             // Cleanup expired tokens on login if enabled
             if (_refreshTokenSettings.CleanupOnLogin)
@@ -201,21 +198,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             };
         }
 
-        public async Task<bool> VerifyEmailAsync(string token, CancellationToken cancellationToken = default)
-        {
-            var user = await _unitOfWork.Users.GetByEmailVerificationTokenAsync(token, cancellationToken);
-
-            if (user == null)
-            {
-                throw new InvalidOperationException("Invalid verification token.");
-            }
-
-            user.IsEmailVerified = true;
-            user.EmailVerificationToken = null;
-            user.ModifiedDate = DateTime.UtcNow;
-
-            return await _unitOfWork.Users.UpdateAsync(user._ID, user, cancellationToken);
-        }
+        // Removed: VerifyEmailAsync method
 
         public async Task<bool> RequestPasswordResetAsync(UserPasswordResetRequestDto dto, CancellationToken cancellationToken = default)
         {

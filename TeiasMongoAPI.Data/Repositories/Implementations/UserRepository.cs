@@ -51,13 +51,6 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
-        public async Task<User> GetByEmailVerificationTokenAsync(string verificationToken, CancellationToken cancellationToken = default)
-        {
-            return await _context.Users
-                .Find(u => u.EmailVerificationToken == verificationToken)
-                .FirstOrDefaultAsync(cancellationToken);
-        }
-
         public async Task<IEnumerable<User>> GetByRoleAsync(string role, CancellationToken cancellationToken = default)
         {
             return await _context.Users
@@ -72,17 +65,10 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 .ToListAsync(cancellationToken);
         }
 
-        public async Task<IEnumerable<User>> GetByRegionIdAsync(ObjectId regionId, CancellationToken cancellationToken = default)
+        public async Task<IEnumerable<User>> GetByClientIdAsync(ObjectId clientId, CancellationToken cancellationToken = default)
         {
             return await _context.Users
-                .Find(u => u.AssignedRegions.Contains(regionId))
-                .ToListAsync(cancellationToken);
-        }
-
-        public async Task<IEnumerable<User>> GetByTMIdAsync(ObjectId tmId, CancellationToken cancellationToken = default)
-        {
-            return await _context.Users
-                .Find(u => u.AssignedTMs.Contains(tmId))
+                .Find(u => u.AssignedClients.Contains(clientId))
                 .ToListAsync(cancellationToken);
         }
 
@@ -149,8 +135,6 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
 
             return await UpdateAsync(userId, user, cancellationToken);
         }
-
-        // Add to TeiasMongoAPI.Data/Repositories/Implementations/UserRepository.cs
 
         public async Task<bool> CleanupExpiredRefreshTokensAsync(ObjectId userId, int retentionDays = 30, CancellationToken cancellationToken = default)
         {

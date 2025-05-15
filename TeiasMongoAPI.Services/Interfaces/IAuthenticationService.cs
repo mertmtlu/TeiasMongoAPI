@@ -10,7 +10,6 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<bool> LogoutAsync(string refreshToken, string? ipAddress = null, CancellationToken cancellationToken = default);
         Task<bool> RevokeTokenAsync(string token, string? ipAddress = null, CancellationToken cancellationToken = default);
         Task<AuthenticationResponseDto> RegisterAsync(UserRegisterDto dto, CancellationToken cancellationToken = default);
-        Task<bool> VerifyEmailAsync(string token, CancellationToken cancellationToken = default);
         Task<bool> RequestPasswordResetAsync(UserPasswordResetRequestDto dto, CancellationToken cancellationToken = default);
         Task<PasswordResetResponseDto> ResetPasswordAsync(UserPasswordResetDto dto, CancellationToken cancellationToken = default);
         Task<bool> ChangePasswordAsync(string userId, UserPasswordChangeDto dto, CancellationToken cancellationToken = default);

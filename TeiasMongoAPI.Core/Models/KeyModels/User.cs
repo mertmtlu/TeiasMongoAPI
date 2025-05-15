@@ -1,7 +1,5 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
-using System;
-using System.Collections.Generic;
 using TeiasMongoAPI.Core.Models.Base;
 
 namespace TeiasMongoAPI.Core.Models.KeyModels
@@ -32,12 +30,6 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         [BsonElement("isActive")]
         public bool IsActive { get; set; } = true;
 
-        [BsonElement("isEmailVerified")]
-        public bool IsEmailVerified { get; set; } = false;
-
-        [BsonElement("emailVerificationToken")]
-        public string? EmailVerificationToken { get; set; }
-
         [BsonElement("passwordResetToken")]
         public string? PasswordResetToken { get; set; }
 
@@ -56,12 +48,8 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         [BsonElement("refreshTokens")]
         public List<RefreshToken> RefreshTokens { get; set; } = new();
 
-        // Navigation properties for user relationships
-        [BsonElement("assignedRegions")]
-        public List<ObjectId> AssignedRegions { get; set; } = new();
-
-        [BsonElement("assignedTMs")]
-        public List<ObjectId> AssignedTMs { get; set; } = new();
+        [BsonElement("assignedClients")]
+        public List<ObjectId> AssignedClients { get; set; } = new();
 
         [BsonIgnore]
         public string FullName => $"{FirstName} {LastName}".Trim();

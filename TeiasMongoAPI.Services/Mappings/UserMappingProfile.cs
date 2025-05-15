@@ -21,8 +21,9 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Roles, opt => opt.MapFrom(src => new List<string> { UserRoles.Viewer }))
                 .ForMember(dest => dest.Permissions, opt => opt.Ignore()) // Will be set based on roles in service
                 .ForMember(dest => dest.IsActive, opt => opt.MapFrom(src => true))
-                .ForMember(dest => dest.IsEmailVerified, opt => opt.MapFrom(src => false))
-                .ForMember(dest => dest.CreatedDate, opt => opt.MapFrom(src => DateTime.UtcNow));
+                // Removed: IsEmailVerified and EmailVerificationToken mappings
+                .ForMember(dest => dest.CreatedDate, opt => opt.MapFrom(src => DateTime.UtcNow))
+                .ForMember(dest => dest.AssignedClients, opt => opt.MapFrom(src => new List<ObjectId>()));
 
             CreateMap<UserUpdateDto, User>()
                 .ForMember(dest => dest.Email, opt => opt.MapFrom(src => src.Email != null ? src.Email.ToLower() : null))
@@ -31,14 +32,15 @@ namespace TeiasMongoAPI.Services.Mappings
             // Domain to Response
             CreateMap<User, UserDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()));
+            // Removed: IsEmailVerified mapping
 
             CreateMap<User, UserListDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()));
 
             CreateMap<User, UserDetailDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
-                .ForMember(dest => dest.AssignedRegionIds, opt => opt.MapFrom(src => src.AssignedRegions.Select(r => r.ToString())))
-                .ForMember(dest => dest.AssignedTMIds, opt => opt.MapFrom(src => src.AssignedTMs.Select(t => t.ToString())));
+                .ForMember(dest => dest.AssignedClientIds, opt => opt.MapFrom(src => src.AssignedClients.Select(c => c.ToString())));
+            // Removed: AssignedRegionIds and AssignedTMIds mappings
 
             CreateMap<User, UserProfileDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()));

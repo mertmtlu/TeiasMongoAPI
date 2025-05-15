@@ -8,7 +8,6 @@
         public string? LastName { get; set; }
         public List<string>? Roles { get; set; }
         public bool? IsActive { get; set; }
-        public bool? IsEmailVerified { get; set; }
         public DateTime? CreatedFrom { get; set; }
         public DateTime? CreatedTo { get; set; }
         public DateTime? LastLoginFrom { get; set; }

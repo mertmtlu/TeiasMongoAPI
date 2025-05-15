@@ -10,7 +10,6 @@ using TeiasMongoAPI.Services.DTOs.Response.User;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
 using TeiasMongoAPI.Services.Security;
-using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
@@ -39,7 +38,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"User with ID {userId} not found.");
             }
 
-            // Log the action
             _logger.LogInformation("Revoking all tokens for user {UserId} from IP {IP}", userId, revokedByIp);
 
             return await _unitOfWork.Users.RevokeAllUserRefreshTokensAsync(objectId, revokedByIp, cancellationToken);
@@ -57,29 +55,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             var dto = _mapper.Map<UserDetailDto>(user);
 
-            // Get assigned regions
-            var assignedRegions = new List<DTOs.Response.Region.RegionSummaryResponseDto>();
-            foreach (var regionId in user.AssignedRegions)
+            // Get assigned clients
+            var assignedClients = new List<DTOs.Response.Client.ClientSummaryResponseDto>();
+            foreach (var clientId in user.AssignedClients)
             {
-                var region = await _unitOfWork.Regions.GetByIdAsync(regionId, cancellationToken);
-                if (region != null)
+                var client = await _unitOfWork.Clients.GetByIdAsync(clientId, cancellationToken);
+                if (client != null)
                 {
-                    assignedRegions.Add(_mapper.Map<DTOs.Response.Region.RegionSummaryResponseDto>(region));
+                    assignedClients.Add(_mapper.Map<DTOs.Response.Client.ClientSummaryResponseDto>(client));
                 }
             }
-            dto.AssignedRegions = assignedRegions;
-
-            // Get assigned TMs
-            var assignedTMs = new List<DTOs.Response.TM.TMSummaryResponseDto>();
-            foreach (var tmId in user.AssignedTMs)
-            {
-                var tm = await _unitOfWork.TMs.GetByIdAsync(tmId, cancellationToken);
-                if (tm != null)
-                {
-                    assignedTMs.Add(_mapper.Map<DTOs.Response.TM.TMSummaryResponseDto>(tm));
-                }
-            }
-            dto.AssignedTMs = assignedTMs;
+            dto.AssignedClients = assignedClients;
 
             return dto;
         }
@@ -137,10 +123,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 filteredUsers = filteredUsers.Where(u => u.IsActive == searchDto.IsActive.Value);
             }
 
-            if (searchDto.IsEmailVerified.HasValue)
-            {
-                filteredUsers = filteredUsers.Where(u => u.IsEmailVerified == searchDto.IsEmailVerified.Value);
-            }
+            // Removed: IsEmailVerified filter
 
             if (searchDto.CreatedFrom.HasValue)
             {
@@ -198,7 +181,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             var user = _mapper.Map<User>(dto);
             user.PasswordHash = _passwordHashingService.HashPassword(dto.Password);
-            user.EmailVerificationToken = GenerateVerificationToken();
+            // Removed: EmailVerificationToken generation
 
             // Ensure permissions are populated based on roles
             user.Permissions = RolePermissions.GetUserPermissions(user);
@@ -321,7 +304,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<UserDto>(user);
         }
 
-        public async Task<UserDto> AssignRegionsAsync(string id, UserRegionAssignmentDto dto, CancellationToken cancellationToken = default)
+        // New method to assign clients
+        public async Task<UserDto> AssignClientsAsync(string id, UserClientAssignmentDto dto, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var user = await _unitOfWork.Users.GetByIdAsync(objectId, cancellationToken);
@@ -331,63 +315,27 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"User with ID {id} not found.");
             }
 
-            // Validate all regions exist
-            var regionObjectIds = new List<MongoDB.Bson.ObjectId>();
-            foreach (var regionId in dto.RegionIds)
+            // Validate all clients exist
+            var clientObjectIds = new List<MongoDB.Bson.ObjectId>();
+            foreach (var clientId in dto.ClientIds)
             {
-                var regionObjectId = ParseObjectId(regionId);
-                var region = await _unitOfWork.Regions.GetByIdAsync(regionObjectId, cancellationToken);
-                if (region == null)
+                var clientObjectId = ParseObjectId(clientId);
+                var client = await _unitOfWork.Clients.GetByIdAsync(clientObjectId, cancellationToken);
+                if (client == null)
                 {
-                    throw new InvalidOperationException($"Region with ID {regionId} not found.");
+                    throw new InvalidOperationException($"Client with ID {clientId} not found.");
                 }
-                regionObjectIds.Add(regionObjectId);
+                clientObjectIds.Add(clientObjectId);
             }
 
-            user.AssignedRegions = regionObjectIds;
+            user.AssignedClients = clientObjectIds;
             user.ModifiedDate = DateTime.UtcNow;
 
             var success = await _unitOfWork.Users.UpdateAsync(objectId, user, cancellationToken);
 
             if (!success)
             {
-                throw new InvalidOperationException($"Failed to assign regions to user with ID {id}.");
-            }
-
-            return _mapper.Map<UserDto>(user);
-        }
-
-        public async Task<UserDto> AssignTMsAsync(string id, UserTMAssignmentDto dto, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(id);
-            var user = await _unitOfWork.Users.GetByIdAsync(objectId, cancellationToken);
-
-            if (user == null)
-            {
-                throw new KeyNotFoundException($"User with ID {id} not found.");
-            }
-
-            // Validate all TMs exist
-            var tmObjectIds = new List<MongoDB.Bson.ObjectId>();
-            foreach (var tmId in dto.TMIds)
-            {
-                var tmObjectId = ParseObjectId(tmId);
-                var tm = await _unitOfWork.TMs.GetByIdAsync(tmObjectId, cancellationToken);
-                if (tm == null)
-                {
-                    throw new InvalidOperationException($"TM with ID {tmId} not found.");
-                }
-                tmObjectIds.Add(tmObjectId);
-            }
-
-            user.AssignedTMs = tmObjectIds;
-            user.ModifiedDate = DateTime.UtcNow;
-
-            var success = await _unitOfWork.Users.UpdateAsync(objectId, user, cancellationToken);
-
-            if (!success)
-            {
-                throw new InvalidOperationException($"Failed to assign TMs to user with ID {id}.");
+                throw new InvalidOperationException($"Failed to assign clients to user with ID {id}.");
             }
 
             return _mapper.Map<UserDto>(user);
@@ -485,11 +433,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             // Get all permissions for the user (role-based + direct permissions)
             return RolePermissions.GetUserPermissions(user);
-        }
-
-        private string GenerateVerificationToken()
-        {
-            return Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         }
     }
 }

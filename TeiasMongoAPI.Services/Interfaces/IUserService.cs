@@ -17,8 +17,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
         Task<UserDto> UpdateRolesAsync(string id, UserRoleUpdateDto dto, CancellationToken cancellationToken = default);
         Task<UserDto> UpdatePermissionsAsync(string id, UserPermissionUpdateDto dto, CancellationToken cancellationToken = default);
-        Task<UserDto> AssignRegionsAsync(string id, UserRegionAssignmentDto dto, CancellationToken cancellationToken = default);
-        Task<UserDto> AssignTMsAsync(string id, UserTMAssignmentDto dto, CancellationToken cancellationToken = default);
+        Task<UserDto> AssignClientsAsync(string id, UserClientAssignmentDto dto, CancellationToken cancellationToken = default);
         Task<UserDto> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
         Task<UserDto> GetByUsernameAsync(string username, CancellationToken cancellationToken = default);
         Task<bool> ActivateAsync(string id, CancellationToken cancellationToken = default);

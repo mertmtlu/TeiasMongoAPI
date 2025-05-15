@@ -190,27 +190,6 @@ namespace TeiasMongoAPI.API.Controllers
         }
 
         /// <summary>
-        /// Verify email address using token
-        /// </summary>
-        [HttpPost("verify-email")]
-        [AllowAnonymous]
-        [RateLimit(requestsPerMinute: 5, identifier: "verify-email")]
-        public async Task<ActionResult<ApiResponse<bool>>> VerifyEmail(
-            [FromQuery] string token,
-            CancellationToken cancellationToken = default)
-        {
-            if (string.IsNullOrEmpty(token))
-            {
-                return ValidationError<bool>("Invalid verification token");
-            }
-
-            return await ExecuteAsync(async () =>
-            {
-                return await _authenticationService.VerifyEmailAsync(token, cancellationToken);
-            }, "Email verification");
-        }
-
-        /// <summary>
         /// Change password for authenticated user
         /// </summary>
         [HttpPost("change-password")]

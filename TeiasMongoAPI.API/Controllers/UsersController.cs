@@ -320,17 +320,17 @@ namespace TeiasMongoAPI.API.Controllers
 
         #endregion
 
-        #region Assignment Management
+        #region Client Assignment Management
 
         /// <summary>
-        /// Assign regions to user
+        /// Assign clients to user
         /// </summary>
-        [HttpPut("{id}/regions")]
+        [HttpPut("{id}/clients")]
         [RequirePermission(UserPermissions.UpdateUsers)]
-        [AuditLog("AssignUserRegions")]
-        public async Task<ActionResult<ApiResponse<UserDto>>> AssignRegions(
+        [AuditLog("AssignUserClients")]
+        public async Task<ActionResult<ApiResponse<UserDto>>> AssignClients(
             string id,
-            [FromBody] UserRegionAssignmentDto dto,
+            [FromBody] UserClientAssignmentDto dto,
             CancellationToken cancellationToken = default)
         {
             var objectIdResult = ParseObjectId(id);
@@ -340,72 +340,13 @@ namespace TeiasMongoAPI.API.Controllers
             var validationResult = ValidateModelState<UserDto>();
             if (validationResult != null) return validationResult;
 
-            return await ExecuteAsync(async () =>
-            {
-                return await _userService.AssignRegionsAsync(id, dto, cancellationToken);
-            }, $"Assign regions to user {id}");
-        }
-
-        /// <summary>
-        /// Get user's assigned regions
-        /// </summary>
-        [HttpGet("{id}/regions")]
-        [RequirePermission(UserPermissions.ViewUsers)]
-        public async Task<ActionResult<ApiResponse<List<string>>>> GetAssignedRegions(
-            string id,
-            CancellationToken cancellationToken = default)
-        {
-            var objectIdResult = ParseObjectId(id);
-            if (objectIdResult.Result != null) return objectIdResult.Result!;
+            // Update dto.UserId to match the id parameter
+            dto.UserId = id;
 
             return await ExecuteAsync(async () =>
             {
-                var user = await _userService.GetByIdAsync(id, cancellationToken);
-                return user.AssignedRegionIds;
-            }, $"Get assigned regions for user {id}");
-        }
-
-        /// <summary>
-        /// Assign TMs to user
-        /// </summary>
-        [HttpPut("{id}/tms")]
-        [RequirePermission(UserPermissions.UpdateUsers)]
-        [AuditLog("AssignUserTMs")]
-        public async Task<ActionResult<ApiResponse<UserDto>>> AssignTMs(
-            string id,
-            [FromBody] UserTMAssignmentDto dto,
-            CancellationToken cancellationToken = default)
-        {
-            var objectIdResult = ParseObjectId(id);
-            if (objectIdResult.Result != null) return objectIdResult.Result!;
-
-            // Validate model state
-            var validationResult = ValidateModelState<UserDto>();
-            if (validationResult != null) return validationResult;
-
-            return await ExecuteAsync(async () =>
-            {
-                return await _userService.AssignTMsAsync(id, dto, cancellationToken);
-            }, $"Assign TMs to user {id}");
-        }
-
-        /// <summary>
-        /// Get user's assigned TMs
-        /// </summary>
-        [HttpGet("{id}/tms")]
-        [RequirePermission(UserPermissions.ViewUsers)]
-        public async Task<ActionResult<ApiResponse<List<string>>>> GetAssignedTMs(
-            string id,
-            CancellationToken cancellationToken = default)
-        {
-            var objectIdResult = ParseObjectId(id);
-            if (objectIdResult.Result != null) return objectIdResult.Result!;
-
-            return await ExecuteAsync(async () =>
-            {
-                var user = await _userService.GetByIdAsync(id, cancellationToken);
-                return user.AssignedTMIds;
-            }, $"Get assigned TMs for user {id}");
+                return await _userService.AssignClientsAsync(id, dto, cancellationToken);
+            }, $"Assign clients to user {id}");
         }
 
         #endregion
@@ -450,24 +391,7 @@ namespace TeiasMongoAPI.API.Controllers
             }, $"Deactivate user {id}");
         }
 
-        /// <summary>
-        /// Resend verification email
-        /// </summary>
-        [HttpPost("{id}/send-verification")]
-        [RequirePermission(UserPermissions.UpdateUsers)]
-        public async Task<ActionResult<ApiResponse<bool>>> ResendVerificationEmail(
-            string id,
-            CancellationToken cancellationToken = default)
-        {
-            var objectIdResult = ParseObjectId(id);
-            if (objectIdResult.Result != null) return objectIdResult.Result!;
-
-            return await ExecuteAsync<bool>(async () =>
-            {
-                // TODO: Implement email service integration
-                throw new NotImplementedException("Email service not yet implemented");
-            }, $"Resend verification email for user {id}");
-        }
+        // Removed: ResendVerificationEmail - no longer needed
 
         /// <summary>
         /// Revoke all refresh tokens for user
