@@ -161,16 +161,42 @@ namespace TeiasMongoAPI.API
             builder.Services.AddHostedService<TokenCleanupService>();
 
             // Configure CORS
+            //builder.Services.AddCors(options =>
+            //{
+            //    options.AddPolicy("AllowSpecificOrigins",
+            //        corsPolicyBuilder =>
+            //        {
+            //            corsPolicyBuilder
+            //                .WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:3000" })
+            //                .AllowAnyMethod()
+            //                .AllowAnyHeader()
+            //                .AllowCredentials();
+            //        });
+            //});
+
+            // Configure CORS for development
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowSpecificOrigins",
                     corsPolicyBuilder =>
                     {
-                        corsPolicyBuilder
-                            .WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:3000" })
-                            .AllowAnyMethod()
-                            .AllowAnyHeader()
-                            .AllowCredentials();
+                        if (builder.Environment.IsDevelopment())
+                        {
+                            // More permissive for development
+                            corsPolicyBuilder
+                                .AllowAnyOrigin()
+                                .AllowAnyMethod()
+                                .AllowAnyHeader();
+                        }
+                        else
+                        {
+                            // Production CORS
+                            corsPolicyBuilder
+                                .WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? new[] { "http://localhost:3000" })
+                                .AllowAnyMethod()
+                                .AllowAnyHeader()
+                                .AllowCredentials();
+                        }
                     });
             });
 

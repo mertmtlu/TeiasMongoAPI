@@ -14,7 +14,7 @@
       "dotnetRunMessages": true,
       "launchBrowser": true,
       "launchUrl": "swagger",
-      "applicationUrl": "http://localhost:5090",
+      "applicationUrl": "http://0.0.0.0:5090", // Changed from localhost
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
@@ -24,7 +24,17 @@
       "dotnetRunMessages": true,
       "launchBrowser": true,
       "launchUrl": "swagger",
-      "applicationUrl": "https://localhost:7058;http://localhost:5090",
+      "applicationUrl": "https://0.0.0.0:7058;http://0.0.0.0:5090", // Changed from localhost
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "network": { // New profile for network access
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "applicationUrl": "http://*:5090;https://*:7058", // Binds to all interfaces
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
