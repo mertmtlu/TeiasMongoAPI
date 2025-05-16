@@ -18,7 +18,7 @@ namespace TeiasMongoAPI.Services.Validators.Region
                 .Must(BeValidObjectId).WithMessage("Invalid Client ID format")
                 .MustAsync(ClientExists).WithMessage("Client not found");
 
-            RuleFor(x => x.Id)
+            RuleFor(x => x.RegionId)
                 .NotEmpty().WithMessage("Region ID is required")
                 .GreaterThan(0).WithMessage("Region ID must be greater than 0")
                 .MustAsync(BeUniqueRegionId).WithMessage("Region ID already exists");

@@ -11,7 +11,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.TM
         public required string RegionId { get; set; }
 
         [Required]
-        public int Id { get; set; }
+        public int TmID { get; set; }
 
         [Required]
         [MaxLength(200)]
@@ -41,7 +41,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.TM
         [Required]
         public required EarthquakeLevelDto DD3 { get; set; }
 
-        public EarthquakeLevelDto? EarthquakeScenario { get; set; }
+        public EarthquakeLevelDto? EarthquakeScenario { get; set; } = null;
 
         [Required]
         public required PollutionDto Pollution { get; set; }
