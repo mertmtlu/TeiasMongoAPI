@@ -20,7 +20,7 @@ namespace TeiasMongoAPI.Services.Validators.TM
                 .Must(BeValidObjectId).WithMessage("Invalid Region ID format")
                 .MustAsync(RegionExists).WithMessage("Region not found");
 
-            RuleFor(x => x.TmID)
+            RuleFor(x => x.Id)
                 .GreaterThan(0).WithMessage("TM ID must be greater than 0");
 
             RuleFor(x => x.Name)

@@ -9,7 +9,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Region
 
         [Required]
         [Range(1, int.MaxValue)]
-        public int RegionId { get; set; }
+        public int Id { get; set; }
 
         [Required]
         [MinLength(1)]
