@@ -12,7 +12,12 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         ITMRepository TMs { get; }
         IBuildingRepository Buildings { get; }
         IAlternativeTMRepository AlternativeTMs { get; }
-        
+        IProgramRepository Programs { get; }
+        IVersionRepository Versions { get; }
+        IUiComponentRepository UiComponents { get; }
+        IRequestRepository Requests { get; }
+        IExecutionRepository Executions { get; }
+
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
         Task BeginTransactionAsync(CancellationToken cancellationToken = default);
         Task CommitTransactionAsync(CancellationToken cancellationToken = default);

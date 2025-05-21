@@ -17,6 +17,11 @@ namespace TeiasMongoAPI.Data.Repositories
         private ITMRepository? _tms;
         private IBuildingRepository? _buildings;
         private IAlternativeTMRepository? _alternativeTMs;
+        private IProgramRepository? _programs;
+        private IVersionRepository? _versions;
+        private IUiComponentRepository? _uiComponents;
+        private IRequestRepository? _requests;
+        private IExecutionRepository? _executions;
 
         public UnitOfWork(MongoDbContext context)
         {
@@ -29,6 +34,11 @@ namespace TeiasMongoAPI.Data.Repositories
         public ITMRepository TMs => _tms ??= new TMRepository(_context);
         public IBuildingRepository Buildings => _buildings ??= new BuildingRepository(_context);
         public IAlternativeTMRepository AlternativeTMs => _alternativeTMs ??= new AlternativeTMRepository(_context);
+        //public IProgramRepository Programs => _programs ??= new ProgramRepository(_context);
+        //public IVersionRepository Versions => _versions ??= new VersionRepository(_context);
+        //public IUiComponentRepository UiComponents => _uiComponents ??= new UiComponentRepository(_context);
+        //public IRequestRepository Requests => _requests  ??= new RequestRepository(_context);
+        //public IExecutionRepository Executions => _executions ??= new ExecutionRepository(_context);
 
         public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
