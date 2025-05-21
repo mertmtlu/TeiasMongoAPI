@@ -1,6 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<ItemGroup>
+	  <Compile Remove="Extensions\**" />
+	  <EmbeddedResource Remove="Extensions\**" />
+	  <None Remove="Extensions\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\TeiasMongoAPI.Data\TeiasMongoAPI.Data.csproj" />
 		<ProjectReference Include="..\TeiasMongoAPI.Core\TeiasMongoAPI.Core.csproj" />
 		<ProjectReference Include="..\TeiasMongoAPI.Common\TeiasMongoAPI.Common.csproj" />
@@ -14,10 +20,6 @@
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
 		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.9.0" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<Folder Include="Extensions\" />
 	</ItemGroup>
 
 	<PropertyGroup>

@@ -21,13 +21,15 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         {
             get
             {
-                switch (Type)
+                int code = Type switch
                 {
-                    case BuildingType.Control: return 1;
-                    case BuildingType.Switchyard: return 2;
-                    case BuildingType.Security: return 10;
-                    default: return 0;
-                }
+                    BuildingType.Control => 1,
+                    BuildingType.Switchyard => 2,
+                    BuildingType.Security => 10,
+                    _ => 1
+                };
+
+                return code;
             }
         }
         [BsonIgnore]

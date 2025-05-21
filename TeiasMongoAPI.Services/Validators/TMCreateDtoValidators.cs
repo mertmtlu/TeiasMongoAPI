@@ -20,7 +20,7 @@ namespace TeiasMongoAPI.Services.Validators.TM
                 .Must(BeValidObjectId).WithMessage("Invalid Region ID format")
                 .MustAsync(RegionExists).WithMessage("Region not found");
 
-            RuleFor(x => x.Id)
+            RuleFor(x => x.TmId)
                 .GreaterThan(0).WithMessage("TM ID must be greater than 0");
 
             RuleFor(x => x.Name)
@@ -40,42 +40,7 @@ namespace TeiasMongoAPI.Services.Validators.TM
                 .Must(BeValidDate).When(x => x.ProvisionalAcceptanceDate.HasValue)
                 .WithMessage("Provisional acceptance date must not be in the future");
 
-            // Earthquake level validators
-            RuleFor(x => x.DD1).NotNull().WithMessage("DD1 is required")
-                .SetValidator(new EarthquakeLevelDtoValidator());
-            RuleFor(x => x.DD2).NotNull().WithMessage("DD2 is required")
-                .SetValidator(new EarthquakeLevelDtoValidator());
-            RuleFor(x => x.DD3).NotNull().WithMessage("DD3 is required")
-                .SetValidator(new EarthquakeLevelDtoValidator());
 
-            When(x => x.EarthquakeScenario != null, () =>
-            {
-                RuleFor(x => x.EarthquakeScenario)
-                    .SetValidator(new EarthquakeLevelDtoValidator());
-            });
-
-            // Hazard validators
-            RuleFor(x => x.Pollution).NotNull().WithMessage("Pollution data is required")
-                .SetValidator(new PollutionDtoValidator());
-            RuleFor(x => x.FireHazard).NotNull().WithMessage("Fire hazard data is required")
-                .SetValidator(new FireHazardDtoValidator());
-            RuleFor(x => x.SecurityHazard).NotNull().WithMessage("Security hazard data is required")
-                .SetValidator(new SecurityHazardDtoValidator());
-            RuleFor(x => x.NoiseHazard).NotNull().WithMessage("Noise hazard data is required")
-                .SetValidator(new NoiseHazardDtoValidator());
-            RuleFor(x => x.AvalancheHazard).NotNull().WithMessage("Avalanche hazard data is required")
-                .SetValidator(new AvalancheHazardDtoValidator());
-            RuleFor(x => x.LandslideHazard).NotNull().WithMessage("Landslide hazard data is required")
-                .SetValidator(new LandslideHazardDtoValidator());
-            RuleFor(x => x.RockFallHazard).NotNull().WithMessage("Rock fall hazard data is required")
-                .SetValidator(new RockFallHazardDtoValidator());
-            RuleFor(x => x.FloodHazard).NotNull().WithMessage("Flood hazard data is required")
-                .SetValidator(new FloodHazardDtoValidator());
-            RuleFor(x => x.TsunamiHazard).NotNull().WithMessage("Tsunami hazard data is required")
-                .SetValidator(new TsunamiHazardDtoValidator());
-
-            RuleFor(x => x.Soil).NotNull().WithMessage("Soil data is required")
-                .SetValidator(new SoilDtoValidator());
         }
 
         private bool BeValidObjectId(string objectId)

@@ -118,10 +118,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Check if region with same ID exists
-            var existingRegion = await _unitOfWork.Regions.GetByNoAsync(dto.Id, cancellationToken);
+            var existingRegion = await _unitOfWork.Regions.GetByNoAsync(dto.RegionId, cancellationToken);
             if (existingRegion != null)
             {
-                throw new InvalidOperationException($"Region with ID {dto.Id} already exists.");
+                throw new InvalidOperationException($"Region with ID {dto.RegionId} already exists.");
             }
 
             var region = _mapper.Map<Region>(dto);

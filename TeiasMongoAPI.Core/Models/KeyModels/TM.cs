@@ -22,20 +22,20 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         public string County { get; set; } = string.Empty;
         public string District { get; set; } = string.Empty;
         public string Street { get; set; } = string.Empty;
-        public required EarthquakeLevel DD1 { get; set; }
-        public required EarthquakeLevel DD2 { get; set; }
-        public required EarthquakeLevel DD3 { get; set; }
+        public EarthquakeLevel? DD1 { get; set; } = null;
+        public EarthquakeLevel? DD2 { get; set; } = null;
+        public EarthquakeLevel? DD3 { get; set; } = null;
         public EarthquakeLevel? EarthquakeScenario { get; set; } = null;
-        public required Pollution Pollution { get; set; }
-        public required FireHazard FireHazard { get; set; }
-        public required SecurityHazard SecurityHazard { get; set; }
-        public required NoiseHazard NoiseHazard { get; set; }
-        public required AvalancheHazard AvalancheHazard { get; set; }
-        public required LandslideHazard LandslideHazard { get; set; }
-        public required RockFallHazard RockFallHazard { get; set; }
-        public required FloodHazard FloodHazard { get; set; }
-        public required TsunamiHazard TsunamiHazard { get; set; }
-        public required Soil Soil { get; set; }
+        public Pollution? Pollution { get; set; } = null;
+        public FireHazard? FireHazard { get; set; } = null;
+        public SecurityHazard? SecurityHazard { get; set; } = null;
+        public NoiseHazard? NoiseHazard { get; set; } = null;
+        public AvalancheHazard? AvalancheHazard { get; set; } = null;
+        public LandslideHazard? LandslideHazard { get; set; } = null;
+        public RockFallHazard? RockFallHazard { get; set; } = null;
+        public FloodHazard? FloodHazard { get; set; } = null;
+        public TsunamiHazard? TsunamiHazard { get; set; } = null;
+        public Soil? Soil { get; set; } = null;
     }
 
     public enum TMType

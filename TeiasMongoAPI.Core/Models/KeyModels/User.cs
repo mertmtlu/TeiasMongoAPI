@@ -28,7 +28,7 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         public List<string> Permissions { get; set; } = new();
 
         [BsonElement("isActive")]
-        public bool IsActive { get; set; } = true;
+        public bool IsActive { get; set; } = false;
 
         [BsonElement("passwordResetToken")]
         public string? PasswordResetToken { get; set; }
