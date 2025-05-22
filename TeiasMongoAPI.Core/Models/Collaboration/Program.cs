@@ -21,6 +21,25 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public string? CurrentVersion { get; set; }  // Reference to version ID
         public ProgramPermissions Permissions { get; set; } = new ProgramPermissions();
         public object Metadata { get; set; } = new object();  // Extensible metadata
+        public AppDeploymentInfo? DeploymentInfo { get; set; }
+    }
+
+    public class AppDeploymentInfo
+    {
+        public AppDeploymentType DeploymentType { get; set; }
+        public Dictionary<string, object> Configuration { get; set; } = new();
+        public DateTime? LastDeployed { get; set; }
+        public string Status { get; set; } = "inactive"; // inactive, active, building, failed
+        public List<string> SupportedFeatures { get; set; } = new();
+    }
+
+    public enum AppDeploymentType
+    {
+        SourceCode,        // Traditional code execution
+        PreBuiltWebApp,    // Upload dist/ folder
+        DockerContainer,   // Upload Dockerfile + source
+        StaticSite,        // Pure HTML/CSS/JS
+        MicroFrontend      // Web components/Angular Elements
     }
 
     public class ProgramPermissions
