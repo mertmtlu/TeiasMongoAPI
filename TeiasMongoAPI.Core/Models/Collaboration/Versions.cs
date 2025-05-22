@@ -35,5 +35,7 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public string Hash { get; set; } = string.Empty;  // Content hash for change detection
 
         public long Size { get; set; }  // File size in bytes
+
+        public string FileType {  get; set; } = string.Empty;
     }
 }

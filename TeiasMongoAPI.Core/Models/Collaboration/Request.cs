@@ -29,6 +29,10 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public List<RequestResponse> Responses { get; set; } = new List<RequestResponse>();
 
         public object Metadata { get; set; } = new object();  // Request-specific data
+        
+        public ObjectId? RelatedEntityId { get; set; }
+
+        public string RelatedEntityType { get; set; } = string.Empty;
     }
 
     public class RequestResponse
