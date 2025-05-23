@@ -26,5 +26,7 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public object Schema { get; set; } = new object();  // Expected inputs/outputs schema
 
         public string Status { get; set; } = "draft";  // draft, active, deprecated
+
+        public List<string> Tags { get; set; } = new();
     }
 }
