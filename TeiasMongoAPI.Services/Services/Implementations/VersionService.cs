@@ -1,6 +1,5 @@
 ﻿using AutoMapper;
 using Microsoft.Extensions.Logging;
-using MongoDB.Bson;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
@@ -15,12 +14,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 {
     public class VersionService : BaseService, IVersionService
     {
+        private readonly IFileStorageService _fileStorageService;
+        private readonly IProgramService _programService;
+
         public VersionService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
+            IFileStorageService fileStorageService,
+            IProgramService programService,
             ILogger<VersionService> logger)
             : base(unitOfWork, mapper, logger)
         {
+            _fileStorageService = fileStorageService;
+            _programService = programService;
         }
 
         #region Basic CRUD Operations
@@ -37,8 +43,52 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             var dto = _mapper.Map<VersionDetailDto>(version);
 
-            // Enrich with additional data
-            await EnrichVersionDetailAsync(dto, version, cancellationToken);
+            // Get program details
+            var program = await _unitOfWork.Programs.GetByIdAsync(version.ProgramId, cancellationToken);
+            if (program != null)
+            {
+                dto.ProgramName = program.Name;
+
+                // Check if this is the current version
+                dto.Stats.IsCurrentVersion = program.CurrentVersion == id;
+            }
+
+            // Get creator name
+            try
+            {
+                var creator = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(version.CreatedBy), cancellationToken);
+                if (creator != null)
+                {
+                    dto.CreatedByName = creator.FullName;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get creator details for version {VersionId}", id);
+            }
+
+            // Get reviewer name
+            if (!string.IsNullOrEmpty(version.Reviewer))
+            {
+                try
+                {
+                    var reviewer = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(version.Reviewer), cancellationToken);
+                    if (reviewer != null)
+                    {
+                        dto.ReviewerName = reviewer.FullName;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get reviewer details for version {VersionId}", id);
+                }
+            }
+
+            // Get version files
+            dto.Files = await GetVersionFilesAsync(id, cancellationToken);
+
+            // Get version statistics
+            await PopulateVersionStatsAsync(dto, version, cancellationToken);
 
             return dto;
         }
@@ -55,10 +105,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = _mapper.Map<List<VersionListDto>>(paginatedVersions);
-
-            // Enrich list items
-            await EnrichVersionListAsync(dtos, cancellationToken);
+            var dtos = await MapVersionListDtosAsync(paginatedVersions, cancellationToken);
 
             return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
@@ -129,10 +176,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = _mapper.Map<List<VersionListDto>>(paginatedVersions);
-
-            // Enrich list items
-            await EnrichVersionListAsync(dtos, cancellationToken);
+            var dtos = await MapVersionListDtosAsync(paginatedVersions, cancellationToken);
 
             return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
@@ -140,9 +184,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<VersionDto> CreateAsync(VersionCreateDto dto, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(dto.ProgramId);
-
-            // Verify program exists
             var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
+
             if (program == null)
             {
                 throw new KeyNotFoundException($"Program with ID {dto.ProgramId} not found.");
@@ -151,34 +194,27 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Get next version number
             var nextVersionNumber = await _unitOfWork.Versions.GetNextVersionNumberAsync(programObjectId, cancellationToken);
 
-            var version = _mapper.Map<Version>(dto);
-            version.ProgramId = programObjectId;
-            version.VersionNumber = nextVersionNumber;
-            version.CreatedAt = DateTime.UtcNow;
-            version.Status = "pending";
-
-            // Set creator from current context (would come from authentication context)
-            // version.CreatedBy = currentUserId; // This would be injected via service context
-
-            // Process files
-            var versionFiles = new List<VersionFile>();
-            foreach (var fileDto in dto.Files)
+            var version = new Version
             {
-                var versionFile = new VersionFile
-                {
-                    Path = fileDto.Path,
-                    StorageKey = GenerateStorageKey(version._ID, fileDto.Path),
-                    Hash = ComputeFileHash(fileDto.Content),
-                    Size = fileDto.Content.Length,
-                    FileType = fileDto.FileType
-                };
-                versionFiles.Add(versionFile);
-
-                // TODO: Store file content using storage service
-            }
-            version.Files = versionFiles;
+                ProgramId = programObjectId,
+                VersionNumber = nextVersionNumber,
+                CommitMessage = dto.CommitMessage,
+                CreatedBy = "system", // This should come from current user context
+                CreatedAt = DateTime.UtcNow,
+                Status = "pending",
+                Files = new List<VersionFile>()
+            };
 
             var createdVersion = await _unitOfWork.Versions.CreateAsync(version, cancellationToken);
+
+            // Store files if provided
+            if (dto.Files.Any())
+            {
+                await StoreVersionFilesAsync(createdVersion._ID.ToString(), dto.Files, cancellationToken);
+            }
+
+            _logger.LogInformation("Created version {VersionNumber} for program {ProgramId} with ID {VersionId}",
+                nextVersionNumber, dto.ProgramId, createdVersion._ID);
 
             return _mapper.Map<VersionDto>(createdVersion);
         }
@@ -193,6 +229,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Version with ID {id} not found.");
             }
 
+            // Only allow updating if version is still pending
+            if (existingVersion.Status != "pending")
+            {
+                throw new InvalidOperationException("Cannot update version that has been reviewed.");
+            }
+
             _mapper.Map(dto, existingVersion);
 
             var success = await _unitOfWork.Versions.UpdateAsync(objectId, existingVersion, cancellationToken);
@@ -201,6 +243,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 throw new InvalidOperationException($"Failed to update version with ID {id}.");
             }
+
+            _logger.LogInformation("Updated version {VersionId}", id);
 
             return _mapper.Map<VersionDto>(existingVersion);
         }
@@ -215,14 +259,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Version with ID {id} not found.");
             }
 
-            // Check if version can be deleted (not deployed, not current version, etc.)
-            var canDelete = await CanDeleteVersionAsync(objectId, cancellationToken);
-            if (!canDelete)
+            // Only allow deleting if version is pending and not the current version
+            if (version.Status != "pending")
             {
-                throw new InvalidOperationException("Version cannot be deleted. It may be the current version or deployed.");
+                throw new InvalidOperationException("Cannot delete version that has been reviewed.");
             }
 
-            return await _unitOfWork.Versions.DeleteAsync(objectId, cancellationToken);
+            var program = await _unitOfWork.Programs.GetByIdAsync(version.ProgramId, cancellationToken);
+            if (program?.CurrentVersion == id)
+            {
+                throw new InvalidOperationException("Cannot delete the current version of a program.");
+            }
+
+            // Delete associated files
+            try
+            {
+                foreach (var file in version.Files)
+                {
+                    await _fileStorageService.DeleteFileAsync(file.StorageKey, cancellationToken);
+                }
+                _logger.LogInformation("Deleted files for version {VersionId}", id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete some files for version {VersionId}", id);
+            }
+
+            var success = await _unitOfWork.Versions.DeleteAsync(objectId, cancellationToken);
+
+            if (success)
+            {
+                _logger.LogInformation("Deleted version {VersionId}", id);
+            }
+
+            return success;
         }
 
         #endregion
@@ -232,6 +302,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<PagedResponse<VersionListDto>> GetByProgramIdAsync(string programId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
             var versions = await _unitOfWork.Versions.GetByProgramIdAsync(programObjectId, cancellationToken);
             var versionsList = versions.ToList();
 
@@ -242,8 +318,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = _mapper.Map<List<VersionListDto>>(paginatedVersions);
-            await EnrichVersionListAsync(dtos, cancellationToken);
+            var dtos = await MapVersionListDtosAsync(paginatedVersions, cancellationToken);
 
             return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
@@ -251,6 +326,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<VersionDto> GetLatestVersionForProgramAsync(string programId, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
             var version = await _unitOfWork.Versions.GetLatestVersionForProgramAsync(programObjectId, cancellationToken);
 
             if (version == null)
@@ -264,6 +345,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<VersionDto> GetByProgramIdAndVersionNumberAsync(string programId, int versionNumber, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
             var version = await _unitOfWork.Versions.GetByProgramIdAndVersionNumberAsync(programObjectId, versionNumber, cancellationToken);
 
             if (version == null)
@@ -277,6 +364,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<int> GetNextVersionNumberAsync(string programId, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
             return await _unitOfWork.Versions.GetNextVersionNumberAsync(programObjectId, cancellationToken);
         }
 
@@ -287,37 +380,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<PagedResponse<VersionListDto>> GetByCreatorAsync(string creatorId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var versions = await _unitOfWork.Versions.GetByCreatorAsync(creatorId, cancellationToken);
-            var versionsList = versions.ToList();
-
-            // Apply pagination
-            var totalCount = versionsList.Count;
-            var paginatedVersions = versionsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<VersionListDto>>(paginatedVersions);
-            await EnrichVersionListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedVersionResponse(versions, pagination, cancellationToken);
         }
 
         public async Task<PagedResponse<VersionListDto>> GetByReviewerAsync(string reviewerId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var versions = await _unitOfWork.Versions.GetByReviewerAsync(reviewerId, cancellationToken);
-            var versionsList = versions.ToList();
-
-            // Apply pagination
-            var totalCount = versionsList.Count;
-            var paginatedVersions = versionsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<VersionListDto>>(paginatedVersions);
-            await EnrichVersionListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedVersionResponse(versions, pagination, cancellationToken);
         }
 
         #endregion
@@ -327,37 +396,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<PagedResponse<VersionListDto>> GetByStatusAsync(string status, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var versions = await _unitOfWork.Versions.GetByStatusAsync(status, cancellationToken);
-            var versionsList = versions.ToList();
-
-            // Apply pagination
-            var totalCount = versionsList.Count;
-            var paginatedVersions = versionsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<VersionListDto>>(paginatedVersions);
-            await EnrichVersionListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedVersionResponse(versions, pagination, cancellationToken);
         }
 
         public async Task<PagedResponse<VersionListDto>> GetPendingReviewsAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var versions = await _unitOfWork.Versions.GetPendingReviewsAsync(cancellationToken);
-            var versionsList = versions.ToList();
-
-            // Apply pagination
-            var totalCount = versionsList.Count;
-            var paginatedVersions = versionsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<VersionListDto>>(paginatedVersions);
-            await EnrichVersionListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedVersionResponse(versions, pagination, cancellationToken);
         }
 
         public async Task<bool> UpdateStatusAsync(string id, VersionStatusUpdateDto dto, CancellationToken cancellationToken = default)
@@ -370,10 +415,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Version with ID {id} not found.");
             }
 
-            // TODO: Get reviewer from current context
-            var reviewerId = "current-user-id"; // This would come from authentication context
+            var success = await _unitOfWork.Versions.UpdateStatusAsync(objectId, dto.Status, "system", dto.Comments, cancellationToken);
 
-            return await _unitOfWork.Versions.UpdateStatusAsync(objectId, dto.Status, reviewerId, dto.Comments, cancellationToken);
+            if (success)
+            {
+                _logger.LogInformation("Updated status of version {VersionId} to {Status}", id, dto.Status);
+            }
+
+            return success;
         }
 
         public async Task<VersionReviewDto> SubmitReviewAsync(string id, VersionReviewSubmissionDto dto, CancellationToken cancellationToken = default)
@@ -386,21 +435,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Version with ID {id} not found.");
             }
 
-            // TODO: Get reviewer from current context
-            var reviewerId = "current-user-id"; // This would come from authentication context
+            if (version.Status != "pending")
+            {
+                throw new InvalidOperationException("Version is not pending review.");
+            }
 
-            var success = await _unitOfWork.Versions.UpdateStatusAsync(objectId, dto.Status, reviewerId, dto.Comments, cancellationToken);
+            var success = await _unitOfWork.Versions.UpdateStatusAsync(objectId, dto.Status, "system", dto.Comments, cancellationToken);
 
             if (!success)
             {
-                throw new InvalidOperationException("Failed to submit review.");
+                throw new InvalidOperationException($"Failed to submit review for version {id}.");
             }
 
-            // If approved, update program's current version
+            // If approved, optionally set as current version
             if (dto.Status == "approved")
             {
-                await _unitOfWork.Programs.UpdateCurrentVersionAsync(version.ProgramId, id, cancellationToken);
+                try
+                {
+                    await _programService.UpdateCurrentVersionAsync(version.ProgramId.ToString(), id, cancellationToken);
+                    _logger.LogInformation("Set version {VersionId} as current version for program {ProgramId}", id, version.ProgramId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to set version {VersionId} as current version", id);
+                }
             }
+
+            _logger.LogInformation("Submitted review for version {VersionId} with status {Status}", id, dto.Status);
 
             return new VersionReviewDto
             {
@@ -408,8 +469,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 VersionId = id,
                 Status = dto.Status,
                 Comments = dto.Comments,
-                ReviewedBy = reviewerId,
-                ReviewedByName = "Current User", // Would fetch from user service
+                ReviewedBy = "system",
+                ReviewedByName = "System",
                 ReviewedAt = DateTime.UtcNow
             };
         }
@@ -420,97 +481,157 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<bool> AddFileAsync(string versionId, VersionFileCreateDto dto, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(versionId);
-            var version = await _unitOfWork.Versions.GetByIdAsync(objectId, cancellationToken);
+            var versionObjectId = ParseObjectId(versionId);
+            var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
 
             if (version == null)
             {
                 throw new KeyNotFoundException($"Version with ID {versionId} not found.");
             }
+
+            if (version.Status != "pending")
+            {
+                throw new InvalidOperationException("Cannot modify files in a reviewed version.");
+            }
+
+            // Store file using file storage service
+            var storageKey = await _fileStorageService.StoreFileAsync(
+                version.ProgramId.ToString(),
+                dto.Path,
+                dto.Content,
+                dto.ContentType,
+                cancellationToken);
 
             var versionFile = new VersionFile
             {
                 Path = dto.Path,
-                StorageKey = GenerateStorageKey(objectId, dto.Path),
-                Hash = ComputeFileHash(dto.Content),
+                StorageKey = storageKey,
+                Hash = _fileStorageService.CalculateFileHash(dto.Content),
                 Size = dto.Content.Length,
                 FileType = dto.FileType
             };
 
-            // TODO: Store file content using storage service
+            var success = await _unitOfWork.Versions.AddFileAsync(versionObjectId, versionFile, cancellationToken);
 
-            return await _unitOfWork.Versions.AddFileAsync(objectId, versionFile, cancellationToken);
+            if (success)
+            {
+                _logger.LogInformation("Added file {FilePath} to version {VersionId}", dto.Path, versionId);
+            }
+
+            return success;
         }
 
         public async Task<bool> UpdateFileAsync(string versionId, string filePath, VersionFileUpdateDto dto, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(versionId);
-            var version = await _unitOfWork.Versions.GetByIdAsync(objectId, cancellationToken);
+            var versionObjectId = ParseObjectId(versionId);
+            var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
 
             if (version == null)
             {
                 throw new KeyNotFoundException($"Version with ID {versionId} not found.");
             }
 
-            var existingFile = await _unitOfWork.Versions.GetFileByPathAsync(objectId, filePath, cancellationToken);
+            if (version.Status != "pending")
+            {
+                throw new InvalidOperationException("Cannot modify files in a reviewed version.");
+            }
+
+            // Find existing file
+            var existingFile = version.Files.FirstOrDefault(f => f.Path == filePath);
             if (existingFile == null)
             {
                 throw new KeyNotFoundException($"File {filePath} not found in version {versionId}.");
             }
 
+            // Update file in storage
+            var storageKey = await _fileStorageService.UpdateFileAsync(
+                version.ProgramId.ToString(),
+                filePath,
+                dto.Content,
+                dto.ContentType ?? existingFile.FileType,
+                versionId,
+                cancellationToken);
+
             var updatedFile = new VersionFile
             {
                 Path = filePath,
-                StorageKey = existingFile.StorageKey,
-                Hash = ComputeFileHash(dto.Content),
+                StorageKey = storageKey,
+                Hash = _fileStorageService.CalculateFileHash(dto.Content),
                 Size = dto.Content.Length,
                 FileType = dto.FileType ?? existingFile.FileType
             };
 
-            // TODO: Update file content using storage service
+            var success = await _unitOfWork.Versions.UpdateFileAsync(versionObjectId, filePath, updatedFile, cancellationToken);
 
-            return await _unitOfWork.Versions.UpdateFileAsync(objectId, filePath, updatedFile, cancellationToken);
+            if (success)
+            {
+                _logger.LogInformation("Updated file {FilePath} in version {VersionId}", filePath, versionId);
+            }
+
+            return success;
         }
 
         public async Task<bool> RemoveFileAsync(string versionId, string filePath, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(versionId);
-            var version = await _unitOfWork.Versions.GetByIdAsync(objectId, cancellationToken);
+            var versionObjectId = ParseObjectId(versionId);
+            var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
 
             if (version == null)
             {
                 throw new KeyNotFoundException($"Version with ID {versionId} not found.");
             }
 
-            // TODO: Delete file from storage service
+            if (version.Status != "pending")
+            {
+                throw new InvalidOperationException("Cannot modify files in a reviewed version.");
+            }
 
-            return await _unitOfWork.Versions.RemoveFileAsync(objectId, filePath, cancellationToken);
+            // Find file to get storage key
+            var file = version.Files.FirstOrDefault(f => f.Path == filePath);
+            if (file != null)
+            {
+                // Delete from storage
+                await _fileStorageService.DeleteFileAsync(file.StorageKey, cancellationToken);
+            }
+
+            var success = await _unitOfWork.Versions.RemoveFileAsync(versionObjectId, filePath, cancellationToken);
+
+            if (success)
+            {
+                _logger.LogInformation("Removed file {FilePath} from version {VersionId}", filePath, versionId);
+            }
+
+            return success;
         }
 
         public async Task<List<VersionFileDto>> GetFilesByVersionIdAsync(string versionId, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(versionId);
-            var files = await _unitOfWork.Versions.GetFilesByVersionIdAsync(objectId, cancellationToken);
-
-            return _mapper.Map<List<VersionFileDto>>(files);
+            return await GetVersionFilesAsync(versionId, cancellationToken);
         }
 
         public async Task<VersionFileDetailDto> GetFileByPathAsync(string versionId, string filePath, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(versionId);
-            var file = await _unitOfWork.Versions.GetFileByPathAsync(objectId, filePath, cancellationToken);
+            var versionObjectId = ParseObjectId(versionId);
+            var file = await _unitOfWork.Versions.GetFileByPathAsync(versionObjectId, filePath, cancellationToken);
 
             if (file == null)
             {
                 throw new KeyNotFoundException($"File {filePath} not found in version {versionId}.");
             }
 
-            var dto = _mapper.Map<VersionFileDetailDto>(file);
+            var content = await _fileStorageService.GetFileContentAsync(file.StorageKey, cancellationToken);
 
-            // TODO: Load file content from storage service
-            // dto.Content = await storageService.GetFileContentAsync(file.StorageKey);
-
-            return dto;
+            return new VersionFileDetailDto
+            {
+                Path = file.Path,
+                StorageKey = file.StorageKey,
+                Hash = file.Hash,
+                Size = file.Size,
+                FileType = file.FileType,
+                ContentType = GetContentTypeFromFileType(file.FileType),
+                Content = content,
+                LastModified = DateTime.UtcNow // Would need to be stored in metadata
+            };
         }
 
         #endregion
@@ -519,74 +640,88 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<VersionDiffDto> GetDiffBetweenVersionsAsync(string fromVersionId, string toVersionId, CancellationToken cancellationToken = default)
         {
-            var fromObjectId = ParseObjectId(fromVersionId);
-            var toObjectId = ParseObjectId(toVersionId);
-
-            var fromVersion = await _unitOfWork.Versions.GetByIdAsync(fromObjectId, cancellationToken);
-            var toVersion = await _unitOfWork.Versions.GetByIdAsync(toObjectId, cancellationToken);
+            var fromVersion = await _unitOfWork.Versions.GetByIdAsync(ParseObjectId(fromVersionId), cancellationToken);
+            var toVersion = await _unitOfWork.Versions.GetByIdAsync(ParseObjectId(toVersionId), cancellationToken);
 
             if (fromVersion == null)
             {
-                throw new KeyNotFoundException($"From version {fromVersionId} not found.");
+                throw new KeyNotFoundException($"Version with ID {fromVersionId} not found.");
             }
 
             if (toVersion == null)
             {
-                throw new KeyNotFoundException($"To version {toVersionId} not found.");
+                throw new KeyNotFoundException($"Version with ID {toVersionId} not found.");
             }
 
-            return await ComputeVersionDiffAsync(fromVersion, toVersion, cancellationToken);
+            if (fromVersion.ProgramId != toVersion.ProgramId)
+            {
+                throw new InvalidOperationException("Cannot compare versions from different programs.");
+            }
+
+            var changes = CalculateFileChanges(fromVersion.Files, toVersion.Files);
+
+            return new VersionDiffDto
+            {
+                FromVersionId = fromVersionId,
+                ToVersionId = toVersionId,
+                FromVersionNumber = fromVersion.VersionNumber,
+                ToVersionNumber = toVersion.VersionNumber,
+                Changes = changes,
+                Stats = new VersionDiffStatsDto
+                {
+                    FilesChanged = changes.Count(c => c.Action == "modified"),
+                    FilesAdded = changes.Count(c => c.Action == "added"),
+                    FilesDeleted = changes.Count(c => c.Action == "deleted"),
+                    TotalLinesAdded = changes.Sum(c => c.LinesAdded),
+                    TotalLinesRemoved = changes.Sum(c => c.LinesRemoved)
+                }
+            };
         }
 
         public async Task<VersionDiffDto> GetDiffFromPreviousAsync(string versionId, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(versionId);
-            var version = await _unitOfWork.Versions.GetByIdAsync(objectId, cancellationToken);
+            var version = await _unitOfWork.Versions.GetByIdAsync(ParseObjectId(versionId), cancellationToken);
 
             if (version == null)
             {
-                throw new KeyNotFoundException($"Version {versionId} not found.");
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
             }
 
-            // Get previous version
+            if (version.VersionNumber <= 1)
+            {
+                throw new InvalidOperationException("Cannot get diff for the first version.");
+            }
+
             var previousVersion = await _unitOfWork.Versions.GetByProgramIdAndVersionNumberAsync(
-                version.ProgramId,
-                version.VersionNumber - 1,
-                cancellationToken);
+                version.ProgramId, version.VersionNumber - 1, cancellationToken);
 
             if (previousVersion == null)
             {
-                throw new KeyNotFoundException($"No previous version found for version {versionId}.");
+                throw new KeyNotFoundException($"Previous version not found for version {versionId}.");
             }
 
-            return await ComputeVersionDiffAsync(previousVersion, version, cancellationToken);
+            return await GetDiffBetweenVersionsAsync(previousVersion._ID.ToString(), versionId, cancellationToken);
         }
 
         public async Task<List<VersionChangeDto>> GetChangeSummaryAsync(string versionId, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(versionId);
-            var version = await _unitOfWork.Versions.GetByIdAsync(objectId, cancellationToken);
-
-            if (version == null)
+            try
             {
-                throw new KeyNotFoundException($"Version {versionId} not found.");
-            }
+                var diff = await GetDiffFromPreviousAsync(versionId, cancellationToken);
 
-            // TODO: Implement change summary logic
-            var changes = new List<VersionChangeDto>();
-
-            foreach (var file in version.Files)
-            {
-                changes.Add(new VersionChangeDto
+                return diff.Changes.Select(change => new VersionChangeDto
                 {
-                    Path = file.Path,
-                    Action = "modified", // This would be computed based on diff
-                    Description = $"File {file.Path} was modified",
-                    ImpactLevel = 2 // This would be computed based on file type and changes
-                });
+                    Path = change.Path,
+                    Action = change.Action,
+                    Description = GenerateChangeDescription(change),
+                    ImpactLevel = CalculateImpactLevel(change)
+                }).ToList();
             }
-
-            return changes;
+            catch (InvalidOperationException)
+            {
+                // First version, no changes
+                return new List<VersionChangeDto>();
+            }
         }
 
         #endregion
@@ -595,15 +730,25 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<VersionDeploymentDto> DeployVersionAsync(string versionId, VersionDeploymentRequestDto dto, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(versionId);
-            var version = await _unitOfWork.Versions.GetByIdAsync(objectId, cancellationToken);
+            var version = await _unitOfWork.Versions.GetByIdAsync(ParseObjectId(versionId), cancellationToken);
 
             if (version == null)
             {
-                throw new KeyNotFoundException($"Version {versionId} not found.");
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
             }
 
-            // TODO: Implement deployment logic
+            if (version.Status != "approved")
+            {
+                throw new InvalidOperationException("Can only deploy approved versions.");
+            }
+
+            // Set as current version if requested
+            if (dto.SetAsCurrent)
+            {
+                await _programService.UpdateCurrentVersionAsync(version.ProgramId.ToString(), versionId, cancellationToken);
+            }
+
+            _logger.LogInformation("Deployed version {VersionId} for program {ProgramId}", versionId, version.ProgramId);
 
             return new VersionDeploymentDto
             {
@@ -611,7 +756,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 VersionId = versionId,
                 Status = "deployed",
                 DeployedAt = DateTime.UtcNow,
-                DeployedBy = "current-user-id", // Would come from auth context
+                DeployedBy = "system",
                 TargetEnvironments = dto.TargetEnvironments,
                 Configuration = dto.DeploymentConfiguration
             };
@@ -619,41 +764,52 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<bool> RevertToPreviousVersionAsync(string programId, string versionId, CancellationToken cancellationToken = default)
         {
-            var versionObjectId = ParseObjectId(versionId);
-            var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
+            var version = await _unitOfWork.Versions.GetByIdAsync(ParseObjectId(versionId), cancellationToken);
 
             if (version == null)
             {
-                throw new KeyNotFoundException($"Version {versionId} not found.");
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
+            }
+
+            if (version.VersionNumber <= 1)
+            {
+                throw new InvalidOperationException("Cannot revert from the first version.");
             }
 
             var previousVersion = await _unitOfWork.Versions.GetByProgramIdAndVersionNumberAsync(
-                version.ProgramId,
-                version.VersionNumber - 1,
-                cancellationToken);
+                version.ProgramId, version.VersionNumber - 1, cancellationToken);
 
             if (previousVersion == null)
             {
-                throw new KeyNotFoundException("No previous version found to revert to.");
+                throw new KeyNotFoundException("Previous version not found.");
             }
 
-            var programObjectId = ParseObjectId(programId);
-            return await _unitOfWork.Programs.UpdateCurrentVersionAsync(programObjectId, previousVersion._ID.ToString(), cancellationToken);
+            var success = await _programService.UpdateCurrentVersionAsync(programId, previousVersion._ID.ToString(), cancellationToken);
+
+            if (success)
+            {
+                _logger.LogInformation("Reverted program {ProgramId} from version {CurrentVersion} to {PreviousVersion}",
+                    programId, version.VersionNumber, previousVersion.VersionNumber);
+            }
+
+            return success;
         }
 
         public async Task<bool> SetAsCurrentVersionAsync(string programId, string versionId, CancellationToken cancellationToken = default)
         {
-            var programObjectId = ParseObjectId(programId);
-            var versionObjectId = ParseObjectId(versionId);
+            var version = await _unitOfWork.Versions.GetByIdAsync(ParseObjectId(versionId), cancellationToken);
 
-            // Verify version exists and belongs to program
-            var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
-            if (version == null || version.ProgramId != programObjectId)
+            if (version == null)
             {
-                throw new KeyNotFoundException($"Version {versionId} not found for program {programId}.");
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
             }
 
-            return await _unitOfWork.Programs.UpdateCurrentVersionAsync(programObjectId, versionId, cancellationToken);
+            if (version.Status != "approved")
+            {
+                throw new InvalidOperationException("Can only set approved versions as current.");
+            }
+
+            return await _programService.UpdateCurrentVersionAsync(programId, versionId, cancellationToken);
         }
 
         #endregion
@@ -663,57 +819,62 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<VersionStatsDto> GetVersionStatsAsync(string programId, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
             var versions = await _unitOfWork.Versions.GetByProgramIdAsync(programObjectId, cancellationToken);
             var versionsList = versions.ToList();
 
-            var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
-            var currentVersionId = program?.CurrentVersion;
+            var executions = await _unitOfWork.Executions.GetByProgramIdAsync(programObjectId, cancellationToken);
+            var executionsList = executions.ToList();
+
+            var totalFiles = versionsList.SelectMany(v => v.Files).Count();
+            var totalSize = versionsList.SelectMany(v => v.Files).Sum(f => f.Size);
+
+            var fileTypes = versionsList
+                .SelectMany(v => v.Files)
+                .GroupBy(f => Path.GetExtension(f.Path).ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.Count());
 
             return new VersionStatsDto
             {
-                TotalFiles = versionsList.Sum(v => v.Files.Count),
-                TotalSize = versionsList.Sum(v => v.Files.Sum(f => f.Size)),
-                FileTypeCount = ComputeFileTypeCount(versionsList),
-                ExecutionCount = 0, // Would be computed from executions
-                IsCurrentVersion = false // Would be set based on version
+                TotalFiles = totalFiles,
+                TotalSize = totalSize,
+                FileTypeCount = fileTypes,
+                ExecutionCount = executionsList.Count,
+                IsCurrentVersion = false // Would need program context to determine this
             };
         }
 
         public async Task<List<VersionActivityDto>> GetVersionActivityAsync(string programId, int days = 30, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
-            var versions = await _unitOfWork.Versions.GetByProgramIdAsync(programObjectId, cancellationToken);
 
-            var cutoffDate = DateTime.UtcNow.AddDays(-days);
-            var recentVersions = versions.Where(v => v.CreatedAt >= cutoffDate);
-
-            var activities = new List<VersionActivityDto>();
-
-            foreach (var version in recentVersions)
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
             {
-                activities.Add(new VersionActivityDto
-                {
-                    Date = version.CreatedAt,
-                    Activity = "Version Created",
-                    UserId = version.CreatedBy,
-                    UserName = "User Name", // Would fetch from user service
-                    Description = $"Version {version.VersionNumber} created: {version.CommitMessage}"
-                });
-
-                if (version.ReviewedAt.HasValue)
-                {
-                    activities.Add(new VersionActivityDto
-                    {
-                        Date = version.ReviewedAt.Value,
-                        Activity = "Version Reviewed",
-                        UserId = version.Reviewer ?? string.Empty,
-                        UserName = "Reviewer Name", // Would fetch from user service
-                        Description = $"Version {version.VersionNumber} {version.Status}"
-                    });
-                }
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
             }
 
-            return activities.OrderByDescending(a => a.Date).ToList();
+            var cutoffDate = DateTime.UtcNow.AddDays(-days);
+            var versions = await _unitOfWork.Versions.GetByProgramIdAsync(programObjectId, cancellationToken);
+
+            var activities = versions
+                .Where(v => v.CreatedAt >= cutoffDate)
+                .OrderByDescending(v => v.CreatedAt)
+                .Select(v => new VersionActivityDto
+                {
+                    Date = v.CreatedAt,
+                    Activity = "Version Created",
+                    UserId = v.CreatedBy,
+                    UserName = "Unknown", // Would need to resolve user names
+                    Description = $"Version {v.VersionNumber}: {v.CommitMessage}"
+                })
+                .ToList();
+
+            return activities;
         }
 
         #endregion
@@ -724,14 +885,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             var programObjectId = ParseObjectId(programId);
 
-            // Verify program exists
-            var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
-            if (program == null)
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
             {
                 throw new KeyNotFoundException($"Program with ID {programId} not found.");
             }
 
-            // Get next version number
+            // Create new version
             var nextVersionNumber = await _unitOfWork.Versions.GetNextVersionNumberAsync(programObjectId, cancellationToken);
 
             var version = new Version
@@ -739,36 +898,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 ProgramId = programObjectId,
                 VersionNumber = nextVersionNumber,
                 CommitMessage = dto.CommitMessage,
+                CreatedBy = "system", // Should come from current user context
                 CreatedAt = DateTime.UtcNow,
                 Status = "pending",
-                CreatedBy = "current-user-id", // Would come from auth context
                 Files = new List<VersionFile>()
             };
+
+            var createdVersion = await _unitOfWork.Versions.CreateAsync(version, cancellationToken);
 
             // Process file changes
             foreach (var change in dto.Changes)
             {
-                if (change.Action == "delete")
-                    continue; // Skip deleted files
-
-                if (change.Content == null)
-                    throw new InvalidOperationException($"Content is required for file action '{change.Action}' on {change.Path}");
-
-                var versionFile = new VersionFile
+                switch (change.Action.ToLowerInvariant())
                 {
-                    Path = change.Path,
-                    StorageKey = GenerateStorageKey(version._ID, change.Path),
-                    Hash = ComputeFileHash(change.Content),
-                    Size = change.Content.Length,
-                    FileType = DetermineFileType(change.Path, change.ContentType)
-                };
-
-                version.Files.Add(versionFile);
-
-                // TODO: Store file content using storage service
+                    case "add":
+                    case "modify":
+                        if (change.Content != null)
+                        {
+                            await AddFileAsync(createdVersion._ID.ToString(), new VersionFileCreateDto
+                            {
+                                Path = change.Path,
+                                Content = change.Content,
+                                ContentType = change.ContentType ?? "application/octet-stream",
+                                FileType = "source"
+                            }, cancellationToken);
+                        }
+                        break;
+                    case "delete":
+                        // File deletion is handled by not including it in the new version
+                        break;
+                }
             }
 
-            var createdVersion = await _unitOfWork.Versions.CreateAsync(version, cancellationToken);
+            _logger.LogInformation("Committed changes for program {ProgramId} as version {VersionNumber}",
+                programId, nextVersionNumber);
 
             return _mapper.Map<VersionDto>(createdVersion);
         }
@@ -777,32 +940,32 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             var programObjectId = ParseObjectId(programId);
 
-            // Verify program exists
-            var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
-            if (program == null)
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
             {
-                return false;
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
             }
 
-            // Validate changes
+            // Validate all file changes
             foreach (var change in dto.Changes)
             {
-                // Validate file paths
-                if (string.IsNullOrEmpty(change.Path) || change.Path.Contains(".."))
+                if (change.Action.ToLowerInvariant() == "delete")
+                    continue;
+
+                if (change.Content == null)
                 {
-                    return false;
+                    throw new InvalidOperationException($"Content is required for {change.Action} operation on {change.Path}");
                 }
 
-                // Validate actions
-                if (!new[] { "add", "modify", "delete" }.Contains(change.Action))
-                {
-                    return false;
-                }
+                // Validate file using storage service
+                var validation = await _fileStorageService.ValidateFileAsync(
+                    change.Path,
+                    change.Content,
+                    change.ContentType ?? "application/octet-stream",
+                    cancellationToken);
 
-                // Validate content for non-delete actions
-                if (change.Action != "delete" && change.Content == null)
+                if (!validation.IsValid)
                 {
-                    return false;
+                    throw new InvalidOperationException($"File {change.Path} is invalid: {string.Join(", ", validation.Errors)}");
                 }
             }
 
@@ -813,144 +976,227 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Private Helper Methods
 
-        private async Task EnrichVersionDetailAsync(VersionDetailDto dto, Version version, CancellationToken cancellationToken)
+        private async Task<List<VersionFileDto>> GetVersionFilesAsync(string versionId, CancellationToken cancellationToken)
         {
-            // Enrich with program name
-            var program = await _unitOfWork.Programs.GetByIdAsync(version.ProgramId, cancellationToken);
-            dto.ProgramName = program?.Name ?? "Unknown Program";
+            var versionObjectId = ParseObjectId(versionId);
+            var files = await _unitOfWork.Versions.GetFilesByVersionIdAsync(versionObjectId, cancellationToken);
 
-            // TODO: Enrich with user names
-            dto.CreatedByName = "User Name"; // Would fetch from user service
-            dto.ReviewerName = string.IsNullOrEmpty(version.Reviewer) ? null : "Reviewer Name";
+            return files.Select(file => new VersionFileDto
+            {
+                Path = file.Path,
+                StorageKey = file.StorageKey,
+                Hash = file.Hash,
+                Size = file.Size,
+                FileType = file.FileType,
+                ContentType = GetContentTypeFromFileType(file.FileType)
+            }).ToList();
+        }
 
-            // Enrich with files
-            dto.Files = _mapper.Map<List<VersionFileDto>>(version.Files);
+        private async Task<List<VersionListDto>> MapVersionListDtosAsync(List<Version> versions, CancellationToken cancellationToken)
+        {
+            var dtos = new List<VersionListDto>();
 
-            // Enrich with stats
+            foreach (var version in versions)
+            {
+                var dto = _mapper.Map<VersionListDto>(version);
+
+                // Get program name
+                try
+                {
+                    var program = await _unitOfWork.Programs.GetByIdAsync(version.ProgramId, cancellationToken);
+                    if (program != null)
+                    {
+                        dto.ProgramName = program.Name;
+                        dto.IsCurrent = program.CurrentVersion == version._ID.ToString();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get program details for version {VersionId}", version._ID);
+                }
+
+                // Get creator name
+                try
+                {
+                    var creator = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(version.CreatedBy), cancellationToken);
+                    if (creator != null)
+                    {
+                        dto.CreatedByName = creator.FullName;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get creator details for version {VersionId}", version._ID);
+                }
+
+                // Get reviewer name
+                if (!string.IsNullOrEmpty(version.Reviewer))
+                {
+                    try
+                    {
+                        var reviewer = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(version.Reviewer), cancellationToken);
+                        if (reviewer != null)
+                        {
+                            dto.ReviewerName = reviewer.FullName;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to get reviewer details for version {VersionId}", version._ID);
+                    }
+                }
+
+                dto.FileCount = version.Files.Count;
+                dtos.Add(dto);
+            }
+
+            return dtos;
+        }
+
+        private async Task<PagedResponse<VersionListDto>> CreatePagedVersionResponse(IEnumerable<Version> versions, PaginationRequestDto pagination, CancellationToken cancellationToken)
+        {
+            var versionsList = versions.ToList();
+            var totalCount = versionsList.Count;
+            var paginatedVersions = versionsList
+                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
+                .Take(pagination.PageSize)
+                .ToList();
+
+            var dtos = await MapVersionListDtosAsync(paginatedVersions, cancellationToken);
+            return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+        }
+
+        private async Task StoreVersionFilesAsync(string versionId, List<VersionFileCreateDto> files, CancellationToken cancellationToken)
+        {
+            foreach (var file in files)
+            {
+                await AddFileAsync(versionId, file, cancellationToken);
+            }
+        }
+
+        private async Task PopulateVersionStatsAsync(VersionDetailDto dto, Version version, CancellationToken cancellationToken)
+        {
+            var executions = await _unitOfWork.Executions.GetByVersionIdAsync(version._ID, cancellationToken);
+
             dto.Stats = new VersionStatsDto
             {
                 TotalFiles = version.Files.Count,
                 TotalSize = version.Files.Sum(f => f.Size),
-                FileTypeCount = ComputeFileTypeCount(new[] { version }),
-                ExecutionCount = 0, // Would be computed from executions
-                IsCurrentVersion = program?.CurrentVersion == version._ID.ToString()
+                FileTypeCount = version.Files
+                    .GroupBy(f => Path.GetExtension(f.Path).ToLowerInvariant())
+                    .ToDictionary(g => g.Key, g => g.Count()),
+                ExecutionCount = executions.Count(),
+                IsCurrentVersion = false // Will be set in GetByIdAsync
             };
         }
 
-        private async Task EnrichVersionListAsync(List<VersionListDto> dtos, CancellationToken cancellationToken)
-        {
-            foreach (var dto in dtos)
-            {
-                // TODO: Add program name, user name resolution, etc.
-                dto.ProgramName = "Program Name"; // Would fetch from program service
-                dto.CreatedByName = "User Name"; // Would fetch from user service
-                dto.ReviewerName = string.IsNullOrEmpty(dto.Reviewer) ? null : "Reviewer Name";
-                dto.FileCount = 0; // Would be set from actual file count
-                dto.IsCurrent = false; // Would be determined from program's current version
-                await Task.CompletedTask; // Placeholder
-            }
-        }
-
-        private async Task<VersionDiffDto> ComputeVersionDiffAsync(Version fromVersion, Version toVersion, CancellationToken cancellationToken)
+        private List<VersionFileChangeSummaryDto> CalculateFileChanges(IEnumerable<VersionFile> fromFiles, IEnumerable<VersionFile> toFiles)
         {
             var changes = new List<VersionFileChangeSummaryDto>();
-            var stats = new VersionDiffStatsDto();
+            var fromFileDict = fromFiles.ToDictionary(f => f.Path, f => f);
+            var toFileDict = toFiles.ToDictionary(f => f.Path, f => f);
 
-            // Create lookup for from version files
-            var fromFiles = fromVersion.Files.ToDictionary(f => f.Path, f => f);
-            var toFiles = toVersion.Files.ToDictionary(f => f.Path, f => f);
-
-            // Find all unique file paths
-            var allPaths = fromFiles.Keys.Union(toFiles.Keys).ToHashSet();
-
-            foreach (var path in allPaths)
+            // Find added files
+            foreach (var toFile in toFiles.Where(f => !fromFileDict.ContainsKey(f.Path)))
             {
-                var fromFile = fromFiles.GetValueOrDefault(path);
-                var toFile = toFiles.GetValueOrDefault(path);
+                changes.Add(new VersionFileChangeSummaryDto
+                {
+                    Path = toFile.Path,
+                    Action = "added",
+                    LinesAdded = EstimateLineCount(toFile.Size),
+                    LinesRemoved = 0,
+                    SizeBefore = 0,
+                    SizeAfter = toFile.Size
+                });
+            }
 
-                var change = new VersionFileChangeSummaryDto { Path = path };
+            // Find deleted files
+            foreach (var fromFile in fromFiles.Where(f => !toFileDict.ContainsKey(f.Path)))
+            {
+                changes.Add(new VersionFileChangeSummaryDto
+                {
+                    Path = fromFile.Path,
+                    Action = "deleted",
+                    LinesAdded = 0,
+                    LinesRemoved = EstimateLineCount(fromFile.Size),
+                    SizeBefore = fromFile.Size,
+                    SizeAfter = 0
+                });
+            }
 
-                if (fromFile == null && toFile != null)
-                {
-                    // File added
-                    change.Action = "added";
-                    change.SizeAfter = toFile.Size;
-                    stats.FilesAdded++;
-                }
-                else if (fromFile != null && toFile == null)
-                {
-                    // File deleted
-                    change.Action = "deleted";
-                    change.SizeBefore = fromFile.Size;
-                    stats.FilesDeleted++;
-                }
-                else if (fromFile != null && toFile != null && fromFile.Hash != toFile.Hash)
-                {
-                    // File modified
-                    change.Action = "modified";
-                    change.SizeBefore = fromFile.Size;
-                    change.SizeAfter = toFile.Size;
-                    stats.FilesChanged++;
-                }
+            // Find modified files
+            foreach (var path in fromFileDict.Keys.Intersect(toFileDict.Keys))
+            {
+                var fromFile = fromFileDict[path];
+                var toFile = toFileDict[path];
 
-                if (change.Action != null)
+                if (fromFile.Hash != toFile.Hash)
                 {
-                    changes.Add(change);
+                    changes.Add(new VersionFileChangeSummaryDto
+                    {
+                        Path = path,
+                        Action = "modified",
+                        LinesAdded = Math.Max(0, EstimateLineCount(toFile.Size) - EstimateLineCount(fromFile.Size)),
+                        LinesRemoved = Math.Max(0, EstimateLineCount(fromFile.Size) - EstimateLineCount(toFile.Size)),
+                        SizeBefore = fromFile.Size,
+                        SizeAfter = toFile.Size
+                    });
                 }
             }
 
-            return new VersionDiffDto
+            return changes;
+        }
+
+        private int EstimateLineCount(long fileSize)
+        {
+            // Rough estimate: average 50 characters per line
+            return (int)(fileSize / 50);
+        }
+
+        private string GetContentTypeFromFileType(string fileType)
+        {
+            return fileType.ToLowerInvariant() switch
             {
-                FromVersionId = fromVersion._ID.ToString(),
-                ToVersionId = toVersion._ID.ToString(),
-                FromVersionNumber = fromVersion.VersionNumber,
-                ToVersionNumber = toVersion.VersionNumber,
-                Changes = changes,
-                Stats = stats
+                "source" => "text/plain",
+                "asset" => "application/octet-stream",
+                "config" => "application/json",
+                "build_artifact" => "application/octet-stream",
+                _ => "application/octet-stream"
             };
         }
 
-        private async Task<bool> CanDeleteVersionAsync(ObjectId versionId, CancellationToken cancellationToken)
+        private string GenerateChangeDescription(VersionFileChangeSummaryDto change)
         {
-            // TODO: Check if version is deployed, is current version, has executions, etc.
-            await Task.CompletedTask; // Placeholder
-            return true;
-        }
-
-        private static string GenerateStorageKey(ObjectId versionId, string filePath)
-        {
-            return $"versions/{versionId}/{filePath}";
-        }
-
-        private static string ComputeFileHash(byte[] content)
-        {
-            using var sha256 = System.Security.Cryptography.SHA256.Create();
-            var hash = sha256.ComputeHash(content);
-            return Convert.ToBase64String(hash);
-        }
-
-        private static Dictionary<string, int> ComputeFileTypeCount(IEnumerable<Version> versions)
-        {
-            return versions
-                .SelectMany(v => v.Files)
-                .GroupBy(f => f.FileType)
-                .ToDictionary(g => g.Key, g => g.Count());
-        }
-
-        private static string DetermineFileType(string filePath, string? contentType)
-        {
-            var extension = Path.GetExtension(filePath).ToLowerInvariant();
-
-            return extension switch
+            return change.Action.ToLowerInvariant() switch
             {
-                ".cs" or ".py" or ".js" or ".ts" or ".cpp" or ".h" or ".java" or ".rs" => "source",
-                ".json" or ".xml" or ".yaml" or ".yml" or ".config" => "config",
-                ".png" or ".jpg" or ".jpeg" or ".gif" or ".svg" or ".ico" => "asset",
-                ".css" or ".scss" or ".less" => "style",
-                ".html" or ".htm" => "markup",
-                ".md" or ".txt" or ".readme" => "documentation",
-                _ => "source"
+                "added" => $"Added {change.Path} ({change.SizeAfter} bytes)",
+                "deleted" => $"Deleted {change.Path} ({change.SizeBefore} bytes)",
+                "modified" => $"Modified {change.Path} ({change.SizeBefore} → {change.SizeAfter} bytes)",
+                _ => $"Changed {change.Path}"
             };
+        }
+
+        private int CalculateImpactLevel(VersionFileChangeSummaryDto change)
+        {
+            // Simple impact calculation based on file size and type
+            var sizeImpact = Math.Max(change.SizeAfter, change.SizeBefore) switch
+            {
+                < 1000 => 1,
+                < 10000 => 2,
+                < 100000 => 3,
+                < 1000000 => 4,
+                _ => 5
+            };
+
+            var typeImpact = Path.GetExtension(change.Path).ToLowerInvariant() switch
+            {
+                ".cs" or ".py" or ".js" or ".ts" => 3, // Source code
+                ".json" or ".xml" or ".config" => 4, // Configuration
+                ".md" or ".txt" => 1, // Documentation
+                _ => 2 // Other files
+            };
+
+            return Math.Min(5, Math.Max(1, (sizeImpact + typeImpact) / 2));
         }
 
         #endregion

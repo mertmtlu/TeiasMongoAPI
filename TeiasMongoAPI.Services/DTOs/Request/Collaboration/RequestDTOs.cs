@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using MongoDB.Bson;
+using System.ComponentModel.DataAnnotations;
 
 namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 {
@@ -16,6 +17,8 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [MaxLength(2000)]
         public required string Description { get; set; }
 
+        public string? RequestedBy { get; set; }    
+
         public string? ProgramId { get; set; }
         public string? RelatedEntityId { get; set; }
 
@@ -30,6 +33,8 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
     public class RequestUpdateDto
     {
+        public string? ProgramId { get; set; }
+
         [MaxLength(200)]
         public string? Title { get; set; }
 
@@ -129,6 +134,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
     public class RequestStatsFilterDto
     {
+        public string? ProgramId { get; set; }
         public DateTime? FromDate { get; set; }
         public DateTime? ToDate { get; set; }
         public string? Type { get; set; }

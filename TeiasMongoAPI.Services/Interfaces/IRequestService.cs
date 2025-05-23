@@ -60,11 +60,6 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<bool> UnsubscribeFromRequestUpdatesAsync(string requestId, string userId, CancellationToken cancellationToken = default);
         Task<List<string>> GetRequestSubscribersAsync(string requestId, CancellationToken cancellationToken = default);
 
-        // Request Integration with Infrastructure
-        Task<PagedResponse<RequestListDto>> GetInfrastructureRelatedRequestsAsync(string entityType, string entityId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<bool> LinkRequestToInfrastructureAsync(string requestId, RequestInfrastructureLinkDto dto, CancellationToken cancellationToken = default);
-        Task<bool> UnlinkRequestFromInfrastructureAsync(string requestId, CancellationToken cancellationToken = default);
-
         // Request Validation and Rules
         Task<RequestValidationResult> ValidateRequestAsync(RequestCreateDto dto, CancellationToken cancellationToken = default);
         Task<bool> CanUserModifyRequestAsync(string requestId, string userId, CancellationToken cancellationToken = default);

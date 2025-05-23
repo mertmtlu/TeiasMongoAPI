@@ -14,7 +14,7 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
 
         public string Description { get; set; } = string.Empty;
 
-        public ObjectId? ProgramId { get; set; }  // Optional, program-specific request
+        public ObjectId ProgramId { get; set; }  // Optional, program-specific request
 
         public string RequestedBy { get; set; } = string.Empty;  // User ID
 

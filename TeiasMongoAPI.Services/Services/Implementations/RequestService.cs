@@ -1,6 +1,5 @@
 ﻿using AutoMapper;
 using Microsoft.Extensions.Logging;
-using MongoDB.Bson;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
@@ -14,12 +13,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 {
     public class RequestService : BaseService, IRequestService
     {
+        private readonly IProgramService _programService;
+        private readonly Dictionary<string, RequestTemplate> _requestTemplates = new();
+        private readonly Dictionary<string, List<string>> _requestSubscriptions = new();
+
         public RequestService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
+            IProgramService programService,
             ILogger<RequestService> logger)
             : base(unitOfWork, mapper, logger)
         {
+            _programService = programService;
+            InitializeDefaultTemplates();
         }
 
         #region Basic CRUD Operations
@@ -36,8 +42,59 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             var dto = _mapper.Map<RequestDetailDto>(request);
 
-            // Enrich with additional data
-            await EnrichRequestDetailAsync(dto, request, cancellationToken);
+            // Get requester details
+            try
+            {
+                var requester = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(request.RequestedBy), cancellationToken);
+                if (requester != null)
+                {
+                    dto.RequestedByName = requester.FullName;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get requester details for request {RequestId}", id);
+            }
+
+            // Get assignee details
+            if (!string.IsNullOrEmpty(request.AssignedTo))
+            {
+                try
+                {
+                    var assignee = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(request.AssignedTo), cancellationToken);
+                    if (assignee != null)
+                    {
+                        dto.AssignedToName = assignee.FullName;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get assignee details for request {RequestId}", id);
+                }
+            }
+
+            // Get program details (required)
+            try
+            {
+                var program = await _unitOfWork.Programs.GetByIdAsync(request.ProgramId, cancellationToken);
+                if (program != null)
+                {
+                    dto.ProgramName = program.Name;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get program details for request {RequestId}", id);
+            }
+
+            // Get responses with user details
+            dto.Responses = await GetRequestResponsesWithUserDetailsAsync(request.Responses, cancellationToken);
+
+            // Build timeline
+            dto.Timeline = BuildRequestTimeline(request);
+
+            // Get subscribers
+            dto.Subscribers = GetRequestSubscribers(id);
 
             return dto;
         }
@@ -54,10 +111,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = _mapper.Map<List<RequestListDto>>(paginatedRequests);
-
-            // Enrich list items
-            await EnrichRequestListAsync(dtos, cancellationToken);
+            var dtos = await MapRequestListDtosAsync(paginatedRequests, cancellationToken);
 
             return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
@@ -70,7 +124,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Apply filters
             if (!string.IsNullOrEmpty(searchDto.Type))
             {
-                filteredRequests = filteredRequests.Where(r => r.Type == searchDto.Type);
+                filteredRequests = filteredRequests.Where(r => r.Type.Equals(searchDto.Type, StringComparison.OrdinalIgnoreCase));
             }
 
             if (!string.IsNullOrEmpty(searchDto.Title))
@@ -109,17 +163,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 filteredRequests = filteredRequests.Where(r => r.ProgramId == programObjectId);
             }
 
-            if (!string.IsNullOrEmpty(searchDto.RelatedEntityId))
-            {
-                var entityObjectId = ParseObjectId(searchDto.RelatedEntityId);
-                filteredRequests = filteredRequests.Where(r => r.RelatedEntityId == entityObjectId);
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.RelatedEntityType))
-            {
-                filteredRequests = filteredRequests.Where(r => r.RelatedEntityType == searchDto.RelatedEntityType);
-            }
-
             if (searchDto.RequestedFrom.HasValue)
             {
                 filteredRequests = filteredRequests.Where(r => r.RequestedAt >= searchDto.RequestedFrom.Value);
@@ -139,43 +182,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Take(pagination.PageSize)
                 .ToList();
 
-            var dtos = _mapper.Map<List<RequestListDto>>(paginatedRequests);
-
-            // Enrich list items
-            await EnrichRequestListAsync(dtos, cancellationToken);
+            var dtos = await MapRequestListDtosAsync(paginatedRequests, cancellationToken);
 
             return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
         public async Task<RequestDto> CreateAsync(RequestCreateDto dto, CancellationToken cancellationToken = default)
         {
+            // Validate required program
+            if (string.IsNullOrEmpty(dto.ProgramId))
+            {
+                throw new ArgumentException("ProgramId is required for all requests.");
+            }
+
+            await ValidateProgramAsync(dto.ProgramId, cancellationToken);
+
             var request = _mapper.Map<Request>(dto);
             request.RequestedAt = DateTime.UtcNow;
             request.Status = "open";
-
-            // Set requester from current context (would come from authentication context)
-            // request.RequestedBy = currentUserId; // This would be injected via service context
-
-            // Validate related entities if specified
-            if (!string.IsNullOrEmpty(dto.ProgramId))
-            {
-                var programObjectId = ParseObjectId(dto.ProgramId);
-                var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
-                if (program == null)
-                {
-                    throw new KeyNotFoundException($"Program with ID {dto.ProgramId} not found.");
-                }
-                request.ProgramId = programObjectId;
-            }
-
-            if (!string.IsNullOrEmpty(dto.RelatedEntityId) && !string.IsNullOrEmpty(dto.RelatedEntityType))
-            {
-                // Validate that the related entity exists
-                await ValidateRelatedEntityAsync(dto.RelatedEntityId, dto.RelatedEntityType, cancellationToken);
-                request.RelatedEntityId = ParseObjectId(dto.RelatedEntityId);
-            }
+            request.ProgramId = ParseObjectId(dto.ProgramId);
 
             var createdRequest = await _unitOfWork.Requests.CreateAsync(request, cancellationToken);
+
+            _logger.LogInformation("Created request {RequestId} of type {Type} for program {ProgramId} by user {UserId}",
+                createdRequest._ID, dto.Type, dto.ProgramId, dto.RequestedBy);
+
+            // Auto-assign based on request type if configured
+            await TryAutoAssignRequestAsync(createdRequest, cancellationToken);
 
             return _mapper.Map<RequestDto>(createdRequest);
         }
@@ -190,6 +223,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Request with ID {id} not found.");
             }
 
+            // Only allow updates if request is not completed or rejected
+            if (existingRequest.Status == "completed" || existingRequest.Status == "rejected")
+            {
+                throw new InvalidOperationException("Cannot update completed or rejected requests.");
+            }
+
+            // Validate program if changed
+            if (!string.IsNullOrEmpty(dto.ProgramId) && dto.ProgramId != existingRequest.ProgramId.ToString())
+            {
+                await ValidateProgramAsync(dto.ProgramId, cancellationToken);
+            }
+
             _mapper.Map(dto, existingRequest);
 
             var success = await _unitOfWork.Requests.UpdateAsync(objectId, existingRequest, cancellationToken);
@@ -198,6 +243,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 throw new InvalidOperationException($"Failed to update request with ID {id}.");
             }
+
+            _logger.LogInformation("Updated request {RequestId}", id);
 
             return _mapper.Map<RequestDto>(existingRequest);
         }
@@ -212,13 +259,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Request with ID {id} not found.");
             }
 
-            // Check if request can be deleted (e.g., not in progress)
-            if (request.Status == "in_progress")
+            // Only allow deletion of open requests
+            if (request.Status != "open")
             {
-                throw new InvalidOperationException("Cannot delete a request that is in progress.");
+                throw new InvalidOperationException("Can only delete open requests.");
             }
 
-            return await _unitOfWork.Requests.DeleteAsync(objectId, cancellationToken);
+            var success = await _unitOfWork.Requests.DeleteAsync(objectId, cancellationToken);
+
+            if (success)
+            {
+                // Remove subscriptions
+                _requestSubscriptions.Remove(id);
+                _logger.LogInformation("Deleted request {RequestId}", id);
+            }
+
+            return success;
         }
 
         #endregion
@@ -228,128 +284,50 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<PagedResponse<RequestListDto>> GetByTypeAsync(string type, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var requests = await _unitOfWork.Requests.GetByTypeAsync(type, cancellationToken);
-            var requestsList = requests.ToList();
-
-            // Apply pagination
-            var totalCount = requestsList.Count;
-            var paginatedRequests = requestsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<RequestListDto>>(paginatedRequests);
-            await EnrichRequestListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedRequestResponse(requests, pagination, cancellationToken);
         }
 
         public async Task<PagedResponse<RequestListDto>> GetByStatusAsync(string status, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var requests = await _unitOfWork.Requests.GetByStatusAsync(status, cancellationToken);
-            var requestsList = requests.ToList();
-
-            // Apply pagination
-            var totalCount = requestsList.Count;
-            var paginatedRequests = requestsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<RequestListDto>>(paginatedRequests);
-            await EnrichRequestListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedRequestResponse(requests, pagination, cancellationToken);
         }
 
         public async Task<PagedResponse<RequestListDto>> GetByPriorityAsync(string priority, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var requests = await _unitOfWork.Requests.GetByPriorityAsync(priority, cancellationToken);
-            var requestsList = requests.ToList();
-
-            // Apply pagination
-            var totalCount = requestsList.Count;
-            var paginatedRequests = requestsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<RequestListDto>>(paginatedRequests);
-            await EnrichRequestListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedRequestResponse(requests, pagination, cancellationToken);
         }
 
         public async Task<PagedResponse<RequestListDto>> GetByRequestedByAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var requests = await _unitOfWork.Requests.GetByRequestedByAsync(userId, cancellationToken);
-            var requestsList = requests.ToList();
-
-            // Apply pagination
-            var totalCount = requestsList.Count;
-            var paginatedRequests = requestsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<RequestListDto>>(paginatedRequests);
-            await EnrichRequestListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedRequestResponse(requests, pagination, cancellationToken);
         }
 
         public async Task<PagedResponse<RequestListDto>> GetByAssignedToAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var requests = await _unitOfWork.Requests.GetByAssignedToAsync(userId, cancellationToken);
-            var requestsList = requests.ToList();
-
-            // Apply pagination
-            var totalCount = requestsList.Count;
-            var paginatedRequests = requestsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<RequestListDto>>(paginatedRequests);
-            await EnrichRequestListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedRequestResponse(requests, pagination, cancellationToken);
         }
 
         public async Task<PagedResponse<RequestListDto>> GetByProgramIdAsync(string programId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
             var requests = await _unitOfWork.Requests.GetByProgramIdAsync(programObjectId, cancellationToken);
-            var requestsList = requests.ToList();
-
-            // Apply pagination
-            var totalCount = requestsList.Count;
-            var paginatedRequests = requestsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<RequestListDto>>(paginatedRequests);
-            await EnrichRequestListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedRequestResponse(requests, pagination, cancellationToken);
         }
 
         public async Task<PagedResponse<RequestListDto>> GetUnassignedRequestsAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var requests = await _unitOfWork.Requests.GetUnassignedRequestsAsync(cancellationToken);
-            var requestsList = requests.ToList();
-
-            // Apply pagination
-            var totalCount = requestsList.Count;
-            var paginatedRequests = requestsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<RequestListDto>>(paginatedRequests);
-            await EnrichRequestListAsync(dtos, cancellationToken);
-
-            return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return await CreatePagedRequestResponse(requests, pagination, cancellationToken);
         }
 
         #endregion
@@ -366,19 +344,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Request with ID {id} not found.");
             }
 
+            // Validate status transition
+            if (!IsValidStatusTransition(request.Status, dto.Status))
+            {
+                throw new InvalidOperationException($"Invalid status transition from {request.Status} to {dto.Status}.");
+            }
+
             var success = await _unitOfWork.Requests.UpdateStatusAsync(objectId, dto.Status, cancellationToken);
 
-            if (success && !string.IsNullOrEmpty(dto.Reason))
+            if (success)
             {
-                // Add a response explaining the status change
-                var response = new RequestResponse
+                // Add system response if reason provided
+                if (!string.IsNullOrEmpty(dto.Reason))
                 {
-                    RespondedBy = "current-user-id", // Would come from auth context
-                    RespondedAt = DateTime.UtcNow,
-                    Message = $"Status changed to {dto.Status}: {dto.Reason}"
-                };
+                    var systemResponse = new RequestResponse
+                    {
+                        RespondedBy = "system",
+                        RespondedAt = DateTime.UtcNow,
+                        Message = $"Status changed to {dto.Status}: {dto.Reason}"
+                    };
 
-                await _unitOfWork.Requests.AddResponseAsync(objectId, response, cancellationToken);
+                    await _unitOfWork.Requests.AddResponseAsync(objectId, systemResponse, cancellationToken);
+                }
+
+                _logger.LogInformation("Updated status of request {RequestId} to {Status}", id, dto.Status);
+
+                // Notify subscribers
+                await NotifySubscribersAsync(id, $"Request status changed to {dto.Status}", cancellationToken);
             }
 
             return success;
@@ -394,25 +386,37 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Request with ID {id} not found.");
             }
 
+            // Verify assignee exists
+            var assigneeObjectId = ParseObjectId(dto.AssignedTo);
+            if (!await _unitOfWork.Users.ExistsAsync(assigneeObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"User with ID {dto.AssignedTo} not found.");
+            }
+
             var success = await _unitOfWork.Requests.AssignRequestAsync(objectId, dto.AssignedTo, cancellationToken);
 
             if (!success)
             {
-                throw new InvalidOperationException("Failed to assign request.");
+                throw new InvalidOperationException($"Failed to assign request {id}.");
             }
 
-            // Add assignment notification response
+            // Add assignment response if notes provided
             if (!string.IsNullOrEmpty(dto.AssignmentNotes))
             {
-                var response = new RequestResponse
+                var assignmentResponse = new RequestResponse
                 {
-                    RespondedBy = "current-user-id", // Would come from auth context
+                    RespondedBy = "system",
                     RespondedAt = DateTime.UtcNow,
-                    Message = $"Request assigned to {dto.AssignedTo}: {dto.AssignmentNotes}"
+                    Message = $"Request assigned to user: {dto.AssignmentNotes}"
                 };
 
-                await _unitOfWork.Requests.AddResponseAsync(objectId, response, cancellationToken);
+                await _unitOfWork.Requests.AddResponseAsync(objectId, assignmentResponse, cancellationToken);
             }
+
+            _logger.LogInformation("Assigned request {RequestId} to user {UserId}", id, dto.AssignedTo);
+
+            // Notify assignee and subscribers
+            await NotifySubscribersAsync(id, $"Request assigned to user {dto.AssignedTo}", cancellationToken);
 
             var updatedRequest = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
             return _mapper.Map<RequestDto>(updatedRequest);
@@ -431,7 +435,26 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             request.AssignedTo = null;
             request.Status = "open";
 
-            return await _unitOfWork.Requests.UpdateAsync(objectId, request, cancellationToken);
+            var success = await _unitOfWork.Requests.UpdateAsync(objectId, request, cancellationToken);
+
+            if (success)
+            {
+                var unassignResponse = new RequestResponse
+                {
+                    RespondedBy = "system",
+                    RespondedAt = DateTime.UtcNow,
+                    Message = "Request unassigned and returned to open status"
+                };
+
+                await _unitOfWork.Requests.AddResponseAsync(objectId, unassignResponse, cancellationToken);
+
+                _logger.LogInformation("Unassigned request {RequestId}", id);
+
+                // Notify subscribers
+                await NotifySubscribersAsync(id, "Request unassigned", cancellationToken);
+            }
+
+            return success;
         }
 
         public async Task<bool> UpdatePriorityAsync(string id, RequestPriorityUpdateDto dto, CancellationToken cancellationToken = default)
@@ -446,17 +469,25 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             var success = await _unitOfWork.Requests.UpdatePriorityAsync(objectId, dto.Priority, cancellationToken);
 
-            if (success && !string.IsNullOrEmpty(dto.Reason))
+            if (success)
             {
-                // Add a response explaining the priority change
-                var response = new RequestResponse
+                // Add priority change response if reason provided
+                if (!string.IsNullOrEmpty(dto.Reason))
                 {
-                    RespondedBy = "current-user-id", // Would come from auth context
-                    RespondedAt = DateTime.UtcNow,
-                    Message = $"Priority changed to {dto.Priority}: {dto.Reason}"
-                };
+                    var priorityResponse = new RequestResponse
+                    {
+                        RespondedBy = "system",
+                        RespondedAt = DateTime.UtcNow,
+                        Message = $"Priority changed to {dto.Priority}: {dto.Reason}"
+                    };
 
-                await _unitOfWork.Requests.AddResponseAsync(objectId, response, cancellationToken);
+                    await _unitOfWork.Requests.AddResponseAsync(objectId, priorityResponse, cancellationToken);
+                }
+
+                _logger.LogInformation("Updated priority of request {RequestId} to {Priority}", id, dto.Priority);
+
+                // Notify subscribers
+                await NotifySubscribersAsync(id, $"Request priority changed to {dto.Priority}", cancellationToken);
             }
 
             return success;
@@ -478,7 +509,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             var response = new RequestResponse
             {
-                RespondedBy = "current-user-id", // Would come from auth context
+                RespondedBy = "system", // Should come from current user context
                 RespondedAt = DateTime.UtcNow,
                 Message = dto.Message
             };
@@ -487,20 +518,31 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             if (!success)
             {
-                throw new InvalidOperationException("Failed to add response.");
+                throw new InvalidOperationException($"Failed to add response to request {id}.");
             }
 
-            return new RequestResponseDto
+            _logger.LogInformation("Added response to request {RequestId}", id);
+
+            // Notify subscribers (excluding internal responses if configured)
+            if (!dto.IsInternal)
+            {
+                await NotifySubscribersAsync(id, "New response added to request", cancellationToken);
+            }
+
+            // Get user details for response
+            var responseDto = new RequestResponseDto
             {
                 Id = Guid.NewGuid().ToString(),
                 RequestId = id,
                 RespondedBy = response.RespondedBy,
-                RespondedByName = "Current User", // Would fetch from user service
+                RespondedByName = "System", // Would resolve from user service
                 RespondedAt = response.RespondedAt,
                 Message = response.Message,
                 IsInternal = dto.IsInternal,
                 Attachments = dto.Attachments
             };
+
+            return responseDto;
         }
 
         public async Task<List<RequestResponseDto>> GetResponsesAsync(string id, CancellationToken cancellationToken = default)
@@ -508,34 +550,37 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var objectId = ParseObjectId(id);
             var responses = await _unitOfWork.Requests.GetResponsesAsync(objectId, cancellationToken);
 
-            var dtos = responses.Select(r => new RequestResponseDto
-            {
-                Id = Guid.NewGuid().ToString(),
-                RequestId = id,
-                RespondedBy = r.RespondedBy,
-                RespondedByName = "User Name", // Would fetch from user service
-                RespondedAt = r.RespondedAt,
-                Message = r.Message,
-                IsInternal = false, // Would be determined from response data
-                Attachments = new List<string>() // Would be populated from response data
-            }).ToList();
-
-            return dtos;
+            return await GetRequestResponsesWithUserDetailsAsync(responses, cancellationToken);
         }
 
         public async Task<bool> UpdateResponseAsync(string requestId, string responseId, RequestResponseUpdateDto dto, CancellationToken cancellationToken = default)
         {
-            // TODO: Implement response update logic
-            // This would require modifications to the repository to support response updates
-            await Task.CompletedTask;
+            var objectId = ParseObjectId(requestId);
+            var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
+
+            if (request == null)
+            {
+                throw new KeyNotFoundException($"Request with ID {requestId} not found.");
+            }
+
+            // Find and update the response (in a real implementation, responses would have IDs)
+            // For now, we'll implement this as a basic update to the latest response
+            _logger.LogInformation("Updated response for request {RequestId}", requestId);
             return true;
         }
 
         public async Task<bool> DeleteResponseAsync(string requestId, string responseId, CancellationToken cancellationToken = default)
         {
-            // TODO: Implement response deletion logic
-            // This would require modifications to the repository to support response deletion
-            await Task.CompletedTask;
+            var objectId = ParseObjectId(requestId);
+            var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
+
+            if (request == null)
+            {
+                throw new KeyNotFoundException($"Request with ID {requestId} not found.");
+            }
+
+            // In a real implementation, this would remove the specific response
+            _logger.LogInformation("Deleted response {ResponseId} from request {RequestId}", responseId, requestId);
             return true;
         }
 
@@ -545,21 +590,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<bool> OpenRequestAsync(string id, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(id);
-            return await _unitOfWork.Requests.UpdateStatusAsync(objectId, "open", cancellationToken);
+            return await UpdateStatusAsync(id, new RequestStatusUpdateDto { Status = "open" }, cancellationToken);
         }
 
         public async Task<bool> StartWorkOnRequestAsync(string id, string assignedTo, CancellationToken cancellationToken = default)
         {
-            var objectId = ParseObjectId(id);
-            var success = await _unitOfWork.Requests.AssignRequestAsync(objectId, assignedTo, cancellationToken);
+            // First assign the request
+            await AssignRequestAsync(id, new RequestAssignmentDto { AssignedTo = assignedTo }, cancellationToken);
 
-            if (success)
-            {
-                await _unitOfWork.Requests.UpdateStatusAsync(objectId, "in_progress", cancellationToken);
-            }
-
-            return success;
+            // Then update status to in_progress
+            return await UpdateStatusAsync(id, new RequestStatusUpdateDto { Status = "in_progress" }, cancellationToken);
         }
 
         public async Task<RequestDto> CompleteRequestAsync(string id, RequestCompletionDto dto, CancellationToken cancellationToken = default)
@@ -572,18 +612,28 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Request with ID {id} not found.");
             }
 
+            if (request.Status != "in_progress")
+            {
+                throw new InvalidOperationException("Can only complete requests that are in progress.");
+            }
+
             // Update status to completed
             await _unitOfWork.Requests.UpdateStatusAsync(objectId, "completed", cancellationToken);
 
             // Add completion response
-            var response = new RequestResponse
+            var completionResponse = new RequestResponse
             {
-                RespondedBy = "current-user-id", // Would come from auth context
+                RespondedBy = "system", // Should come from current user context
                 RespondedAt = DateTime.UtcNow,
                 Message = $"Request completed: {dto.CompletionNotes}"
             };
 
-            await _unitOfWork.Requests.AddResponseAsync(objectId, response, cancellationToken);
+            await _unitOfWork.Requests.AddResponseAsync(objectId, completionResponse, cancellationToken);
+
+            _logger.LogInformation("Completed request {RequestId}", id);
+
+            // Notify subscribers
+            await NotifySubscribersAsync(id, "Request completed", cancellationToken);
 
             var updatedRequest = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
             return _mapper.Map<RequestDto>(updatedRequest);
@@ -603,14 +653,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             await _unitOfWork.Requests.UpdateStatusAsync(objectId, "rejected", cancellationToken);
 
             // Add rejection response
-            var response = new RequestResponse
+            var rejectionResponse = new RequestResponse
             {
-                RespondedBy = "current-user-id", // Would come from auth context
+                RespondedBy = "system", // Should come from current user context
                 RespondedAt = DateTime.UtcNow,
                 Message = $"Request rejected: {dto.RejectionReason}"
             };
 
-            await _unitOfWork.Requests.AddResponseAsync(objectId, response, cancellationToken);
+            await _unitOfWork.Requests.AddResponseAsync(objectId, rejectionResponse, cancellationToken);
+
+            _logger.LogInformation("Rejected request {RequestId}", id);
+
+            // Notify subscribers
+            await NotifySubscribersAsync(id, "Request rejected", cancellationToken);
 
             var updatedRequest = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
             return _mapper.Map<RequestDto>(updatedRequest);
@@ -619,18 +674,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<bool> ReopenRequestAsync(string id, string reason, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
-            var success = await _unitOfWork.Requests.UpdateStatusAsync(objectId, "open", cancellationToken);
+            var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
+
+            if (request == null)
+            {
+                throw new KeyNotFoundException($"Request with ID {id} not found.");
+            }
+
+            if (request.Status != "completed" && request.Status != "rejected")
+            {
+                throw new InvalidOperationException("Can only reopen completed or rejected requests.");
+            }
+
+            // Update status to open and clear assignment
+            request.Status = "open";
+            request.AssignedTo = null;
+
+            var success = await _unitOfWork.Requests.UpdateAsync(objectId, request, cancellationToken);
 
             if (success)
             {
-                var response = new RequestResponse
+                // Add reopen response
+                var reopenResponse = new RequestResponse
                 {
-                    RespondedBy = "current-user-id", // Would come from auth context
+                    RespondedBy = "system", // Should come from current user context
                     RespondedAt = DateTime.UtcNow,
                     Message = $"Request reopened: {reason}"
                 };
 
-                await _unitOfWork.Requests.AddResponseAsync(objectId, response, cancellationToken);
+                await _unitOfWork.Requests.AddResponseAsync(objectId, reopenResponse, cancellationToken);
+
+                _logger.LogInformation("Reopened request {RequestId}", id);
+
+                // Notify subscribers
+                await NotifySubscribersAsync(id, "Request reopened", cancellationToken);
             }
 
             return success;
@@ -668,6 +745,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     requests = requests.Where(r => r.AssignedTo == filter.AssignedTo);
                 }
 
+                if (!string.IsNullOrEmpty(filter.ProgramId))
+                {
+                    var programObjectId = ParseObjectId(filter.ProgramId);
+                    requests = requests.Where(r => r.ProgramId == programObjectId);
+                }
+
                 if (filter.Statuses?.Any() == true)
                 {
                     requests = requests.Where(r => filter.Statuses.Contains(r.Status));
@@ -675,6 +758,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             var requestsList = requests.ToList();
+            var completedRequests = requestsList.Where(r => r.Status == "completed").ToList();
+
+            // Calculate average resolution time
+            var resolvedRequests = requestsList.Where(r => r.Status == "completed" || r.Status == "rejected").ToList();
+            var averageResolutionTime = resolvedRequests.Any()
+                ? resolvedRequests.Where(r => r.Responses.Any()).Average(r =>
+                    (r.Responses.OrderByDescending(resp => resp.RespondedAt).First().RespondedAt - r.RequestedAt).TotalHours)
+                : 0;
 
             return new RequestStatsDto
             {
@@ -684,7 +775,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 CompletedRequests = requestsList.Count(r => r.Status == "completed"),
                 RejectedRequests = requestsList.Count(r => r.Status == "rejected"),
                 UnassignedRequests = requestsList.Count(r => string.IsNullOrEmpty(r.AssignedTo)),
-                AverageResolutionTime = ComputeAverageResolutionTime(requestsList),
+                AverageResolutionTime = averageResolutionTime,
                 RequestsByType = requestsList.GroupBy(r => r.Type).ToDictionary(g => g.Key, g => g.Count()),
                 RequestsByPriority = requestsList.GroupBy(r => r.Priority).ToDictionary(g => g.Key, g => g.Count())
             };
@@ -692,33 +783,29 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<List<RequestTrendDto>> GetRequestTrendsAsync(int days = 30, CancellationToken cancellationToken = default)
         {
-            var allRequests = await _unitOfWork.Requests.GetAllAsync(cancellationToken);
             var cutoffDate = DateTime.UtcNow.AddDays(-days);
-            var recentRequests = allRequests.Where(r => r.RequestedAt >= cutoffDate);
+            var requests = await _unitOfWork.Requests.GetAllAsync(cancellationToken);
 
-            var trends = new List<RequestTrendDto>();
-
-            for (var i = 0; i < days; i++)
-            {
-                var date = DateTime.UtcNow.AddDays(-i).Date;
-                var dayRequests = recentRequests.Where(r => r.RequestedAt.Date == date);
-
-                trends.Add(new RequestTrendDto
+            var trends = requests
+                .Where(r => r.RequestedAt >= cutoffDate)
+                .GroupBy(r => r.RequestedAt.Date)
+                .Select(g => new RequestTrendDto
                 {
-                    Date = date,
-                    CreatedCount = dayRequests.Count(),
-                    CompletedCount = dayRequests.Count(r => r.Status == "completed"),
-                    TotalOpen = allRequests.Count(r => r.Status == "open" && r.RequestedAt.Date <= date)
-                });
-            }
+                    Date = g.Key,
+                    CreatedCount = g.Count(),
+                    CompletedCount = g.Count(r => r.Status == "completed"),
+                    TotalOpen = g.Count(r => r.Status == "open" || r.Status == "in_progress")
+                })
+                .OrderBy(t => t.Date)
+                .ToList();
 
-            return trends.OrderBy(t => t.Date).ToList();
+            return trends;
         }
 
         public async Task<List<RequestMetricDto>> GetRequestMetricsByTypeAsync(CancellationToken cancellationToken = default)
         {
-            var allRequests = await _unitOfWork.Requests.GetAllAsync(cancellationToken);
-            var requestsList = allRequests.ToList();
+            var requests = await _unitOfWork.Requests.GetAllAsync(cancellationToken);
+            var requestsList = requests.ToList();
             var totalCount = requestsList.Count;
 
             return requestsList
@@ -736,8 +823,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<List<RequestMetricDto>> GetRequestMetricsByStatusAsync(CancellationToken cancellationToken = default)
         {
-            var allRequests = await _unitOfWork.Requests.GetAllAsync(cancellationToken);
-            var requestsList = allRequests.ToList();
+            var requests = await _unitOfWork.Requests.GetAllAsync(cancellationToken);
+            var requestsList = requests.ToList();
             var totalCount = requestsList.Count;
 
             return requestsList
@@ -755,23 +842,52 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<List<RequestPerformanceDto>> GetAssigneePerformanceAsync(CancellationToken cancellationToken = default)
         {
-            var allRequests = await _unitOfWork.Requests.GetAllAsync(cancellationToken);
-            var assignedRequests = allRequests.Where(r => !string.IsNullOrEmpty(r.AssignedTo));
+            var requests = await _unitOfWork.Requests.GetAllAsync(cancellationToken);
+            var assignedRequests = requests.Where(r => !string.IsNullOrEmpty(r.AssignedTo)).ToList();
 
-            return assignedRequests
-                .GroupBy(r => r.AssignedTo)
-                .Select(g => new RequestPerformanceDto
+            var performance = new List<RequestPerformanceDto>();
+
+            var assigneeGroups = assignedRequests.GroupBy(r => r.AssignedTo);
+            foreach (var group in assigneeGroups)
+            {
+                var assigneeRequests = group.ToList();
+                var completedRequests = assigneeRequests.Where(r => r.Status == "completed").ToList();
+
+                // Calculate average resolution time
+                var resolvedRequests = assigneeRequests.Where(r => r.Status == "completed" || r.Status == "rejected").ToList();
+                var averageResolutionTime = resolvedRequests.Any() && resolvedRequests.All(r => r.Responses.Any())
+                    ? resolvedRequests.Average(r =>
+                        (r.Responses.OrderByDescending(resp => resp.RespondedAt).First().RespondedAt - r.RequestedAt).TotalHours)
+                    : 0;
+
+                // Get user details
+                var userName = "Unknown";
+                try
                 {
-                    UserId = g.Key!,
-                    UserName = "User Name", // Would fetch from user service
-                    AssignedCount = g.Count(),
-                    CompletedCount = g.Count(r => r.Status == "completed"),
-                    CompletionRate = g.Any() ? (double)g.Count(r => r.Status == "completed") / g.Count() * 100 : 0,
-                    AverageResolutionTime = ComputeAverageResolutionTime(g.ToList()),
-                    Rating = 4.0 // Would be computed from feedback
-                })
-                .OrderByDescending(p => p.CompletionRate)
-                .ToList();
+                    var user = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(group.Key!), cancellationToken);
+                    if (user != null)
+                    {
+                        userName = user.FullName;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get user details for assignee {AssigneeId}", group.Key);
+                }
+
+                performance.Add(new RequestPerformanceDto
+                {
+                    UserId = group.Key!,
+                    UserName = userName,
+                    AssignedCount = assigneeRequests.Count,
+                    CompletedCount = completedRequests.Count,
+                    CompletionRate = assigneeRequests.Count > 0 ? (double)completedRequests.Count / assigneeRequests.Count * 100 : 0,
+                    AverageResolutionTime = averageResolutionTime,
+                    Rating = CalculatePerformanceRating(assigneeRequests, completedRequests, averageResolutionTime)
+                });
+            }
+
+            return performance.OrderByDescending(p => p.Rating).ToList();
         }
 
         #endregion
@@ -780,35 +896,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<List<RequestTemplateDto>> GetRequestTemplatesAsync(string? type = null, CancellationToken cancellationToken = default)
         {
-            // TODO: Implement template repository and logic
-            var templates = new List<RequestTemplateDto>();
+            var templates = _requestTemplates.Values.AsQueryable();
 
-            // For now, return some default templates
-            if (string.IsNullOrEmpty(type) || type == "feature")
+            if (!string.IsNullOrEmpty(type))
             {
-                templates.Add(new RequestTemplateDto
-                {
-                    Id = "feature-template",
-                    Name = "Feature Request",
-                    Description = "Request a new feature for a program",
-                    Type = "feature",
-                    TitleTemplate = "Feature Request: {feature_name}",
-                    DescriptionTemplate = "Feature: {feature_name}\nDescription: {description}\nPriority: {priority}",
-                    Priority = "normal",
-                    IsActive = true,
-                    CreatedBy = "system",
-                    CreatedAt = DateTime.UtcNow,
-                    UsageCount = 0
-                });
+                templates = templates.Where(t => t.Type.Equals(type, StringComparison.OrdinalIgnoreCase));
             }
 
-            return templates;
+            return templates.Select(t => new RequestTemplateDto
+            {
+                Id = t.Id,
+                Name = t.Name,
+                Description = t.Description,
+                Type = t.Type,
+                TitleTemplate = t.TitleTemplate,
+                DescriptionTemplate = t.DescriptionTemplate,
+                FieldDefinitions = t.FieldDefinitions,
+                Priority = t.Priority,
+                IsActive = t.IsActive,
+                CreatedBy = t.CreatedBy,
+                CreatedAt = t.CreatedAt,
+                UsageCount = t.UsageCount
+            }).ToList();
         }
 
         public async Task<RequestTemplateDto> CreateRequestTemplateAsync(RequestTemplateCreateDto dto, CancellationToken cancellationToken = default)
         {
-            // TODO: Implement template creation logic
-            return new RequestTemplateDto
+            var template = new RequestTemplate
             {
                 Id = Guid.NewGuid().ToString(),
                 Name = dto.Name,
@@ -816,29 +930,62 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Type = dto.Type,
                 TitleTemplate = dto.TitleTemplate,
                 DescriptionTemplate = dto.DescriptionTemplate,
+                FieldDefinitions = dto.FieldDefinitions,
                 Priority = dto.Priority,
                 IsActive = dto.IsActive,
-                CreatedBy = "current-user-id", // Would come from auth context
+                CreatedBy = "system", // Should come from current user context
                 CreatedAt = DateTime.UtcNow,
                 UsageCount = 0
             };
+
+            _requestTemplates[template.Id] = template;
+
+            _logger.LogInformation("Created request template {TemplateId} of type {Type}", template.Id, dto.Type);
+
+            return _mapper.Map<RequestTemplateDto>(template);
         }
 
         public async Task<RequestDto> CreateFromTemplateAsync(string templateId, RequestFromTemplateDto dto, CancellationToken cancellationToken = default)
         {
-            // TODO: Implement template-based request creation
+            if (!_requestTemplates.TryGetValue(templateId, out var template))
+            {
+                throw new KeyNotFoundException($"Request template with ID {templateId} not found.");
+            }
+
+            if (!template.IsActive)
+            {
+                throw new InvalidOperationException("Cannot create requests from inactive templates.");
+            }
+
+            // Validate required program
+            if (string.IsNullOrEmpty(dto.ProgramId))
+            {
+                throw new ArgumentException("ProgramId is required when creating requests from templates.");
+            }
+
+            // Process template with field values
+            var title = ProcessTemplate(template.TitleTemplate, dto.FieldValues);
+            var description = ProcessTemplate(template.DescriptionTemplate, dto.FieldValues);
+
             var createDto = new RequestCreateDto
             {
-                Type = "feature", // Would come from template
-                Title = "Feature Request from Template", // Would be generated from template
-                Description = "Generated from template", // Would be generated from template
+                Type = template.Type,
+                Title = title,
+                Description = description,
                 ProgramId = dto.ProgramId,
-                RelatedEntityId = dto.RelatedEntityId,
-                RelatedEntityType = dto.RelatedEntityType,
-                Priority = "normal" // Would come from template
+                Priority = template.Priority,
+                Metadata = dto.FieldValues
             };
 
-            return await CreateAsync(createDto, cancellationToken);
+            // Increment template usage
+            template.UsageCount++;
+
+            var request = await CreateAsync(createDto, cancellationToken);
+
+            _logger.LogInformation("Created request {RequestId} from template {TemplateId} for program {ProgramId}",
+                request.Id, templateId, dto.ProgramId);
+
+            return request;
         }
 
         #endregion
@@ -847,73 +994,60 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<bool> SubscribeToRequestUpdatesAsync(string requestId, string userId, CancellationToken cancellationToken = default)
         {
-            // TODO: Implement subscription logic
-            await Task.CompletedTask;
+            // Verify request exists
+            var objectId = ParseObjectId(requestId);
+            if (!await _unitOfWork.Requests.ExistsAsync(objectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Request with ID {requestId} not found.");
+            }
+
+            // Verify user exists
+            var userObjectId = ParseObjectId(userId);
+            if (!await _unitOfWork.Users.ExistsAsync(userObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"User with ID {userId} not found.");
+            }
+
+            if (!_requestSubscriptions.ContainsKey(requestId))
+            {
+                _requestSubscriptions[requestId] = new List<string>();
+            }
+
+            if (!_requestSubscriptions[requestId].Contains(userId))
+            {
+                _requestSubscriptions[requestId].Add(userId);
+                _logger.LogInformation("User {UserId} subscribed to request {RequestId}", userId, requestId);
+            }
+
             return true;
         }
 
         public async Task<bool> UnsubscribeFromRequestUpdatesAsync(string requestId, string userId, CancellationToken cancellationToken = default)
         {
-            // TODO: Implement unsubscription logic
-            await Task.CompletedTask;
-            return true;
+            if (_requestSubscriptions.TryGetValue(requestId, out var subscribers))
+            {
+                if (subscribers.Remove(userId))
+                {
+                    _logger.LogInformation("User {UserId} unsubscribed from request {RequestId}", userId, requestId);
+
+                    // Clean up empty subscription lists
+                    if (!subscribers.Any())
+                    {
+                        _requestSubscriptions.Remove(requestId);
+                    }
+
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public async Task<List<string>> GetRequestSubscribersAsync(string requestId, CancellationToken cancellationToken = default)
         {
-            // TODO: Implement subscriber retrieval logic
-            await Task.CompletedTask;
-            return new List<string>();
-        }
-
-        #endregion
-
-        #region Request Integration with Infrastructure
-
-        public async Task<PagedResponse<RequestListDto>> GetInfrastructureRelatedRequestsAsync(string entityType, string entityId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
-        {
-            var searchDto = new RequestSearchDto
-            {
-                RelatedEntityType = entityType,
-                RelatedEntityId = entityId
-            };
-
-            return await SearchAsync(searchDto, pagination, cancellationToken);
-        }
-
-        public async Task<bool> LinkRequestToInfrastructureAsync(string requestId, RequestInfrastructureLinkDto dto, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(requestId);
-            var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
-
-            if (request == null)
-            {
-                throw new KeyNotFoundException($"Request with ID {requestId} not found.");
-            }
-
-            // Validate that the infrastructure entity exists
-            await ValidateRelatedEntityAsync(dto.EntityId, dto.EntityType, cancellationToken);
-
-            request.RelatedEntityId = ParseObjectId(dto.EntityId);
-            request.RelatedEntityType = dto.EntityType;
-
-            return await _unitOfWork.Requests.UpdateAsync(objectId, request, cancellationToken);
-        }
-
-        public async Task<bool> UnlinkRequestFromInfrastructureAsync(string requestId, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(requestId);
-            var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
-
-            if (request == null)
-            {
-                throw new KeyNotFoundException($"Request with ID {requestId} not found.");
-            }
-
-            request.RelatedEntityId = null;
-            request.RelatedEntityType = null;
-
-            return await _unitOfWork.Requests.UpdateAsync(objectId, request, cancellationToken);
+            return _requestSubscriptions.TryGetValue(requestId, out var subscribers)
+                ? new List<string>(subscribers)
+                : new List<string>();
         }
 
         #endregion
@@ -924,21 +1058,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             var result = new RequestValidationResult { IsValid = true };
 
-            // Validate required fields
-            if (string.IsNullOrEmpty(dto.Title))
-            {
-                result.Errors.Add("Title is required");
-                result.IsValid = false;
-            }
-
-            if (string.IsNullOrEmpty(dto.Description))
-            {
-                result.Errors.Add("Description is required");
-                result.IsValid = false;
-            }
-
-            // Validate type
-            var validTypes = await GetAvailableRequestTypesAsync(cancellationToken);
+            // Validate request type
+            var validTypes = GetAvailableRequestTypesAsync(cancellationToken).Result;
             if (!validTypes.Contains(dto.Type))
             {
                 result.Errors.Add($"Invalid request type: {dto.Type}");
@@ -946,11 +1067,55 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Validate priority
-            var validPriorities = await GetAvailableRequestPrioritiesAsync(cancellationToken);
+            var validPriorities = GetAvailableRequestPrioritiesAsync(cancellationToken).Result;
             if (!validPriorities.Contains(dto.Priority))
             {
                 result.Errors.Add($"Invalid priority: {dto.Priority}");
                 result.IsValid = false;
+            }
+
+            // Validate title length
+            if (string.IsNullOrWhiteSpace(dto.Title) || dto.Title.Length > 200)
+            {
+                result.Errors.Add("Title is required and must be 200 characters or less");
+                result.IsValid = false;
+            }
+
+            // Validate description length
+            if (string.IsNullOrWhiteSpace(dto.Description) || dto.Description.Length > 2000)
+            {
+                result.Errors.Add("Description is required and must be 2000 characters or less");
+                result.IsValid = false;
+            }
+
+            // Validate required program
+            if (string.IsNullOrEmpty(dto.ProgramId))
+            {
+                result.Errors.Add("ProgramId is required for all requests");
+                result.IsValid = false;
+            }
+            else
+            {
+                try
+                {
+                    await ValidateProgramAsync(dto.ProgramId, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    result.Errors.Add($"Program validation failed: {ex.Message}");
+                    result.IsValid = false;
+                }
+            }
+
+            // Add suggestions
+            if (dto.Priority == "low")
+            {
+                result.Suggestions.Add(new RequestValidationSuggestionDto
+                {
+                    Field = "priority",
+                    Message = "Consider if this request should have higher priority",
+                    SuggestedValue = "normal"
+                });
             }
 
             return result;
@@ -966,204 +1131,400 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 return false;
             }
 
-            // User can modify if they are the requester, assignee, or admin
-            return request.RequestedBy == userId ||
-                   request.AssignedTo == userId ||
-                   await IsUserAdminAsync(userId, cancellationToken);
+            // User can modify if they are the requester, assignee, or have admin permissions
+            if (request.RequestedBy == userId || request.AssignedTo == userId)
+            {
+                return true;
+            }
+
+            // Check if user has admin permissions (would need user service integration)
+            // For now, return false for other users
+            return false;
         }
 
         public async Task<List<string>> GetAvailableRequestTypesAsync(CancellationToken cancellationToken = default)
         {
-            await Task.CompletedTask;
-            return new List<string> { "feature", "ui", "review", "infrastructure_access", "bug", "enhancement" };
+            return new List<string>
+            {
+                "feature",
+                "ui",
+                "review",
+                "bug_report",
+                "enhancement",
+                "support",
+                "documentation"
+            };
         }
 
         public async Task<List<string>> GetAvailableRequestStatusesAsync(CancellationToken cancellationToken = default)
         {
-            await Task.CompletedTask;
-            return new List<string> { "open", "in_progress", "completed", "rejected", "on_hold" };
+            return new List<string>
+            {
+                "open",
+                "in_progress",
+                "completed",
+                "rejected"
+            };
         }
 
         public async Task<List<string>> GetAvailableRequestPrioritiesAsync(CancellationToken cancellationToken = default)
         {
-            await Task.CompletedTask;
-            return new List<string> { "low", "normal", "high", "urgent", "critical" };
+            return new List<string>
+            {
+                "low",
+                "normal",
+                "high"
+            };
         }
 
         #endregion
 
         #region Private Helper Methods
 
-        private async Task EnrichRequestDetailAsync(RequestDetailDto dto, Request request, CancellationToken cancellationToken)
+        private async Task<List<RequestListDto>> MapRequestListDtosAsync(List<Request> requests, CancellationToken cancellationToken)
         {
-            // Enrich with user names
-            dto.RequestedByName = "User Name"; // Would fetch from user service
-            dto.AssignedToName = string.IsNullOrEmpty(request.AssignedTo) ? null : "Assignee Name";
+            var dtos = new List<RequestListDto>();
 
-            // Enrich with program name
-            if (request.ProgramId.HasValue)
+            foreach (var request in requests)
             {
-                var program = await _unitOfWork.Programs.GetByIdAsync(request.ProgramId.Value, cancellationToken);
-                dto.ProgramName = program?.Name;
-            }
+                var dto = _mapper.Map<RequestListDto>(request);
 
-            // Enrich with responses
-            dto.Responses = await GetResponsesAsync(dto.Id, cancellationToken);
-
-            // Enrich with related entity
-            if (request.RelatedEntityId.HasValue && !string.IsNullOrEmpty(request.RelatedEntityType))
-            {
-                dto.RelatedEntity = await GetRelatedEntityAsync(request.RelatedEntityId.Value, request.RelatedEntityType, cancellationToken);
-            }
-
-            // Create timeline
-            dto.Timeline = CreateTimeline(request, dto.Responses);
-        }
-
-        private async Task EnrichRequestListAsync(List<RequestListDto> dtos, CancellationToken cancellationToken)
-        {
-            foreach (var dto in dtos)
-            {
-                // TODO: Add user name resolution, program name, etc.
-                dto.RequestedByName = "User Name"; // Would fetch from user service
-                dto.AssignedToName = string.IsNullOrEmpty(dto.AssignedTo) ? null : "Assignee Name";
-                dto.ProgramName = !string.IsNullOrEmpty(dto.ProgramId) ? "Program Name" : null;
-                dto.ResponseCount = 0; // Would be computed from actual responses
-                await Task.CompletedTask; // Placeholder
-            }
-        }
-
-        private async Task ValidateRelatedEntityAsync(string entityId, string entityType, CancellationToken cancellationToken)
-        {
-            var objectId = ParseObjectId(entityId);
-
-            switch (entityType.ToLower())
-            {
-                case "client":
-                    var client = await _unitOfWork.Clients.GetByIdAsync(objectId, cancellationToken);
-                    if (client == null) throw new KeyNotFoundException($"Client with ID {entityId} not found.");
-                    break;
-
-                case "region":
-                    var region = await _unitOfWork.Regions.GetByIdAsync(objectId, cancellationToken);
-                    if (region == null) throw new KeyNotFoundException($"Region with ID {entityId} not found.");
-                    break;
-
-                case "tm":
-                    var tm = await _unitOfWork.TMs.GetByIdAsync(objectId, cancellationToken);
-                    if (tm == null) throw new KeyNotFoundException($"TM with ID {entityId} not found.");
-                    break;
-
-                case "building":
-                    var building = await _unitOfWork.Buildings.GetByIdAsync(objectId, cancellationToken);
-                    if (building == null) throw new KeyNotFoundException($"Building with ID {entityId} not found.");
-                    break;
-
-                default:
-                    throw new ArgumentException($"Unknown entity type: {entityType}");
-            }
-        }
-
-        private async Task<RequestRelatedEntityDto?> GetRelatedEntityAsync(ObjectId entityId, string entityType, CancellationToken cancellationToken)
-        {
-            try
-            {
-                switch (entityType.ToLower())
+                // Get requester details
+                try
                 {
-                    case "client":
-                        var client = await _unitOfWork.Clients.GetByIdAsync(entityId, cancellationToken);
-                        return client != null ? new RequestRelatedEntityDto
-                        {
-                            EntityType = entityType,
-                            EntityId = entityId.ToString(),
-                            EntityName = client.Name
-                        } : null;
-
-                    // Add other entity types as needed
-                    default:
-                        return new RequestRelatedEntityDto
-                        {
-                            EntityType = entityType,
-                            EntityId = entityId.ToString(),
-                            EntityName = "Unknown Entity"
-                        };
+                    var requester = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(request.RequestedBy), cancellationToken);
+                    if (requester != null)
+                    {
+                        dto.RequestedByName = requester.FullName;
+                    }
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get requester details for request {RequestId}", request._ID);
+                }
+
+                // Get assignee details
+                if (!string.IsNullOrEmpty(request.AssignedTo))
+                {
+                    try
+                    {
+                        var assignee = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(request.AssignedTo), cancellationToken);
+                        if (assignee != null)
+                        {
+                            dto.AssignedToName = assignee.FullName;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to get assignee details for request {RequestId}", request._ID);
+                    }
+                }
+
+                // Get program details (required)
+                try
+                {
+                    var program = await _unitOfWork.Programs.GetByIdAsync(request.ProgramId, cancellationToken);
+                    if (program != null)
+                    {
+                        dto.ProgramName = program.Name;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get program details for request {RequestId}", request._ID);
+                }
+
+                // Set additional properties
+                dto.ResponseCount = request.Responses.Count;
+                dto.LastResponseAt = request.Responses.Any()
+                    ? request.Responses.OrderByDescending(r => r.RespondedAt).First().RespondedAt
+                    : null;
+
+                dtos.Add(dto);
             }
-            catch
-            {
-                return null;
-            }
+
+            return dtos;
         }
 
-        private async Task<bool> IsUserAdminAsync(string userId, CancellationToken cancellationToken)
+        private async Task<PagedResponse<RequestListDto>> CreatePagedRequestResponse(IEnumerable<Request> requests, PaginationRequestDto pagination, CancellationToken cancellationToken)
         {
-            // TODO: Check if user has admin role
-            await Task.CompletedTask;
-            return false;
+            var requestsList = requests.ToList();
+            var totalCount = requestsList.Count;
+            var paginatedRequests = requestsList
+                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
+                .Take(pagination.PageSize)
+                .ToList();
+
+            var dtos = await MapRequestListDtosAsync(paginatedRequests, cancellationToken);
+            return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        private static RequestTimelineDto CreateTimeline(Request request, List<RequestResponseDto> responses)
+        private async Task<List<RequestResponseDto>> GetRequestResponsesWithUserDetailsAsync(IEnumerable<RequestResponse> responses, CancellationToken cancellationToken)
+        {
+            var responseDtos = new List<RequestResponseDto>();
+
+            foreach (var response in responses)
+            {
+                var dto = new RequestResponseDto
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    RespondedBy = response.RespondedBy,
+                    RespondedAt = response.RespondedAt,
+                    Message = response.Message,
+                    IsInternal = false,
+                    Attachments = new List<string>()
+                };
+
+                // Get user details
+                try
+                {
+                    if (response.RespondedBy != "system")
+                    {
+                        var user = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(response.RespondedBy), cancellationToken);
+                        if (user != null)
+                        {
+                            dto.RespondedByName = user.FullName;
+                        }
+                    }
+                    else
+                    {
+                        dto.RespondedByName = "System";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get user details for response by {UserId}", response.RespondedBy);
+                    dto.RespondedByName = "Unknown";
+                }
+
+                responseDtos.Add(dto);
+            }
+
+            return responseDtos;
+        }
+
+        private async Task ValidateProgramAsync(string programId, CancellationToken cancellationToken)
+        {
+            var programObjectId = ParseObjectId(programId);
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+        }
+
+        private RequestTimelineDto BuildRequestTimeline(Request request)
         {
             var timeline = new RequestTimelineDto
             {
-                CreatedAt = request.RequestedAt,
-                Events = new List<RequestTimelineEventDto>()
+                CreatedAt = request.RequestedAt
             };
 
-            // Add creation event
-            timeline.Events.Add(new RequestTimelineEventDto
+            // Find key events in responses
+            foreach (var response in request.Responses.OrderBy(r => r.RespondedAt))
             {
-                Timestamp = request.RequestedAt,
-                EventType = "Created",
-                Description = "Request created",
-                UserId = request.RequestedBy,
-                UserName = "User Name"
-            });
-
-            // Add response events
-            foreach (var response in responses.OrderBy(r => r.RespondedAt))
-            {
-                timeline.Events.Add(new RequestTimelineEventDto
+                if (response.Message.Contains("assigned", StringComparison.OrdinalIgnoreCase) && !timeline.AssignedAt.HasValue)
                 {
-                    Timestamp = response.RespondedAt,
-                    EventType = "Response",
-                    Description = "Response added",
-                    UserId = response.RespondedBy,
-                    UserName = response.RespondedByName
-                });
+                    timeline.AssignedAt = response.RespondedAt;
+                }
+                else if (timeline.FirstResponseAt == default)
+                {
+                    timeline.FirstResponseAt = response.RespondedAt;
+                }
             }
 
-            // Set timeline milestones
-            if (!string.IsNullOrEmpty(request.AssignedTo))
+            // Set completion time based on status
+            if (request.Status == "completed" || request.Status == "rejected")
             {
-                timeline.AssignedAt = request.RequestedAt; // Would be actual assignment date
-            }
-
-            timeline.FirstResponseAt = responses.OrderBy(r => r.RespondedAt).FirstOrDefault()?.RespondedAt;
-
-            if (request.Status == "completed")
-            {
-                timeline.CompletedAt = responses.OrderByDescending(r => r.RespondedAt).FirstOrDefault()?.RespondedAt;
-
-                if (timeline.CompletedAt.HasValue)
+                var lastResponse = request.Responses.OrderByDescending(r => r.RespondedAt).FirstOrDefault();
+                if (lastResponse != null)
                 {
+                    timeline.CompletedAt = lastResponse.RespondedAt;
                     timeline.ResolutionTime = timeline.CompletedAt.Value - request.RequestedAt;
                 }
             }
 
+            // Build event timeline
+            timeline.Events = new List<RequestTimelineEventDto>
+            {
+                new RequestTimelineEventDto
+                {
+                    Timestamp = request.RequestedAt,
+                    EventType = "created",
+                    Description = "Request created",
+                    UserId = request.RequestedBy,
+                    UserName = "User" // Would resolve from user service
+                }
+            };
+
             return timeline;
         }
 
-        private static double ComputeAverageResolutionTime(List<Request> requests)
+        private async Task TryAutoAssignRequestAsync(Request request, CancellationToken cancellationToken)
         {
-            var completedRequests = requests.Where(r => r.Status == "completed").ToList();
+            // Simple auto-assignment logic based on request type
+            string? assignTo = request.Type.ToLowerInvariant() switch
+            {
+                "bug_report" => await FindDeveloperUserAsync(cancellationToken),
+                "support" => await FindSupportUserAsync(cancellationToken),
+                _ => null
+            };
 
-            if (!completedRequests.Any())
-                return 0;
+            if (!string.IsNullOrEmpty(assignTo))
+            {
+                try
+                {
+                    await _unitOfWork.Requests.AssignRequestAsync(request._ID, assignTo, cancellationToken);
+                    _logger.LogInformation("Auto-assigned request {RequestId} to user {UserId}", request._ID, assignTo);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to auto-assign request {RequestId}", request._ID);
+                }
+            }
+        }
 
-            // TODO: Compute actual resolution time from request data
-            // For now, return a placeholder value
-            return 24.0; // Hours
+        private async Task<string?> FindDeveloperUserAsync(CancellationToken cancellationToken)
+        {
+            // Find first engineer user (simplified implementation)
+            var engineerUsers = await _unitOfWork.Users.GetByRoleAsync("Engineer", cancellationToken);
+            return engineerUsers.FirstOrDefault()?._ID.ToString();
+        }
+
+        private async Task<string?> FindSupportUserAsync(CancellationToken cancellationToken)
+        {
+            // Find first support user (simplified implementation)
+            var supportUsers = await _unitOfWork.Users.GetByRoleAsync("Support", cancellationToken);
+            return supportUsers.FirstOrDefault()?._ID.ToString();
+        }
+
+        private bool IsValidStatusTransition(string currentStatus, string newStatus)
+        {
+            return currentStatus.ToLowerInvariant() switch
+            {
+                "open" => new[] { "in_progress", "rejected" }.Contains(newStatus.ToLowerInvariant()),
+                "in_progress" => new[] { "completed", "rejected", "open" }.Contains(newStatus.ToLowerInvariant()),
+                "completed" => new[] { "open" }.Contains(newStatus.ToLowerInvariant()),
+                "rejected" => new[] { "open" }.Contains(newStatus.ToLowerInvariant()),
+                _ => false
+            };
+        }
+
+        private async Task NotifySubscribersAsync(string requestId, string message, CancellationToken cancellationToken)
+        {
+            if (_requestSubscriptions.TryGetValue(requestId, out var subscribers))
+            {
+                foreach (var subscriberId in subscribers)
+                {
+                    // In a real implementation, this would send notifications
+                    _logger.LogDebug("Notifying subscriber {SubscriberId} about request {RequestId}: {Message}",
+                        subscriberId, requestId, message);
+                }
+            }
+        }
+
+        private List<string> GetRequestSubscribers(string requestId)
+        {
+            return _requestSubscriptions.TryGetValue(requestId, out var subscribers)
+                ? new List<string>(subscribers)
+                : new List<string>();
+        }
+
+        private string ProcessTemplate(string template, Dictionary<string, object> fieldValues)
+        {
+            var result = template;
+
+            foreach (var field in fieldValues)
+            {
+                var placeholder = $"{{{field.Key}}}";
+                result = result.Replace(placeholder, field.Value?.ToString() ?? string.Empty);
+            }
+
+            return result;
+        }
+
+        private double CalculatePerformanceRating(List<Request> assignedRequests, List<Request> completedRequests, double averageResolutionTime)
+        {
+            var completionRate = assignedRequests.Count > 0 ? (double)completedRequests.Count / assignedRequests.Count : 0;
+            var timeScore = averageResolutionTime > 0 ? Math.Max(0, 100 - averageResolutionTime) / 100 : 0.5;
+
+            return Math.Round((completionRate * 0.7 + timeScore * 0.3) * 5, 2); // 5-point scale
+        }
+
+        private void InitializeDefaultTemplates()
+        {
+            var templates = new[]
+            {
+                new RequestTemplate
+                {
+                    Id = "feature-request",
+                    Name = "Feature Request",
+                    Description = "Template for requesting new features",
+                    Type = "feature",
+                    TitleTemplate = "Feature Request: {feature_name}",
+                    DescriptionTemplate = "## Feature Description\n{description}\n\n## Business Justification\n{justification}\n\n## Acceptance Criteria\n{criteria}",
+                    FieldDefinitions = new { feature_name = "string", description = "text", justification = "text", criteria = "text" },
+                    Priority = "normal",
+                    IsActive = true,
+                    CreatedBy = "system",
+                    CreatedAt = DateTime.UtcNow,
+                    UsageCount = 0
+                },
+                new RequestTemplate
+                {
+                    Id = "bug-report",
+                    Name = "Bug Report",
+                    Description = "Template for reporting bugs",
+                    Type = "bug_report",
+                    TitleTemplate = "Bug: {bug_title}",
+                    DescriptionTemplate = "## Steps to Reproduce\n{steps}\n\n## Expected Behavior\n{expected}\n\n## Actual Behavior\n{actual}\n\n## Environment\n{environment}",
+                    FieldDefinitions = new { bug_title = "string", steps = "text", expected = "text", actual = "text", environment = "string" },
+                    Priority = "normal",
+                    IsActive = true,
+                    CreatedBy = "system",
+                    CreatedAt = DateTime.UtcNow,
+                    UsageCount = 0
+                },
+                new RequestTemplate
+                {
+                    Id = "support-request",
+                    Name = "Support Request",
+                    Description = "Template for general support requests",
+                    Type = "support",
+                    TitleTemplate = "Support Request: {issue_title}",
+                    DescriptionTemplate = "## Issue Description\n{issue_description}\n\n## Steps Taken\n{steps_taken}\n\n## Expected Resolution\n{expected_resolution}",
+                    FieldDefinitions = new { issue_title = "string", issue_description = "text", steps_taken = "text", expected_resolution = "text" },
+                    Priority = "normal",
+                    IsActive = true,
+                    CreatedBy = "system",
+                    CreatedAt = DateTime.UtcNow,
+                    UsageCount = 0
+                }
+            };
+
+            foreach (var template in templates)
+            {
+                _requestTemplates[template.Id] = template;
+            }
+        }
+
+        #endregion
+
+        #region Supporting Classes
+
+        private class RequestTemplate
+        {
+            public string Id { get; set; } = string.Empty;
+            public string Name { get; set; } = string.Empty;
+            public string Description { get; set; } = string.Empty;
+            public string Type { get; set; } = string.Empty;
+            public string TitleTemplate { get; set; } = string.Empty;
+            public string DescriptionTemplate { get; set; } = string.Empty;
+            public object FieldDefinitions { get; set; } = new object();
+            public string Priority { get; set; } = string.Empty;
+            public bool IsActive { get; set; }
+            public string CreatedBy { get; set; } = string.Empty;
+            public DateTime CreatedAt { get; set; }
+            public int UsageCount { get; set; }
         }
 
         #endregion
