@@ -5,27 +5,20 @@ using System.Text;
 using System.Text.Json;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
-using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Deployment;
+using TeiasMongoAPI.Services.Services.Base;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Deployment
 {
-    public class PreBuiltAppDeploymentStrategy : IPreBuiltAppDeploymentStrategy
+    public class PreBuiltAppDeploymentStrategy : BaseDeploymentStrategy, IPreBuiltAppDeploymentStrategy
     {
-        private readonly ILogger<PreBuiltAppDeploymentStrategy> _logger;
-        private readonly DeploymentSettings _settings;
-        private readonly Dictionary<string, AppInstance> _instances = new();
-
         public AppDeploymentType SupportedType => AppDeploymentType.PreBuiltWebApp;
 
         public PreBuiltAppDeploymentStrategy(
             ILogger<PreBuiltAppDeploymentStrategy> logger,
-            IOptions<DeploymentSettings> settings)
-        {
-            _logger = logger;
-            _settings = settings.Value;
-        }
+            IOptions<DeploymentSettings> settings) : base(logger, settings) { }
+
 
         public async Task<DeploymentResult> DeployAsync(string programId, AppDeploymentRequestDto request, List<ProgramFileUploadDto> files, CancellationToken cancellationToken = default)
         {
@@ -620,72 +613,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Deployment
             await File.WriteAllTextAsync(configPath, config.ToString(), cancellationToken);
         }
 
-        private int GetAvailablePort()
-        {
-            // Simple port allocation - in production, use a proper port manager
-            var random = new Random();
-            return random.Next(8000, 9000);
-        }
-
-        private bool IsPortInUse(int port)
-        {
-            // Check if port is already in use by existing instances
-            return _instances.Values.Any(i => i.Port == port && i.Status == "active");
-        }
-
-        private double GetSimulatedCpuUsage()
-        {
-            // Simulate low CPU usage for static content
-            var random = new Random();
-            return random.NextDouble() * 10; // 0-10% CPU usage
-        }
-
-        private long GetSimulatedMemoryUsage()
-        {
-            // Simulate memory usage (50-100 MB for static content)
-            var random = new Random();
-            return (long)(random.NextDouble() * 50 + 50) * 1024 * 1024;
-        }
-
         private double GetSimulatedRequestsPerSecond()
         {
+            // TODO: WHAT IS THIS???
             // Simulate request rate
             var random = new Random();
             return random.NextDouble() * 10;
-        }
-
-        private long GetDirectorySize(string path)
-        {
-            if (!Directory.Exists(path))
-                return 0;
-
-            try
-            {
-                return new DirectoryInfo(path)
-                    .GetFiles("*", SearchOption.AllDirectories)
-                    .Sum(file => file.Length);
-            }
-            catch
-            {
-                return 0;
-            }
-        }
-
-        #endregion
-
-        #region Supporting Classes
-
-        private class AppInstance
-        {
-            public string ProgramId { get; set; } = string.Empty;
-            public string DeploymentPath { get; set; } = string.Empty;
-            public string ApplicationUrl { get; set; } = string.Empty;
-            public string Status { get; set; } = string.Empty;
-            public DateTime StartedAt { get; set; }
-            public DateTime? StoppedAt { get; set; }
-            public Dictionary<string, object> Configuration { get; set; } = new();
-            public int Port { get; set; }
-            public int? ProcessId { get; set; }
         }
 
         #endregion
