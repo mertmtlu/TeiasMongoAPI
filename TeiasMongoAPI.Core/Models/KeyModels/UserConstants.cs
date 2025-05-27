@@ -61,5 +61,42 @@
         public const string GenerateReports = "reports.generate";
         public const string ExportReports = "reports.export";
         public const string ViewAuditLogs = "reports.audit";
+
+        // Program (software) permission
+        public const string ViewPrograms = "programs.view";
+        public const string CreatePrograms = "programs.create";
+        public const string UpdatePrograms = "programs.update";
+        public const string DeletePrograms = "programs.delete";
+        public const string DeployPrograms = "programs.deploy";
+        public const string ManagePrograms = "programs.manage";
+        public const string ExecutePrograms = "programs.execute";
+
+        // Version permissions  
+        public const string ViewVersions = "versions.view";
+        public const string CreateVersions = "versions.create";
+        public const string UpdateVersions = "versions.update";
+        public const string DeleteVersions = "versions.delete";
+        public const string ApproveVersions = "versions.approve";
+        public const string RejectVersions = "versions.reject";
+        public const string DeployVersions = "versions.deploy";
+
+        // Execution permissions
+        public const string ViewExecutions = "executions.view";
+        public const string CreateExecutions = "executions.create";
+        public const string ManageExecutions = "executions.manage";
+        public const string ViewExecutionResults = "executions.results";
+
+        // UI Component permissions
+        public const string ViewComponents = "components.view";
+        public const string CreateComponents = "components.create";
+        public const string UpdateComponents = "components.update";
+        public const string DeleteComponents = "components.delete";
+
+        // Request permissions
+        public const string ViewRequests = "requests.view";
+        public const string CreateRequests = "requests.create";
+        public const string UpdateRequests = "requests.update";
+        public const string DeleteRequests = "requests.delete";
+        public const string AssignRequests = "requests.assign";
     }
 }
