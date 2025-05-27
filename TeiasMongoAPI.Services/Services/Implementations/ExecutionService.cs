@@ -5,20 +5,24 @@ using System.Diagnostics;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
+using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Interfaces;
+using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Services.Services.Base;
+using ExecutionModel = TeiasMongoAPI.Core.Models.Collaboration.Execution;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
-    public class ExecutionService : BaseService, IExecutionService
+    public partial class ExecutionService : BaseService, IExecutionService
     {
         private readonly IFileStorageService _fileStorageService;
         private readonly IProgramService _programService;
         private readonly IVersionService _versionService;
         private readonly IDeploymentService _deploymentService;
+        private readonly IProjectExecutionEngine _projectExecutionEngine;
         private readonly ExecutionSettings _settings;
         private readonly Dictionary<string, ExecutionContext> _activeExecutions = new();
 
@@ -29,6 +33,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IProgramService programService,
             IVersionService versionService,
             IDeploymentService deploymentService,
+            IProjectExecutionEngine projectExecutionEngine,
             IOptions<ExecutionSettings> settings,
             ILogger<ExecutionService> logger)
             : base(unitOfWork, mapper, logger)
@@ -37,6 +42,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _programService = programService;
             _versionService = versionService;
             _deploymentService = deploymentService;
+            _projectExecutionEngine = projectExecutionEngine;
             _settings = settings.Value;
         }
 
@@ -366,12 +372,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             await ValidateExecutionLimitsAsync(programId, "system", cancellationToken);
 
             // Create execution record
-            var execution = new Execution
+            var execution = new ExecutionModel
             {
                 ProgramId = programObjectId,
                 VersionId = version._ID,
                 UserId = "system", // Should come from current user context
-                ExecutionType = "code_execution",
+                ExecutionType = "project_execution", // NEW: Updated execution type
                 StartedAt = DateTime.UtcNow,
                 Status = "running",
                 Parameters = dto.Parameters,
@@ -382,13 +388,73 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var createdExecution = await _unitOfWork.Executions.CreateAsync(execution, cancellationToken);
             var executionId = createdExecution._ID.ToString();
 
-            _logger.LogInformation("Started execution {ExecutionId} for program {ProgramId} version {VersionNumber}",
+            _logger.LogInformation("Started project execution {ExecutionId} for program {ProgramId} version {VersionNumber}",
                 executionId, programId, version.VersionNumber);
 
-            // Start execution asynchronously
-            _ = Task.Run(async () => await ExecuteInBackgroundAsync(createdExecution, dto, cancellationToken));
+            // NEW: Use ProjectExecutionEngine for execution
+            _ = Task.Run(async () => await ExecuteProjectInBackgroundAsync(createdExecution, dto, cancellationToken));
 
             return _mapper.Map<ExecutionDto>(createdExecution);
+        }
+
+        private async Task ExecuteProjectInBackgroundAsync(ExecutionModel execution, ProgramExecutionRequestDto dto, CancellationToken cancellationToken)
+        {
+            var executionId = execution._ID.ToString();
+            var context = new ExecutionContext
+            {
+                ExecutionId = executionId,
+                CancellationTokenSource = new CancellationTokenSource()
+            };
+
+            _activeExecutions[executionId] = context;
+
+            try
+            {
+                _logger.LogInformation("Starting project execution for {ExecutionId}", executionId);
+
+                // Create project execution request
+                var projectRequest = new ProjectExecutionRequest
+                {
+                    ProgramId = execution.ProgramId.ToString(),
+                    VersionId = execution.VersionId.ToString(),
+                    UserId = execution.UserId,
+                    Parameters = dto.Parameters,
+                    Environment = dto.Environment,
+                    ResourceLimits = MapToProjectResourceLimits(dto.ResourceLimits),
+                    SaveResults = dto.SaveResults,
+                    TimeoutMinutes = dto.TimeoutMinutes,
+                    CleanupOnCompletion = true
+                };
+
+                // Execute using project execution engine
+                var result = await _projectExecutionEngine.ExecuteProjectAsync(projectRequest, context.CancellationTokenSource.Token);
+
+                // Update execution record with results
+                await UpdateExecutionWithProjectResultAsync(execution, result, cancellationToken);
+
+                _logger.LogInformation("Completed project execution for {ExecutionId}", executionId);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Project execution {ExecutionId} was cancelled", executionId);
+                await _unitOfWork.Executions.UpdateStatusAsync(execution._ID, "stopped", cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Project execution failed for {ExecutionId}", executionId);
+
+                await _unitOfWork.Executions.CompleteExecutionAsync(
+                    execution._ID,
+                    -1,
+                    "Project execution failed",
+                    new List<string>(),
+                    ex.Message,
+                    cancellationToken);
+            }
+            finally
+            {
+                _activeExecutions.Remove(executionId);
+            }
         }
 
         public async Task<ExecutionDto> ExecuteVersionAsync(string versionId, VersionExecutionRequestDto dto, CancellationToken cancellationToken = default)
@@ -410,12 +476,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             await ValidateExecutionLimitsAsync(version.ProgramId.ToString(), "system", cancellationToken);
 
             // Create execution record
-            var execution = new Execution
+            var execution = new ExecutionModel
             {
                 ProgramId = version.ProgramId,
                 VersionId = versionObjectId,
                 UserId = "system", // Should come from current user context
-                ExecutionType = "code_execution",
+                ExecutionType = "project_execution",
                 StartedAt = DateTime.UtcNow,
                 Status = "running",
                 Parameters = dto.Parameters,
@@ -426,10 +492,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var createdExecution = await _unitOfWork.Executions.CreateAsync(execution, cancellationToken);
             var executionId = createdExecution._ID.ToString();
 
-            _logger.LogInformation("Started execution {ExecutionId} for version {VersionId}",
+            _logger.LogInformation("Started version execution {ExecutionId} for version {VersionId}",
                 executionId, versionId);
 
-            // Start execution asynchronously
+            // NEW: Use ProjectExecutionEngine for execution
             _ = Task.Run(async () => await ExecuteVersionInBackgroundAsync(createdExecution, dto, cancellationToken));
 
             return _mapper.Map<ExecutionDto>(createdExecution);
@@ -469,10 +535,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 return false;
             }
 
+            // Try to cancel via project execution engine first
+            var cancelled = await _projectExecutionEngine.CancelExecutionAsync(id, cancellationToken);
+
             // Update status in database
             var success = await _unitOfWork.Executions.UpdateStatusAsync(objectId, "stopped", cancellationToken);
 
-            // Stop active execution
+            // Stop active execution context
             if (_activeExecutions.TryGetValue(id, out var context))
             {
                 try
@@ -746,76 +815,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<ExecutionDto> DeployWebApplicationAsync(string programId, WebAppDeploymentRequestDto dto, CancellationToken cancellationToken = default)
         {
-            var programObjectId = ParseObjectId(programId);
-            var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
-
-            if (program == null)
-            {
-                throw new KeyNotFoundException($"Program with ID {programId} not found.");
-            }
-
-            // Create execution record for web app deployment
-            var execution = new Execution
-            {
-                ProgramId = programObjectId,
-                VersionId = program.CurrentVersion != null ? ParseObjectId(program.CurrentVersion) : programObjectId,
-                UserId = "system", // Should come from current user context
-                ExecutionType = "web_app_deploy",
-                StartedAt = DateTime.UtcNow,
-                Status = "running",
-                Parameters = dto.Configuration,
-                Results = new ExecutionResults(),
-                ResourceUsage = new ResourceUsage()
-            };
-
-            var createdExecution = await _unitOfWork.Executions.CreateAsync(execution, cancellationToken);
-
-            // Deploy web application
-            try
-            {
-                var deploymentRequest = new AppDeploymentRequestDto
-                {
-                    DeploymentType = AppDeploymentType.PreBuiltWebApp,
-                    Configuration = dto.Configuration,
-                    Environment = dto.Environment,
-                    SupportedFeatures = dto.Features,
-                    AutoStart = dto.AutoStart,
-                    Port = dto.Port,
-                    DomainName = dto.DomainName
-                };
-
-                var deployment = await _deploymentService.DeployPreBuiltAppAsync(programId, deploymentRequest, cancellationToken);
-
-                // Update execution with deployment results
-                await _unitOfWork.Executions.CompleteExecutionAsync(
-                    createdExecution._ID,
-                    0,
-                    "Web application deployed successfully",
-                    new List<string>(),
-                    null,
-                    cancellationToken);
-
-                // Update with web app URL
-                createdExecution.Results.WebAppUrl = deployment.ApplicationUrl;
-                await _unitOfWork.Executions.UpdateAsync(createdExecution._ID, createdExecution, cancellationToken);
-
-                _logger.LogInformation("Deployed web application for program {ProgramId} with execution {ExecutionId}",
-                    programId, createdExecution._ID);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to deploy web application for program {ProgramId}", programId);
-
-                await _unitOfWork.Executions.CompleteExecutionAsync(
-                    createdExecution._ID,
-                    1,
-                    "Web application deployment failed",
-                    new List<string>(),
-                    ex.Message,
-                    cancellationToken);
-            }
-
-            return _mapper.Map<ExecutionDto>(createdExecution);
+            throw new NotImplementedException();
         }
 
         public async Task<string> GetWebApplicationUrlAsync(string executionId, CancellationToken cancellationToken = default)
@@ -1117,37 +1117,39 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<List<ExecutionTrendDto>> GetExecutionTrendsAsync(string? programId = null, int days = 30, CancellationToken cancellationToken = default)
         {
-            var cutoffDate = DateTime.UtcNow.AddDays(-days);
-            IEnumerable<Execution> executions;
+            throw new NotImplementedException();
 
-            if (!string.IsNullOrEmpty(programId))
-            {
-                var programObjectId = ParseObjectId(programId);
-                executions = await _unitOfWork.Executions.GetByProgramIdAsync(programObjectId, cancellationToken);
-            }
-            else
-            {
-                executions = await _unitOfWork.Executions.GetAllAsync(cancellationToken);
-            }
+            //var cutoffDate = DateTime.UtcNow.AddDays(-days);
+            //IEnumerable<Execution> executions;
 
-            var trends = executions
-                .Where(e => e.StartedAt >= cutoffDate)
-                .GroupBy(e => e.StartedAt.Date)
-                .Select(g => new ExecutionTrendDto
-                {
-                    Date = g.Key,
-                    ExecutionCount = g.Count(),
-                    SuccessfulCount = g.Count(e => e.Status == "completed" && e.Results.ExitCode == 0),
-                    FailedCount = g.Count(e => e.Status == "failed" || (e.Status == "completed" && e.Results.ExitCode != 0)),
-                    AverageExecutionTime = g.Where(e => e.CompletedAt.HasValue).Any()
-                        ? g.Where(e => e.CompletedAt.HasValue).Average(e => (e.CompletedAt!.Value - e.StartedAt).TotalMinutes)
-                        : 0,
-                    TotalResourceUsage = (long)g.Sum(e => e.ResourceUsage.CpuTime + e.ResourceUsage.MemoryUsed / 1024)
-                })
-                .OrderBy(t => t.Date)
-                .ToList();
+            //if (!string.IsNullOrEmpty(programId))
+            //{
+            //    var programObjectId = ParseObjectId(programId);
+            //    executions = await _unitOfWork.Executions.GetByProgramIdAsync(programObjectId, cancellationToken);
+            //}
+            //else
+            //{
+            //    executions = await _unitOfWork.Executions.GetAllAsync(cancellationToken);
+            //}
 
-            return trends;
+            //var trends = executions
+            //    .Where(e => e.StartedAt >= cutoffDate)
+            //    .GroupBy(e => e.StartedAt.Date)
+            //    .Select(g => new ExecutionTrendDto
+            //    {
+            //        Date = g.Key,
+            //        ExecutionCount = g.Count(),
+            //        SuccessfulCount = g.Count(e => e.Status == "completed" && e.Results.ExitCode == 0),
+            //        FailedCount = g.Count(e => e.Status == "failed" || (e.Status == "completed" && e.Results.ExitCode != 0)),
+            //        AverageExecutionTime = g.Where(e => e.CompletedAt.HasValue).Any()
+            //            ? g.Where(e => e.CompletedAt.HasValue).Average(e => (e.CompletedAt!.Value - e.StartedAt).TotalMinutes)
+            //            : 0,
+            //        TotalResourceUsage = (long)g.Sum(e => e.ResourceUsage.CpuTime + e.ResourceUsage.MemoryUsed / 1024)
+            //    })
+            //    .OrderBy(t => t.Date)
+            //    .ToList();
+
+            //return trends;
         }
 
         public async Task<List<ExecutionPerformanceDto>> GetExecutionPerformanceAsync(string programId, CancellationToken cancellationToken = default)
@@ -1387,39 +1389,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<ExecutionDto> ScheduleExecutionAsync(string programId, ExecutionScheduleRequestDto dto, CancellationToken cancellationToken = default)
         {
-            if (dto.ScheduledTime <= DateTime.UtcNow)
-            {
-                throw new InvalidOperationException("Scheduled time must be in the future.");
-            }
-
-            // For this implementation, we'll create a pending execution that would be picked up by a scheduler
-            var programObjectId = ParseObjectId(programId);
-            var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
-
-            if (program == null)
-            {
-                throw new KeyNotFoundException($"Program with ID {programId} not found.");
-            }
-
-            var execution = new Execution
-            {
-                ProgramId = programObjectId,
-                VersionId = program.CurrentVersion != null ? ParseObjectId(program.CurrentVersion) : programObjectId,
-                UserId = "system", // Should come from current user context
-                ExecutionType = "scheduled_execution",
-                StartedAt = dto.ScheduledTime,
-                Status = "scheduled",
-                Parameters = dto.Parameters,
-                Results = new ExecutionResults(),
-                ResourceUsage = new ResourceUsage()
-            };
-
-            var createdExecution = await _unitOfWork.Executions.CreateAsync(execution, cancellationToken);
-
-            _logger.LogInformation("Scheduled execution {ExecutionId} for program {ProgramId} at {ScheduledTime}",
-                createdExecution._ID, programId, dto.ScheduledTime);
-
-            return _mapper.Map<ExecutionDto>(createdExecution);
+            throw new NotImplementedException();
         }
 
         public async Task<bool> CancelScheduledExecutionAsync(string executionId, CancellationToken cancellationToken = default)
@@ -1614,74 +1584,52 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Private Helper Methods
 
-        private async Task<List<ExecutionListDto>> MapExecutionListDtosAsync(List<Execution> executions, CancellationToken cancellationToken)
+        private ProjectResourceLimits? MapToProjectResourceLimits(ExecutionResourceLimitsDto? dto)
         {
-            var dtos = new List<ExecutionListDto>();
+            if (dto == null) return null;
 
-            foreach (var execution in executions)
+            return new ProjectResourceLimits
             {
-                var dto = _mapper.Map<ExecutionListDto>(execution);
-
-                // Get program details
-                try
-                {
-                    var program = await _unitOfWork.Programs.GetByIdAsync(execution.ProgramId, cancellationToken);
-                    if (program != null)
-                    {
-                        dto.ProgramName = program.Name;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to get program details for execution {ExecutionId}", execution._ID);
-                }
-
-                // Get user details
-                try
-                {
-                    var user = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(execution.UserId), cancellationToken);
-                    if (user != null)
-                    {
-                        dto.UserName = user.FullName;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to get user details for execution {ExecutionId}", execution._ID);
-                }
-
-                // Get version details
-                try
-                {
-                    var version = await _unitOfWork.Versions.GetByIdAsync(execution.VersionId, cancellationToken);
-                    if (version != null)
-                    {
-                        dto.VersionNumber = version.VersionNumber;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to get version details for execution {ExecutionId}", execution._ID);
-                }
-
-                // Calculate duration and other properties
-                dto.ExitCode = execution.Results.ExitCode;
-                dto.HasError = !string.IsNullOrEmpty(execution.Results.Error) || execution.Results.ExitCode != 0;
-
-                if (execution.CompletedAt.HasValue)
-                {
-                    dto.Duration = (execution.CompletedAt.Value - execution.StartedAt).TotalMinutes;
-                }
-
-                dto.ResourceUsage = _mapper.Map<ExecutionResourceUsageDto>(execution.ResourceUsage);
-
-                dtos.Add(dto);
-            }
-
-            return dtos;
+                MaxCpuPercentage = dto.MaxCpuPercentage,
+                MaxMemoryMb = dto.MaxMemoryMb,
+                MaxDiskMb = dto.MaxDiskMb,
+                MaxExecutionTimeMinutes = dto.MaxExecutionTimeMinutes,
+                MaxProcesses = dto.MaxConcurrentExecutions,
+                MaxOutputSizeBytes = 100 * 1024 * 1024 // 100MB default
+            };
         }
 
-        private async Task<PagedResponse<ExecutionListDto>> CreatePagedExecutionResponse(IEnumerable<Execution> executions, PaginationRequestDto pagination, CancellationToken cancellationToken)
+        private async Task UpdateExecutionWithProjectResultAsync(ExecutionModel execution,
+            DTOs.Response.Execution.ProjectExecutionResult result,
+            CancellationToken cancellationToken)
+        {
+            // Map project execution result to database execution
+            execution.Results.ExitCode = result.ExitCode;
+            execution.Results.Output = result.Output;
+            execution.Results.Error = result.ErrorOutput;
+            execution.Status = result.Success ? "completed" : "failed";
+            execution.CompletedAt = result.CompletedAt;
+
+            // Map resource usage
+            execution.ResourceUsage.CpuTime = result.ResourceUsage.CpuTimeSeconds;
+            execution.ResourceUsage.MemoryUsed = result.ResourceUsage.PeakMemoryBytes;
+            execution.ResourceUsage.DiskUsed = result.ResourceUsage.DiskSpaceUsedBytes;
+
+            // Store output files if any
+            if (result.OutputFiles.Any())
+            {
+                execution.Results.OutputFiles = result.OutputFiles;
+            }
+
+            await _unitOfWork.Executions.UpdateAsync(execution._ID, execution, cancellationToken);
+        }
+
+        private async Task<List<ExecutionListDto>> MapExecutionListDtosAsync(List<ExecutionModel> executions, CancellationToken cancellationToken)
+        {
+            throw new NotImplementedException();
+        }
+
+        private async Task<PagedResponse<ExecutionListDto>> CreatePagedExecutionResponse(IEnumerable<ExecutionModel> executions, PaginationRequestDto pagination, CancellationToken cancellationToken)
         {
             var executionsList = executions.ToList();
             var totalCount = executionsList.Count;
@@ -1702,70 +1650,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        private async Task ExecuteInBackgroundAsync(Execution execution, ProgramExecutionRequestDto dto, CancellationToken cancellationToken)
+        private async Task ExecuteInBackgroundAsync(ExecutionModel execution, ProgramExecutionRequestDto dto, CancellationToken cancellationToken)
         {
-            var executionId = execution._ID.ToString();
-            var context = new ExecutionContext
-            {
-                ExecutionId = executionId,
-                CancellationTokenSource = new CancellationTokenSource()
-            };
-
-            _activeExecutions[executionId] = context;
-
-            try
-            {
-                // Simulate program execution
-                _logger.LogInformation("Starting background execution for {ExecutionId}", executionId);
-
-                // Get program files
-                var files = await _fileStorageService.ListProgramFilesAsync(execution.ProgramId.ToString(), null, cancellationToken);
-
-                // Simulate execution based on program type
-                var program = await _unitOfWork.Programs.GetByIdAsync(execution.ProgramId, cancellationToken);
-
-                await Task.Delay(TimeSpan.FromSeconds(5), context.CancellationTokenSource.Token); // Simulate work
-
-                // Generate mock results
-                var output = $"Execution completed for program {program?.Name ?? "Unknown"}\n";
-                output += $"Processed {files.Count} files\n";
-                output += $"Parameters: {System.Text.Json.JsonSerializer.Serialize(dto.Parameters)}\n";
-                output += "Execution finished successfully.";
-
-                await _unitOfWork.Executions.CompleteExecutionAsync(
-                    execution._ID,
-                    0,
-                    output,
-                    new List<string>(),
-                    null,
-                    cancellationToken);
-
-                _logger.LogInformation("Completed background execution for {ExecutionId}", executionId);
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInformation("Execution {ExecutionId} was cancelled", executionId);
-                await _unitOfWork.Executions.UpdateStatusAsync(execution._ID, "stopped", cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Background execution failed for {ExecutionId}", executionId);
-
-                await _unitOfWork.Executions.CompleteExecutionAsync(
-                    execution._ID,
-                    1,
-                    "Execution failed",
-                    new List<string>(),
-                    ex.Message,
-                    cancellationToken);
-            }
-            finally
-            {
-                _activeExecutions.Remove(executionId);
-            }
+            throw new NotImplementedException();
         }
 
-        private async Task ExecuteVersionInBackgroundAsync(Execution execution, VersionExecutionRequestDto dto, CancellationToken cancellationToken)
+        private async Task ExecuteVersionInBackgroundAsync(ExecutionModel execution, VersionExecutionRequestDto dto, CancellationToken cancellationToken)
         {
             var programRequest = new ProgramExecutionRequestDto
             {
@@ -1776,10 +1666,104 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 TimeoutMinutes = dto.TimeoutMinutes
             };
 
-            await ExecuteInBackgroundAsync(execution, programRequest, cancellationToken);
+            await ExecuteProjectInBackgroundAsync(execution, programRequest, cancellationToken);
         }
 
-        private double? CalculateExecutionProgress(Execution execution)
+        public async Task<ProjectValidationResultDto> ValidateProjectAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var validation = await _projectExecutionEngine.ValidateProjectAsync(programId, versionId ?? string.Empty, cancellationToken);
+
+                return new ProjectValidationResultDto
+                {
+                    IsValid = validation.IsValid,
+                    Errors = validation.Errors,
+                    Warnings = validation.Warnings,
+                    Suggestions = validation.Suggestions,
+                    SecurityScan = validation.SecurityScan != null ? new ProjectSecurityScanDto
+                    {
+                        HasSecurityIssues = validation.SecurityScan.HasSecurityIssues,
+                        Issues = validation.SecurityScan.Issues.Select(i => new SecurityIssueDto
+                        {
+                            Type = i.Type,
+                            Description = i.Description,
+                            File = i.File,
+                            Line = i.Line,
+                            Severity = i.Severity
+                        }).ToList(),
+                        RiskLevel = validation.SecurityScan.RiskLevel
+                    } : null,
+                    Complexity = validation.Complexity != null ? new ProjectComplexityDto
+                    {
+                        TotalFiles = validation.Complexity.TotalFiles,
+                        TotalLines = validation.Complexity.TotalLines,
+                        Dependencies = validation.Complexity.Dependencies,
+                        ComplexityLevel = validation.Complexity.ComplexityLevel,
+                        ComplexityScore = validation.Complexity.ComplexityScore
+                    } : null
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Project validation failed for program {ProgramId}", programId);
+                return new ProjectValidationResultDto
+                {
+                    IsValid = false,
+                    Errors = { $"Validation failed: {ex.Message}" }
+                };
+            }
+        }
+
+        public async Task<ProjectStructureAnalysisDto> AnalyzeProjectStructureAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var analysis = await _projectExecutionEngine.AnalyzeProjectStructureAsync(programId, versionId ?? string.Empty, cancellationToken);
+
+                return new ProjectStructureAnalysisDto
+                {
+                    Language = analysis.Language,
+                    ProjectType = analysis.ProjectType,
+                    EntryPoints = analysis.EntryPoints,
+                    ConfigFiles = analysis.ConfigFiles,
+                    SourceFiles = analysis.SourceFiles,
+                    Dependencies = analysis.Dependencies,
+                    HasBuildFile = analysis.HasBuildFile,
+                    MainEntryPoint = analysis.MainEntryPoint,
+                    Files = analysis.Files.Select(f => new ProjectFileDto
+                    {
+                        Path = f.Path,
+                        Type = f.Type,
+                        Size = f.Size,
+                        Extension = f.Extension,
+                        IsEntryPoint = f.IsEntryPoint,
+                        LineCount = f.LineCount
+                    }).ToList(),
+                    Complexity = new ProjectComplexityDto
+                    {
+                        TotalFiles = analysis.Complexity.TotalFiles,
+                        TotalLines = analysis.Complexity.TotalLines,
+                        Dependencies = analysis.Complexity.Dependencies,
+                        ComplexityLevel = analysis.Complexity.ComplexityLevel,
+                        ComplexityScore = analysis.Complexity.ComplexityScore
+                    },
+                    Metadata = analysis.Metadata
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Project structure analysis failed for program {ProgramId}", programId);
+                throw;
+            }
+        }
+
+        public async Task<List<string>> GetSupportedLanguagesAsync(CancellationToken cancellationToken = default)
+        {
+            return await _projectExecutionEngine.GetSupportedLanguagesAsync(cancellationToken);
+        }
+
+        private double? CalculateExecutionProgress(ExecutionModel execution)
         {
             if (execution.Status == "completed" || execution.Status == "failed")
             {
@@ -1797,7 +1781,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return null;
         }
 
-        private string? GetCurrentExecutionStep(Execution execution)
+        private string? GetCurrentExecutionStep(ExecutionModel execution)
         {
             return execution.Status switch
             {
@@ -1811,7 +1795,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             };
         }
 
-        private string GetStatusMessage(Execution execution)
+        private string GetStatusMessage(ExecutionModel execution)
         {
             return execution.Status switch
             {
@@ -1829,6 +1813,66 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Supporting Classes
 
+        public class ProjectValidationResultDto
+        {
+            public bool IsValid { get; set; }
+            public List<string> Errors { get; set; } = new();
+            public List<string> Warnings { get; set; } = new();
+            public List<string> Suggestions { get; set; } = new();
+            public ProjectSecurityScanDto? SecurityScan { get; set; }
+            public ProjectComplexityDto? Complexity { get; set; }
+        }
+
+        public class ProjectStructureAnalysisDto
+        {
+            public string Language { get; set; } = string.Empty;
+            public string ProjectType { get; set; } = string.Empty;
+            public List<string> EntryPoints { get; set; } = new();
+            public List<string> ConfigFiles { get; set; } = new();
+            public List<string> SourceFiles { get; set; } = new();
+            public List<string> Dependencies { get; set; } = new();
+            public bool HasBuildFile { get; set; }
+            public string? MainEntryPoint { get; set; }
+            public List<ProjectFileDto> Files { get; set; } = new();
+            public ProjectComplexityDto Complexity { get; set; } = new();
+            public Dictionary<string, object> Metadata { get; set; } = new();
+        }
+
+        public class ProjectFileDto
+        {
+            public string Path { get; set; } = string.Empty;
+            public string Type { get; set; } = string.Empty;
+            public long Size { get; set; }
+            public string Extension { get; set; } = string.Empty;
+            public bool IsEntryPoint { get; set; }
+            public int LineCount { get; set; }
+        }
+
+        public class ProjectComplexityDto
+        {
+            public int TotalFiles { get; set; }
+            public int TotalLines { get; set; }
+            public int Dependencies { get; set; }
+            public string ComplexityLevel { get; set; } = "Simple";
+            public double ComplexityScore { get; set; }
+        }
+
+        public class ProjectSecurityScanDto
+        {
+            public bool HasSecurityIssues { get; set; }
+            public List<SecurityIssueDto> Issues { get; set; } = new();
+            public int RiskLevel { get; set; }
+        }
+
+        public class SecurityIssueDto
+        {
+            public string Type { get; set; } = string.Empty;
+            public string Description { get; set; } = string.Empty;
+            public string File { get; set; } = string.Empty;
+            public int Line { get; set; }
+            public string Severity { get; set; } = string.Empty;
+        }
+
         private class ExecutionContext
         {
             public string ExecutionId { get; set; } = string.Empty;
@@ -1837,19 +1881,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         }
 
         #endregion
-    }
 
-    public class ExecutionSettings
-    {
-        public int DefaultMaxCpuPercentage { get; set; } = 80;
-        public long DefaultMaxMemoryMb { get; set; } = 1024;
-        public long DefaultMaxDiskMb { get; set; } = 2048;
-        public int DefaultMaxExecutionTimeMinutes { get; set; } = 30;
-        public int DefaultMaxConcurrentExecutions { get; set; } = 5;
-        public int MaxConcurrentExecutions { get; set; } = 20;
-        public int MaxConcurrentExecutionsPerUser { get; set; } = 3;
-        public int MaxConcurrentExecutionsPerProgram { get; set; } = 10;
-        public long MaxAllowedMemoryMb { get; set; } = 4096;
-        public int MaxAllowedExecutionTimeMinutes { get; set; } = 120;
+
+        public class ExecutionSettings
+        {
+            public int DefaultMaxCpuPercentage { get; set; } = 80;
+            public long DefaultMaxMemoryMb { get; set; } = 1024;
+            public long DefaultMaxDiskMb { get; set; } = 2048;
+            public int DefaultMaxExecutionTimeMinutes { get; set; } = 30;
+            public int DefaultMaxConcurrentExecutions { get; set; } = 5;
+            public int MaxConcurrentExecutions { get; set; } = 20;
+            public int MaxConcurrentExecutionsPerUser { get; set; } = 3;
+            public int MaxConcurrentExecutionsPerProgram { get; set; } = 10;
+            public long MaxAllowedMemoryMb { get; set; } = 4096;
+            public int MaxAllowedExecutionTimeMinutes { get; set; } = 120;
+        }
     }
 }
