@@ -11,9 +11,11 @@ using TeiasMongoAPI.Data.Configuration;
 using TeiasMongoAPI.Data.Context;
 using TeiasMongoAPI.Data.Repositories;
 using TeiasMongoAPI.Services.Interfaces;
+using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Services.Mappings;
 using TeiasMongoAPI.Services.Security;
 using TeiasMongoAPI.Services.Services.Implementations;
+using TeiasMongoAPI.Services.Services.Implementations.Execution;
 
 namespace TeiasMongoAPI.API
 {
@@ -156,6 +158,22 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IBuildingService, BuildingService>();
             builder.Services.AddScoped<IBlockService, BlockService>();
             builder.Services.AddScoped<IAlternativeTMService, AlternativeTMService>();
+
+            // Register Collaborative Project Services 
+            builder.Services.AddScoped<IVersionService, VersionService>();
+            builder.Services.AddScoped<IUiComponentService, UiComponentService>();
+            builder.Services.AddScoped<IRequestService, RequestService>();
+            builder.Services.AddScoped<IProgramService, ProgramService>();
+            builder.Services.AddScoped<IFileStorageService, FileStorageService>();
+            builder.Services.AddScoped<IExecutionService, ExecutionService>();
+            builder.Services.AddScoped<IDeploymentService, DeploymentService>();
+            builder.Services.AddScoped<IProjectExecutionEngine, ProjectExecutionEngine>();
+
+            builder.Services.AddScoped<IProjectLanguageRunner, CSharpProjectRunner>();
+            builder.Services.AddScoped<IProjectLanguageRunner, JavaProjectRunner>();
+            builder.Services.AddScoped<IProjectLanguageRunner, NodeJsProjectRunner>();
+            builder.Services.AddScoped<IProjectLanguageRunner, PythonProjectRunner>();
+
 
             // Register Background Services
             builder.Services.AddHostedService<TokenCleanupService>();
