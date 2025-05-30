@@ -14,7 +14,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
     public class DeploymentService : BaseService, IDeploymentService
     {
         private readonly IFileStorageService _fileStorageService;
-        private readonly IVersionService _versionService;
         private readonly DeploymentSettings _settings;
         private readonly Dictionary<AppDeploymentType, IDeploymentStrategy> _strategies;
 
@@ -23,12 +22,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IMapper mapper,
             ILogger<DeploymentService> logger,
             IFileStorageService fileStorageService,
-            IVersionService versionService,
             IOptions<DeploymentSettings> settings,
             IEnumerable<IDeploymentStrategy> strategies) : base(unitOfWork, mapper, logger)
         {
             _fileStorageService = fileStorageService;
-            _versionService = versionService;
             _settings = settings.Value;
             _strategies = strategies.ToDictionary(s => s.SupportedType, s => s);
         }
@@ -581,16 +578,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Fall back to latest approved version
             try
             {
-                var latestVersion = await _versionService.GetLatestVersionForProgramAsync(program._ID.ToString(), cancellationToken);
+                var latestVersion = await _unitOfWork.Versions.GetLatestVersionForProgramAsync(program._ID, cancellationToken);
                 if (latestVersion != null)
                 {
                     // Verify it's approved
                     var version = await _unitOfWork.Versions.GetByIdAsync(
-                        MongoDB.Bson.ObjectId.Parse(latestVersion.Id), cancellationToken);
+                        latestVersion._ID, cancellationToken);
 
                     if (version?.Status == "approved")
                     {
-                        return latestVersion.Id;
+                        return latestVersion._ID.ToString();
                     }
                 }
             }
