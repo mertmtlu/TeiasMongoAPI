@@ -1165,13 +1165,5 @@ namespace TeiasMongoAPI.API.Controllers
         public string ProjectType { get; set; } = string.Empty;
     }
 
-    public class ProjectValidationResultDto
-    {
-        public bool IsValid { get; set; }
-        public List<string> Errors { get; set; } = new();
-        public List<string> Warnings { get; set; } = new();
-        public bool CanExecute { get; set; }
-    }
-
     #endregion
 }

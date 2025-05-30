@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
-using System.Text;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
@@ -19,7 +18,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IUnitOfWork unitOfWork,
             IMapper mapper,
             IOptions<FileStorageSettings> settings,
-            ILogger<FileStorageService> logger) : base(unitOfWork, mapper, logger) 
+            ILogger<FileStorageService> logger) : base(unitOfWork, mapper, logger)
         {
             _settings = settings.Value;
 
@@ -27,13 +26,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             EnsureDirectoryExists(_settings.BasePath);
         }
 
-        public async Task<string> StoreFileAsync(string programId, string filePath, byte[] content, string contentType, CancellationToken cancellationToken = default)
+        public async Task<string> StoreFileAsync(string programId, string versionId, string filePath, byte[] content, string contentType, CancellationToken cancellationToken = default)
         {
             try
             {
-                // Generate storage key
-                var storageKey = GenerateStorageKey(programId, filePath);
-                var physicalPath = GetFilePath(storageKey);
+                // Generate storage key with new structure
+                var storageKey = GenerateStorageKey(programId, versionId, filePath);
+                var physicalPath = GetFilePath(programId, versionId, filePath);
 
                 // Ensure directory exists
                 var directory = Path.GetDirectoryName(physicalPath);
@@ -46,21 +45,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 await File.WriteAllBytesAsync(physicalPath, content, cancellationToken);
 
                 // Store metadata
-                await StoreFileMetadataAsync(storageKey, programId, filePath, null, content, contentType);
+                await StoreFileMetadataAsync(storageKey, programId, versionId, filePath, content, contentType);
 
-                _logger.LogInformation("Stored file {FilePath} for program {ProgramId} with storage key {StorageKey}",
-                    filePath, programId, storageKey);
+                _logger.LogInformation("Stored file {FilePath} for program {ProgramId}, version {VersionId}",
+                    filePath, programId, versionId);
 
                 return storageKey;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to store file {FilePath} for program {ProgramId}", filePath, programId);
+                _logger.LogError(ex, "Failed to store file {FilePath} for program {ProgramId}, version {VersionId}",
+                    filePath, programId, versionId);
                 throw;
             }
         }
 
-        public async Task<List<FileStorageResult>> StoreFilesAsync(string programId, string? versionId, List<ProgramFileUploadDto> files, CancellationToken cancellationToken = default)
+        public async Task<List<FileStorageResult>> StoreFilesAsync(string programId, string versionId, List<VersionFileCreateDto> files, CancellationToken cancellationToken = default)
         {
             var results = new List<FileStorageResult>();
 
@@ -81,26 +81,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         continue;
                     }
 
-                    // Generate storage key for version-specific file
-                    var storageKey = versionId != null
-                        ? GenerateVersionStorageKey(programId, versionId, file.Path)
-                        : GenerateStorageKey(programId, file.Path);
-
-                    var physicalPath = GetFilePath(storageKey);
-
-                    // Ensure directory exists
-                    var directory = Path.GetDirectoryName(physicalPath);
-                    if (directory != null)
-                    {
-                        EnsureDirectoryExists(directory);
-                    }
-
                     // Store file
-                    await File.WriteAllBytesAsync(physicalPath, file.Content, cancellationToken);
-
-                    // Calculate hash and store metadata
+                    var storageKey = await StoreFileAsync(programId, versionId, file.Path, file.Content, file.ContentType, cancellationToken);
                     var hash = CalculateFileHash(file.Content);
-                    await StoreFileMetadataAsync(storageKey, programId, file.Path, versionId, file.Content, file.ContentType);
 
                     results.Add(new FileStorageResult
                     {
@@ -117,7 +100,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to store file {FilePath} for program {ProgramId}", file.Path, programId);
+                    _logger.LogError(ex, "Failed to store file {FilePath} for program {ProgramId}, version {VersionId}",
+                        file.Path, programId, versionId);
                     results.Add(new FileStorageResult
                     {
                         FilePath = file.Path,
@@ -127,49 +111,50 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
             }
 
-            _logger.LogInformation("Stored {SuccessCount}/{TotalCount} files for program {ProgramId}",
-                results.Count(r => r.Success), results.Count, programId);
+            _logger.LogInformation("Stored {SuccessCount}/{TotalCount} files for program {ProgramId}, version {VersionId}",
+                results.Count(r => r.Success), results.Count, programId, versionId);
 
             return results;
         }
 
-        public async Task<byte[]> GetFileContentAsync(string storageKey, CancellationToken cancellationToken = default)
+        public async Task<byte[]> GetFileContentAsync(string programId, string versionId, string filePath, CancellationToken cancellationToken = default)
         {
             try
             {
-                var physicalPath = GetFilePath(storageKey);
+                var physicalPath = GetFilePath(programId, versionId, filePath);
 
                 if (!File.Exists(physicalPath))
                 {
-                    throw new FileNotFoundException($"File not found for storage key: {storageKey}");
+                    throw new FileNotFoundException($"File not found: {filePath} in program {programId}, version {versionId}");
                 }
 
                 return await File.ReadAllBytesAsync(physicalPath, cancellationToken);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to get file content for storage key {StorageKey}", storageKey);
+                _logger.LogError(ex, "Failed to get file content for {FilePath} in program {ProgramId}, version {VersionId}",
+                    filePath, programId, versionId);
                 throw;
             }
         }
 
-        public async Task<ProgramFileContentDto> GetFileAsync(string programId, string filePath, string? versionId = null, CancellationToken cancellationToken = default)
+        public async Task<VersionFileDetailDto> GetFileAsync(string programId, string versionId, string filePath, CancellationToken cancellationToken = default)
         {
             try
             {
-                var storageKey = versionId != null
-                    ? GenerateVersionStorageKey(programId, versionId, filePath)
-                    : GenerateStorageKey(programId, filePath);
-
-                var content = await GetFileContentAsync(storageKey, cancellationToken);
+                var content = await GetFileContentAsync(programId, versionId, filePath, cancellationToken);
+                var storageKey = GenerateStorageKey(programId, versionId, filePath);
                 var metadata = await GetFileMetadataAsync(storageKey, cancellationToken);
 
-                return new ProgramFileContentDto
+                return new VersionFileDetailDto
                 {
                     Path = filePath,
+                    StorageKey = storageKey,
+                    Hash = metadata.Hash,
+                    Size = metadata.Size,
+                    FileType = DetermineFileType(filePath),
                     ContentType = metadata.ContentType,
                     Content = content,
-                    Description = null, // Could be enhanced with metadata
                     LastModified = metadata.LastModified
                 };
             }
@@ -181,39 +166,38 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        public async Task<string> UpdateFileAsync(string programId, string filePath, byte[] content, string contentType, string? versionId = null, CancellationToken cancellationToken = default)
+        public async Task<string> UpdateFileAsync(string programId, string versionId, string filePath, byte[] content, string contentType, CancellationToken cancellationToken = default)
         {
             try
             {
-                // For updates, we typically create a new version, but for now we'll overwrite
-                var storageKey = versionId != null
-                    ? GenerateVersionStorageKey(programId, versionId, filePath)
-                    : GenerateStorageKey(programId, filePath);
-
-                var physicalPath = GetFilePath(storageKey);
+                var storageKey = GenerateStorageKey(programId, versionId, filePath);
+                var physicalPath = GetFilePath(programId, versionId, filePath);
 
                 // Store updated content
                 await File.WriteAllBytesAsync(physicalPath, content, cancellationToken);
 
                 // Update metadata
-                await StoreFileMetadataAsync(storageKey, programId, filePath, versionId, content, contentType);
+                await StoreFileMetadataAsync(storageKey, programId, versionId, filePath, content, contentType);
 
-                _logger.LogInformation("Updated file {FilePath} for program {ProgramId}", filePath, programId);
+                _logger.LogInformation("Updated file {FilePath} for program {ProgramId}, version {VersionId}",
+                    filePath, programId, versionId);
 
                 return storageKey;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to update file {FilePath} for program {ProgramId}", filePath, programId);
+                _logger.LogError(ex, "Failed to update file {FilePath} for program {ProgramId}, version {VersionId}",
+                    filePath, programId, versionId);
                 throw;
             }
         }
 
-        public async Task<bool> DeleteFileAsync(string storageKey, CancellationToken cancellationToken = default)
+        public async Task<bool> DeleteFileAsync(string programId, string versionId, string filePath, CancellationToken cancellationToken = default)
         {
             try
             {
-                var physicalPath = GetFilePath(storageKey);
+                var physicalPath = GetFilePath(programId, versionId, filePath);
+                var storageKey = GenerateStorageKey(programId, versionId, filePath);
 
                 if (File.Exists(physicalPath))
                 {
@@ -227,13 +211,136 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     File.Delete(metadataPath);
                 }
 
-                _logger.LogInformation("Deleted file with storage key {StorageKey}", storageKey);
+                _logger.LogInformation("Deleted file {FilePath} from program {ProgramId}, version {VersionId}",
+                    filePath, programId, versionId);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to delete file with storage key {StorageKey}", storageKey);
+                _logger.LogError(ex, "Failed to delete file {FilePath} from program {ProgramId}, version {VersionId}",
+                    filePath, programId, versionId);
                 return false;
+            }
+        }
+
+        public async Task<List<VersionFileDto>> ListVersionFilesAsync(string programId, string versionId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var files = new List<VersionFileDto>();
+                var versionPath = Path.Combine(_settings.BasePath, programId, versionId, "files");
+
+                if (!Directory.Exists(versionPath))
+                {
+                    return files;
+                }
+
+                var metadataFiles = Directory.GetFiles(versionPath, "*.metadata", SearchOption.AllDirectories);
+
+                foreach (var metadataFile in metadataFiles)
+                {
+                    try
+                    {
+                        var metadataJson = await File.ReadAllTextAsync(metadataFile, cancellationToken);
+                        var metadata = System.Text.Json.JsonSerializer.Deserialize<FileMetadata>(metadataJson);
+                        if (metadata != null)
+                        {
+                            files.Add(new VersionFileDto
+                            {
+                                Path = metadata.FilePath,
+                                StorageKey = metadata.StorageKey,
+                                Hash = metadata.Hash,
+                                Size = metadata.Size,
+                                FileType = DetermineFileType(metadata.FilePath),
+                                ContentType = metadata.ContentType
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to read metadata file {MetadataFile}", metadataFile);
+                    }
+                }
+
+                return files.OrderBy(f => f.Path).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to list files for program {ProgramId}, version {VersionId}", programId, versionId);
+                throw;
+            }
+        }
+
+        public async Task<bool> DeleteVersionFilesAsync(string programId, string versionId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var versionPath = Path.Combine(_settings.BasePath, programId, versionId);
+
+                if (Directory.Exists(versionPath))
+                {
+                    Directory.Delete(versionPath, recursive: true);
+                    _logger.LogInformation("Deleted all files for program {ProgramId}, version {VersionId}", programId, versionId);
+                    return true;
+                }
+
+                return true; // No files to delete
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete files for program {ProgramId}, version {VersionId}", programId, versionId);
+                return false;
+            }
+        }
+
+        public async Task<List<FileStorageResult>> CopyVersionFilesAsync(string programId, string fromVersionId, string toVersionId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var results = new List<FileStorageResult>();
+                var sourceFiles = await ListVersionFilesAsync(programId, fromVersionId, cancellationToken);
+
+                foreach (var sourceFile in sourceFiles)
+                {
+                    try
+                    {
+                        var content = await GetFileContentAsync(programId, fromVersionId, sourceFile.Path, cancellationToken);
+                        var storageKey = await StoreFileAsync(programId, toVersionId, sourceFile.Path, content, sourceFile.ContentType, cancellationToken);
+
+                        results.Add(new FileStorageResult
+                        {
+                            FilePath = sourceFile.Path,
+                            StorageKey = storageKey,
+                            Hash = sourceFile.Hash,
+                            Size = sourceFile.Size,
+                            ContentType = sourceFile.ContentType,
+                            Success = true
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to copy file {FilePath} from version {FromVersion} to {ToVersion}",
+                            sourceFile.Path, fromVersionId, toVersionId);
+
+                        results.Add(new FileStorageResult
+                        {
+                            FilePath = sourceFile.Path,
+                            Success = false,
+                            ErrorMessage = ex.Message
+                        });
+                    }
+                }
+
+                _logger.LogInformation("Copied {SuccessCount}/{TotalCount} files from version {FromVersion} to {ToVersion} for program {ProgramId}",
+                    results.Count(r => r.Success), results.Count, fromVersionId, toVersionId, programId);
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to copy files from version {FromVersion} to {ToVersion} for program {ProgramId}",
+                    fromVersionId, toVersionId, programId);
+                throw;
             }
         }
 
@@ -241,7 +348,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             try
             {
-                var programPath = Path.Combine(_settings.BasePath, "programs", programId);
+                var programPath = Path.Combine(_settings.BasePath, programId);
 
                 if (Directory.Exists(programPath))
                 {
@@ -259,88 +366,57 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        public async Task<FileMetadata> GetFileMetadataAsync(string storageKey, CancellationToken cancellationToken = default)
+        public async Task<StorageStatistics> GetStorageStatisticsAsync(string programId, CancellationToken cancellationToken = default)
         {
             try
             {
-                var metadataPath = GetMetadataPath(storageKey);
-                var physicalPath = GetFilePath(storageKey);
+                var stats = new StorageStatistics { ProgramId = programId };
+                var programPath = Path.Combine(_settings.BasePath, programId);
 
-                if (File.Exists(metadataPath))
+                if (!Directory.Exists(programPath))
                 {
-                    var metadataJson = await File.ReadAllTextAsync(metadataPath, cancellationToken);
-                    var metadata = System.Text.Json.JsonSerializer.Deserialize<FileMetadata>(metadataJson);
-                    if (metadata != null)
-                    {
-                        metadata.Exists = File.Exists(physicalPath);
-                        return metadata;
-                    }
+                    return stats;
                 }
 
-                // Fallback: create metadata from file if it exists
-                if (File.Exists(physicalPath))
+                // Count versions
+                var versionDirectories = Directory.GetDirectories(programPath);
+                stats.VersionCount = versionDirectories.Length;
+
+                // Aggregate file statistics across all versions
+                var allFiles = new List<VersionFileDto>();
+                foreach (var versionDir in versionDirectories)
                 {
-                    var fileInfo = new FileInfo(physicalPath);
-                    return new FileMetadata
-                    {
-                        StorageKey = storageKey,
-                        Size = fileInfo.Length,
-                        CreatedAt = fileInfo.CreationTime,
-                        LastModified = fileInfo.LastWriteTime,
-                        Exists = true,
-                        ContentType = "application/octet-stream"
-                    };
-                }
-
-                throw new FileNotFoundException($"File not found for storage key: {storageKey}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get metadata for storage key {StorageKey}", storageKey);
-                throw;
-            }
-        }
-
-        public async Task<List<FileMetadata>> ListProgramFilesAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                var files = new List<FileMetadata>();
-                var searchPath = versionId != null
-                    ? Path.Combine(_settings.BasePath, "programs", programId, "files")
-                    : Path.Combine(_settings.BasePath, "programs", programId);
-
-                if (!Directory.Exists(searchPath))
-                {
-                    return files;
-                }
-
-                var metadataFiles = Directory.GetFiles(searchPath, "*.metadata", SearchOption.AllDirectories);
-
-                foreach (var metadataFile in metadataFiles)
-                {
+                    var versionId = Path.GetFileName(versionDir);
                     try
                     {
-                        var metadataJson = await File.ReadAllTextAsync(metadataFile, cancellationToken);
-                        var metadata = System.Text.Json.JsonSerializer.Deserialize<FileMetadata>(metadataJson);
-                        if (metadata != null)
-                        {
-                            var physicalPath = GetFilePath(metadata.StorageKey);
-                            metadata.Exists = File.Exists(physicalPath);
-                            files.Add(metadata);
-                        }
+                        var versionFiles = await ListVersionFilesAsync(programId, versionId, cancellationToken);
+                        allFiles.AddRange(versionFiles);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to read metadata file {MetadataFile}", metadataFile);
+                        _logger.LogWarning(ex, "Failed to get files for version {VersionId}", versionId);
                     }
                 }
 
-                return files.OrderBy(f => f.FilePath).ToList();
+                stats.TotalFiles = allFiles.Count;
+                stats.TotalSize = allFiles.Sum(f => f.Size);
+                stats.LastModified = allFiles.Any() ? DateTime.UtcNow : DateTime.MinValue; // Would need proper tracking
+
+                // Group by file types
+                foreach (var file in allFiles)
+                {
+                    var extension = Path.GetExtension(file.Path).ToLowerInvariant();
+                    if (string.IsNullOrEmpty(extension)) extension = "no-extension";
+
+                    stats.FileTypeCount[extension] = stats.FileTypeCount.GetValueOrDefault(extension, 0) + 1;
+                    stats.FileTypeSizes[extension] = stats.FileTypeSizes.GetValueOrDefault(extension, 0) + file.Size;
+                }
+
+                return stats;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to list files for program {ProgramId}, version {VersionId}", programId, versionId);
+                _logger.LogError(ex, "Failed to get storage statistics for program {ProgramId}", programId);
                 throw;
             }
         }
@@ -370,7 +446,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 if (!_settings.AllowedContentTypes.Contains(contentType.ToLowerInvariant()))
                 {
                     result.Warnings.Add($"Content type '{contentType}' is not in the allowed list");
-                    // Not marking as invalid, just a warning
                 }
 
                 // File name validation
@@ -387,13 +462,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     result.IsValid = false;
                 }
 
-                // Content-based validation (basic)
+                // Content-based validation
                 if (content.Length == 0)
                 {
                     result.Warnings.Add("File is empty");
                 }
 
-                // Suggest content type based on extension if needed
+                // Suggest content type if needed
                 if (string.IsNullOrEmpty(contentType) || contentType == "application/octet-stream")
                 {
                     result.SuggestedContentType = GetContentTypeFromExtension(extension);
@@ -410,11 +485,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        public string GetFilePath(string storageKey)
-        {
-            return Path.Combine(_settings.BasePath, storageKey);
-        }
-
         public string CalculateFileHash(byte[] content)
         {
             using var sha256 = SHA256.Create();
@@ -422,108 +492,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return Convert.ToBase64String(hash);
         }
 
-        public async Task<List<FileStorageResult>> CopyVersionFilesAsync(string programId, string fromVersionId, string toVersionId, CancellationToken cancellationToken = default)
+        public string GetFilePath(string programId, string versionId, string filePath)
         {
-            try
-            {
-                var results = new List<FileStorageResult>();
-                var sourceFiles = await ListProgramFilesAsync(programId, fromVersionId, cancellationToken);
-
-                foreach (var sourceFile in sourceFiles)
-                {
-                    try
-                    {
-                        var content = await GetFileContentAsync(sourceFile.StorageKey, cancellationToken);
-                        var newStorageKey = GenerateVersionStorageKey(programId, toVersionId, sourceFile.FilePath);
-                        var physicalPath = GetFilePath(newStorageKey);
-
-                        // Ensure directory exists
-                        var directory = Path.GetDirectoryName(physicalPath);
-                        if (directory != null)
-                        {
-                            EnsureDirectoryExists(directory);
-                        }
-
-                        // Copy file
-                        await File.WriteAllBytesAsync(physicalPath, content, cancellationToken);
-
-                        // Create metadata for new version
-                        await StoreFileMetadataAsync(newStorageKey, programId, sourceFile.FilePath, toVersionId, content, sourceFile.ContentType);
-
-                        results.Add(new FileStorageResult
-                        {
-                            FilePath = sourceFile.FilePath,
-                            StorageKey = newStorageKey,
-                            Hash = sourceFile.Hash,
-                            Size = sourceFile.Size,
-                            ContentType = sourceFile.ContentType,
-                            Success = true
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to copy file {FilePath} from version {FromVersion} to {ToVersion}",
-                            sourceFile.FilePath, fromVersionId, toVersionId);
-
-                        results.Add(new FileStorageResult
-                        {
-                            FilePath = sourceFile.FilePath,
-                            Success = false,
-                            ErrorMessage = ex.Message
-                        });
-                    }
-                }
-
-                _logger.LogInformation("Copied {SuccessCount}/{TotalCount} files from version {FromVersion} to {ToVersion} for program {ProgramId}",
-                    results.Count(r => r.Success), results.Count, fromVersionId, toVersionId, programId);
-
-                return results;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to copy files from version {FromVersion} to {ToVersion} for program {ProgramId}",
-                    fromVersionId, toVersionId, programId);
-                throw;
-            }
-        }
-
-        public async Task<StorageStatistics> GetStorageStatisticsAsync(string programId, CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                var files = await ListProgramFilesAsync(programId, null, cancellationToken);
-                var stats = new StorageStatistics
-                {
-                    ProgramId = programId,
-                    TotalFiles = files.Count,
-                    TotalSize = files.Sum(f => f.Size),
-                    LastModified = files.Any() ? files.Max(f => f.LastModified) : DateTime.MinValue
-                };
-
-                // Count versions
-                var versionPath = Path.Combine(_settings.BasePath, "programs", programId, "source");
-                if (Directory.Exists(versionPath))
-                {
-                    stats.VersionCount = Directory.GetDirectories(versionPath).Length;
-                }
-
-                // Group by file types
-                foreach (var file in files)
-                {
-                    var extension = Path.GetExtension(file.FilePath).ToLowerInvariant();
-                    if (string.IsNullOrEmpty(extension)) extension = "no-extension";
-
-                    stats.FileTypeCount[extension] = stats.FileTypeCount.GetValueOrDefault(extension, 0) + 1;
-                    stats.FileTypeSizes[extension] = stats.FileTypeSizes.GetValueOrDefault(extension, 0) + file.Size;
-                }
-
-                return stats;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get storage statistics for program {ProgramId}", programId);
-                throw;
-            }
+            var normalizedPath = NormalizeFilePath(filePath);
+            return Path.Combine(_settings.BasePath, programId, versionId, "files", normalizedPath);
         }
 
         #region Private Helper Methods
@@ -536,23 +508,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        private string GenerateStorageKey(string programId, string filePath)
+        private string GenerateStorageKey(string programId, string versionId, string filePath)
         {
-            // Format: programs/{programId}/files/{normalizedFilePath}
             var normalizedPath = NormalizeFilePath(filePath);
-            return Path.Combine("programs", programId, "files", normalizedPath).Replace('\\', '/');
-        }
-
-        private string GenerateVersionStorageKey(string programId, string versionId, string filePath)
-        {
-            // Format: programs/{programId}/source/{versionId}/files/{normalizedFilePath}
-            var normalizedPath = NormalizeFilePath(filePath);
-            return Path.Combine("programs", programId, "source", versionId, "files", normalizedPath).Replace('\\', '/');
+            return Path.Combine(programId, versionId, "files", normalizedPath).Replace('\\', '/');
         }
 
         private string NormalizeFilePath(string filePath)
         {
-            // Remove invalid characters and normalize path separators
             return filePath.Replace('\\', '/').Trim('/');
         }
 
@@ -561,14 +524,31 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return Path.Combine(_settings.BasePath, storageKey + ".metadata");
         }
 
-        private async Task StoreFileMetadataAsync(string storageKey, string programId, string filePath, string? versionId, byte[] content, string contentType)
+        private async Task<FileMetadata> GetFileMetadataAsync(string storageKey, CancellationToken cancellationToken)
+        {
+            var metadataPath = GetMetadataPath(storageKey);
+
+            if (File.Exists(metadataPath))
+            {
+                var metadataJson = await File.ReadAllTextAsync(metadataPath, cancellationToken);
+                var metadata = System.Text.Json.JsonSerializer.Deserialize<FileMetadata>(metadataJson);
+                if (metadata != null)
+                {
+                    return metadata;
+                }
+            }
+
+            throw new FileNotFoundException($"Metadata not found for storage key: {storageKey}");
+        }
+
+        private async Task StoreFileMetadataAsync(string storageKey, string programId, string versionId, string filePath, byte[] content, string contentType)
         {
             var metadata = new FileMetadata
             {
                 StorageKey = storageKey,
                 ProgramId = programId,
-                FilePath = filePath,
                 VersionId = versionId,
+                FilePath = filePath,
                 Hash = CalculateFileHash(content),
                 Size = content.Length,
                 ContentType = contentType,
@@ -590,6 +570,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             });
 
             await File.WriteAllTextAsync(metadataPath, metadataJson);
+        }
+
+        private string DetermineFileType(string filePath)
+        {
+            var extension = Path.GetExtension(filePath).ToLowerInvariant();
+            return extension switch
+            {
+                ".cs" or ".py" or ".js" or ".ts" or ".java" or ".cpp" or ".c" or ".rs" => "source",
+                ".json" or ".xml" or ".yaml" or ".yml" or ".config" => "config",
+                ".png" or ".jpg" or ".jpeg" or ".gif" or ".svg" => "asset",
+                ".exe" or ".dll" or ".so" or ".dylib" => "build_artifact",
+                _ => "source"
+            };
         }
 
         private string GetContentTypeFromExtension(string extension)

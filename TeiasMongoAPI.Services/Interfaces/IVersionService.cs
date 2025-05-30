@@ -31,13 +31,6 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<bool> UpdateStatusAsync(string id, VersionStatusUpdateDto dto, CancellationToken cancellationToken = default);
         Task<VersionReviewDto> SubmitReviewAsync(string id, VersionReviewSubmissionDto dto, CancellationToken cancellationToken = default);
 
-        // File Management within Versions
-        Task<bool> AddFileAsync(string versionId, VersionFileCreateDto dto, CancellationToken cancellationToken = default);
-        Task<bool> UpdateFileAsync(string versionId, string filePath, VersionFileUpdateDto dto, CancellationToken cancellationToken = default);
-        Task<bool> RemoveFileAsync(string versionId, string filePath, CancellationToken cancellationToken = default);
-        Task<List<VersionFileDto>> GetFilesByVersionIdAsync(string versionId, CancellationToken cancellationToken = default);
-        Task<VersionFileDetailDto> GetFileByPathAsync(string versionId, string filePath, CancellationToken cancellationToken = default);
-
         // Version Comparison and Diff
         Task<VersionDiffDto> GetDiffBetweenVersionsAsync(string fromVersionId, string toVersionId, CancellationToken cancellationToken = default);
         Task<VersionDiffDto> GetDiffFromPreviousAsync(string versionId, CancellationToken cancellationToken = default);
@@ -52,7 +45,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<VersionStatsDto> GetVersionStatsAsync(string programId, CancellationToken cancellationToken = default);
         Task<List<VersionActivityDto>> GetVersionActivityAsync(string programId, int days = 30, CancellationToken cancellationToken = default);
 
-        // Commit Operations
+        // Commit Operations (these will use IFileStorageService internally for file operations)
         Task<VersionDto> CommitChangesAsync(string programId, VersionCommitDto dto, CancellationToken cancellationToken = default);
         Task<bool> ValidateCommitAsync(string programId, VersionCommitValidationDto dto, CancellationToken cancellationToken = default);
     }

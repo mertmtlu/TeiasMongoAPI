@@ -13,18 +13,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 {
     public class ProgramService : BaseService, IProgramService
     {
-        private readonly IFileStorageService _fileStorageService;
         private readonly IDeploymentService _deploymentService;
 
         public ProgramService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
-            IFileStorageService fileStorageService,
             IDeploymentService deploymentService,
             ILogger<ProgramService> logger)
             : base(unitOfWork, mapper, logger)
         {
-            _fileStorageService = fileStorageService;
             _deploymentService = deploymentService;
         }
 
@@ -82,17 +79,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             dto.Permissions = permissions;
 
-            // Get files
-            try
-            {
-                var files = await GetFilesAsync(id, cancellationToken);
-                dto.Files = files;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to get files for program {ProgramId}", id);
-                dto.Files = new List<ProgramFileDto>();
-            }
+            // Note: Files are no longer fetched here - they should be retrieved through IFileStorageService
+            // when needed by controllers using the current version or specific version
+            dto.Files = new List<ProgramFileDto>();
 
             // Get deployment status
             try
@@ -299,16 +288,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
             }
 
-            // Delete associated files
-            try
-            {
-                await _fileStorageService.DeleteProgramFilesAsync(id, cancellationToken);
-                _logger.LogInformation("Deleted files for program {ProgramId}", id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete files for program {ProgramId}", id);
-            }
+            // Note: Files are now managed by IFileStorageService and should be deleted through that service
+            // The file cleanup will be handled at the controller level or through a separate cleanup service
 
             var success = await _unitOfWork.Programs.DeleteAsync(objectId, cancellationToken);
 
@@ -396,6 +377,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (!await _unitOfWork.Versions.ExistsAsync(versionObjectId, cancellationToken))
             {
                 throw new KeyNotFoundException($"Version with ID {versionId} not found.");
+            }
+
+            // Verify the version belongs to this program
+            var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
+            if (version.ProgramId != objectId)
+            {
+                throw new InvalidOperationException($"Version {versionId} does not belong to program {id}.");
+            }
+
+            // Verify the version is approved
+            if (version.Status != "approved")
+            {
+                throw new InvalidOperationException("Can only set approved versions as current version.");
             }
 
             var success = await _unitOfWork.Programs.UpdateCurrentVersionAsync(objectId, versionId, cancellationToken);
@@ -605,152 +599,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #endregion
 
-        #region File Management
-
-        public async Task<bool> UploadFilesAsync(string programId, List<ProgramFileUploadDto> files, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(programId);
-
-            if (!await _unitOfWork.Programs.ExistsAsync(objectId, cancellationToken))
-            {
-                throw new KeyNotFoundException($"Program with ID {programId} not found.");
-            }
-
-            _logger.LogInformation("Starting file upload for program {ProgramId} with {FileCount} files", programId, files.Count);
-
-            // Store files using the file storage service
-            var results = await _fileStorageService.StoreFilesAsync(programId, null, files, cancellationToken);
-
-            var successCount = results.Count(r => r.Success);
-            var failedResults = results.Where(r => !r.Success).ToList();
-
-            if (failedResults.Any())
-            {
-                var failedFiles = string.Join(", ", failedResults.Select(r => $"{r.FilePath}: {r.ErrorMessage}"));
-                _logger.LogWarning("Failed to upload {FailedCount}/{TotalCount} files for program {ProgramId}: {FailedFiles}",
-                    failedResults.Count, files.Count, programId, failedFiles);
-            }
-
-            _logger.LogInformation("Successfully uploaded {SuccessCount}/{TotalCount} files for program {ProgramId}",
-                successCount, files.Count, programId);
-
-            return successCount > 0;
-        }
-
-        public async Task<List<ProgramFileDto>> GetFilesAsync(string programId, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(programId);
-
-            if (!await _unitOfWork.Programs.ExistsAsync(objectId, cancellationToken))
-            {
-                throw new KeyNotFoundException($"Program with ID {programId} not found.");
-            }
-
-            try
-            {
-                // Get file metadata from storage service
-                var fileMetadata = await _fileStorageService.ListProgramFilesAsync(programId, null, cancellationToken);
-
-                return fileMetadata.Select(metadata => new ProgramFileDto
-                {
-                    Path = metadata.FilePath,
-                    ContentType = metadata.ContentType,
-                    Size = metadata.Size,
-                    LastModified = metadata.LastModified,
-                    Hash = metadata.Hash,
-                    Description = null // Could be enhanced with additional metadata
-                }).ToList();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get files for program {ProgramId}", programId);
-                return new List<ProgramFileDto>();
-            }
-        }
-
-        public async Task<ProgramFileContentDto> GetFileContentAsync(string programId, string filePath, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(programId);
-
-            if (!await _unitOfWork.Programs.ExistsAsync(objectId, cancellationToken))
-            {
-                throw new KeyNotFoundException($"Program with ID {programId} not found.");
-            }
-
-            try
-            {
-                return await _fileStorageService.GetFileAsync(programId, filePath, null, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get file content for {FilePath} in program {ProgramId}", filePath, programId);
-                throw;
-            }
-        }
-
-        public async Task<bool> UpdateFileAsync(string programId, string filePath, ProgramFileUpdateDto dto, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(programId);
-
-            if (!await _unitOfWork.Programs.ExistsAsync(objectId, cancellationToken))
-            {
-                throw new KeyNotFoundException($"Program with ID {programId} not found.");
-            }
-
-            try
-            {
-                var contentType = dto.ContentType ?? "application/octet-stream";
-                await _fileStorageService.UpdateFileAsync(programId, filePath, dto.Content, contentType, null, cancellationToken);
-
-                _logger.LogInformation("Updated file {FilePath} for program {ProgramId}", filePath, programId);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to update file {FilePath} for program {ProgramId}", filePath, programId);
-                return false;
-            }
-        }
-
-        public async Task<bool> DeleteFileAsync(string programId, string filePath, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(programId);
-
-            if (!await _unitOfWork.Programs.ExistsAsync(objectId, cancellationToken))
-            {
-                throw new KeyNotFoundException($"Program with ID {programId} not found.");
-            }
-
-            try
-            {
-                // Get file metadata to find storage key
-                var files = await _fileStorageService.ListProgramFilesAsync(programId, null, cancellationToken);
-                var fileMetadata = files.FirstOrDefault(f => f.FilePath == filePath);
-
-                if (fileMetadata == null)
-                {
-                    throw new FileNotFoundException($"File {filePath} not found in program {programId}");
-                }
-
-                var success = await _fileStorageService.DeleteFileAsync(fileMetadata.StorageKey, cancellationToken);
-
-                if (success)
-                {
-                    _logger.LogInformation("Deleted file {FilePath} from program {ProgramId}", filePath, programId);
-                }
-
-                return success;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to delete file {FilePath} from program {ProgramId}", filePath, programId);
-                return false;
-            }
-        }
-
-        #endregion
-
-        #region Deployment Operations - Now Fully Implemented
+        #region Deployment Operations
 
         public async Task<ProgramDeploymentDto> DeployPreBuiltAppAsync(string programId, ProgramDeploymentRequestDto dto, CancellationToken cancellationToken = default)
         {

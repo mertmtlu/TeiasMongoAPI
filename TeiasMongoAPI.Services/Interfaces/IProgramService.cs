@@ -36,14 +36,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<ProgramDto> UpdateGroupPermissionAsync(string programId, ProgramGroupPermissionDto dto, CancellationToken cancellationToken = default);
         Task<List<ProgramPermissionDto>> GetProgramPermissionsAsync(string programId, CancellationToken cancellationToken = default);
 
-        // File Management
-        Task<bool> UploadFilesAsync(string programId, List<ProgramFileUploadDto> files, CancellationToken cancellationToken = default);
-        Task<List<ProgramFileDto>> GetFilesAsync(string programId, CancellationToken cancellationToken = default);
-        Task<ProgramFileContentDto> GetFileContentAsync(string programId, string filePath, CancellationToken cancellationToken = default);
-        Task<bool> UpdateFileAsync(string programId, string filePath, ProgramFileUpdateDto dto, CancellationToken cancellationToken = default);
-        Task<bool> DeleteFileAsync(string programId, string filePath, CancellationToken cancellationToken = default);
-
-        // Deployment Operations
+        // Deployment Operations (these stay as they're program-level operations)
         Task<ProgramDeploymentDto> DeployPreBuiltAppAsync(string programId, ProgramDeploymentRequestDto dto, CancellationToken cancellationToken = default);
         Task<ProgramDeploymentDto> DeployStaticSiteAsync(string programId, ProgramDeploymentRequestDto dto, CancellationToken cancellationToken = default);
         Task<ProgramDeploymentDto> DeployContainerAppAsync(string programId, ProgramDeploymentRequestDto dto, CancellationToken cancellationToken = default);
