@@ -11,17 +11,21 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<UiComponentDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default);
         Task<PagedResponse<UiComponentListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<UiComponentListDto>> SearchAsync(UiComponentSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<UiComponentDto> CreateAsync(UiComponentCreateDto dto, CancellationToken cancellationToken = default);
+        Task<UiComponentDto> CreateAsync(string programId, string versionId, UiComponentCreateDto dto, CancellationToken cancellationToken = default);
         Task<UiComponentDto> UpdateAsync(string id, UiComponentUpdateDto dto, CancellationToken cancellationToken = default);
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
 
+        // Version-specific Component Operations
+        Task<PagedResponse<UiComponentListDto>> GetByProgramVersionAsync(string programId, string versionId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<List<UiComponentListDto>> CopyComponentsToNewVersionAsync(string programId, string fromVersionId, string toVersionId, List<string>? componentNames = null, CancellationToken cancellationToken = default);
+        Task<bool> CopyComponentToVersionAsync(string componentId, string targetProgramId, string targetVersionId, string? newName = null, CancellationToken cancellationToken = default);
+
         // Component Filtering and Discovery
-        Task<PagedResponse<UiComponentListDto>> GetGlobalComponentsAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<UiComponentListDto>> GetByProgramIdAsync(string programId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<UiComponentListDto>> GetByTypeAsync(string type, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<UiComponentListDto>> GetByCreatorAsync(string creatorId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<UiComponentListDto>> GetByStatusAsync(string status, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<PagedResponse<UiComponentListDto>> GetAvailableForProgramAsync(string programId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<PagedResponse<UiComponentListDto>> GetAvailableForProgramVersionAsync(string programId, string versionId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
 
         // Component Lifecycle Management
         Task<bool> UpdateStatusAsync(string id, string status, CancellationToken cancellationToken = default);
@@ -44,18 +48,17 @@ namespace TeiasMongoAPI.Services.Interfaces
 
         // Component Usage and Integration
         Task<List<UiComponentUsageDto>> GetComponentUsageAsync(string id, CancellationToken cancellationToken = default);
-        Task<List<ProgramComponentMappingDto>> GetProgramComponentMappingsAsync(string programId, CancellationToken cancellationToken = default);
-        Task<bool> MapComponentToProgramAsync(string programId, UiComponentMappingDto dto, CancellationToken cancellationToken = default);
-        Task<bool> UnmapComponentFromProgramAsync(string programId, string componentId, CancellationToken cancellationToken = default);
+        Task<List<ProgramComponentMappingDto>> GetProgramVersionComponentMappingsAsync(string programId, string versionId, CancellationToken cancellationToken = default);
+        Task<bool> MapComponentToProgramVersionAsync(string programId, string versionId, UiComponentMappingDto dto, CancellationToken cancellationToken = default);
+        Task<bool> UnmapComponentFromProgramVersionAsync(string programId, string versionId, string componentId, CancellationToken cancellationToken = default);
 
         // Component Discovery and Recommendations
-        Task<List<UiComponentRecommendationDto>> GetRecommendedComponentsAsync(string programId, CancellationToken cancellationToken = default);
+        Task<List<UiComponentRecommendationDto>> GetRecommendedComponentsAsync(string programId, string versionId, CancellationToken cancellationToken = default);
         Task<List<UiComponentListDto>> SearchCompatibleComponentsAsync(UiComponentCompatibilitySearchDto dto, CancellationToken cancellationToken = default);
 
         // Component Validation
-        Task<bool> ValidateNameUniqueForProgramAsync(string name, string? programId, string? excludeId = null, CancellationToken cancellationToken = default);
-        Task<bool> ValidateNameUniqueForGlobalAsync(string name, string? excludeId = null, CancellationToken cancellationToken = default);
-        Task<UiComponentValidationResult> ValidateComponentDefinitionAsync(UiComponentCreateDto dto, CancellationToken cancellationToken = default);
+        Task<bool> ValidateNameUniqueForVersionAsync(string programId, string versionId, string name, string? excludeId = null, CancellationToken cancellationToken = default);
+        Task<UiComponentValidationResult> ValidateComponentDefinitionAsync(string programId, string versionId, UiComponentCreateDto dto, CancellationToken cancellationToken = default);
 
         // Component Categories and Tags
         Task<List<string>> GetAvailableComponentTypesAsync(CancellationToken cancellationToken = default);

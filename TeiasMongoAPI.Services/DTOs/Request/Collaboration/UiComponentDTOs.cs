@@ -15,9 +15,8 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [MaxLength(50)]
         public required string Type { get; set; } // "input_form", "visualization", "composite", "web_component"
 
-        public bool IsGlobal { get; set; } = false;
-
-        public string? ProgramId { get; set; }
+        // Note: ProgramId and VersionId are now passed as method parameters, not in DTO
+        // This ensures they're always provided and validated at the service level
 
         public object Configuration { get; set; } = new object();
         public object Schema { get; set; } = new object();
@@ -35,8 +34,9 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [MaxLength(50)]
         public string? Type { get; set; }
 
-        public bool? IsGlobal { get; set; }
-        public string? ProgramId { get; set; }
+        // Note: Cannot change ProgramId or VersionId after creation
+        // Components belong to a specific version and cannot be moved
+
         public object? Configuration { get; set; }
         public object? Schema { get; set; }
         public List<string>? Tags { get; set; }
@@ -49,8 +49,11 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public string? Type { get; set; }
         public string? Creator { get; set; }
         public string? Status { get; set; }
-        public bool? IsGlobal { get; set; }
+
+        // Version-specific filtering
         public string? ProgramId { get; set; }
+        public string? VersionId { get; set; }
+
         public List<string>? Tags { get; set; }
         public DateTime? CreatedFrom { get; set; }
         public DateTime? CreatedTo { get; set; }
@@ -115,5 +118,37 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public string? ProgramLanguage { get; set; }
         public List<string> RequiredFeatures { get; set; } = new();
         public List<string> CompatibleTypes { get; set; } = new();
+    }
+
+    public class UiComponentCopyRequestDto
+    {
+        [Required]
+        public required string TargetProgramId { get; set; }
+
+        [Required]
+        public required string TargetVersionId { get; set; }
+
+        public string? NewName { get; set; } // If null, keeps original name
+        public bool CopyAssets { get; set; } = true;
+        public bool OverwriteIfExists { get; set; } = false;
+    }
+
+    public class UiComponentBulkCopyRequestDto
+    {
+        [Required]
+        public required string FromProgramId { get; set; }
+
+        [Required]
+        public required string FromVersionId { get; set; }
+
+        [Required]
+        public required string ToProgramId { get; set; }
+
+        [Required]
+        public required string ToVersionId { get; set; }
+
+        public List<string>? ComponentNames { get; set; } // If null, copies all components
+        public bool OverwriteIfExists { get; set; } = false;
+        public bool CopyAssets { get; set; } = true;
     }
 }

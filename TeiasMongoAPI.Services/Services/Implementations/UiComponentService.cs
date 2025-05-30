@@ -60,21 +60,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 _logger.LogWarning(ex, "Failed to get creator details for component {ComponentId}", id);
             }
 
-            // Get program details if not global
-            if (!component.IsGlobal && component.ProgramId.HasValue)
+            // Get program and version details
+            try
             {
-                try
+                var program = await _unitOfWork.Programs.GetByIdAsync(component.ProgramId, cancellationToken);
+                if (program != null)
                 {
-                    var program = await _unitOfWork.Programs.GetByIdAsync(component.ProgramId.Value, cancellationToken);
-                    if (program != null)
-                    {
-                        dto.ProgramName = program.Name;
-                    }
+                    dto.ProgramName = program.Name;
                 }
-                catch (Exception ex)
+
+                var version = await _unitOfWork.Versions.GetByIdAsync(component.VersionId, cancellationToken);
+                if (version != null)
                 {
-                    _logger.LogWarning(ex, "Failed to get program details for component {ComponentId}", id);
+                    dto.VersionNumber = version.VersionNumber;
                 }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get program/version details for component {ComponentId}", id);
             }
 
             // Get component assets
@@ -140,15 +143,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 filteredComponents = filteredComponents.Where(c => c.Status == searchDto.Status);
             }
 
-            if (searchDto.IsGlobal.HasValue)
-            {
-                filteredComponents = filteredComponents.Where(c => c.IsGlobal == searchDto.IsGlobal.Value);
-            }
-
             if (!string.IsNullOrEmpty(searchDto.ProgramId))
             {
                 var programObjectId = ParseObjectId(searchDto.ProgramId);
                 filteredComponents = filteredComponents.Where(c => c.ProgramId == programObjectId);
+            }
+
+            if (!string.IsNullOrEmpty(searchDto.VersionId))
+            {
+                var versionObjectId = ParseObjectId(searchDto.VersionId);
+                filteredComponents = filteredComponents.Where(c => c.VersionId == versionObjectId);
             }
 
             if (searchDto.Tags?.Any() == true)
@@ -180,50 +184,53 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new PagedResponse<UiComponentListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<UiComponentDto> CreateAsync(UiComponentCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<UiComponentDto> CreateAsync(string programId, string versionId, UiComponentCreateDto dto, CancellationToken cancellationToken = default)
         {
+            var programObjectId = ParseObjectId(programId);
+            var versionObjectId = ParseObjectId(versionId);
+
+            // Validate that program and version exist
+            var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
+            if (program == null)
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
+            var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
+            if (version == null)
+            {
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
+            }
+
+            // Validate that version belongs to the program
+            if (version.ProgramId != programObjectId)
+            {
+                throw new InvalidOperationException($"Version {versionId} does not belong to program {programId}.");
+            }
+
             // Validate component type
             if (!_supportedComponentTypes.Contains(dto.Type))
             {
                 throw new InvalidOperationException($"Unsupported component type: {dto.Type}");
             }
 
-            // Validate name uniqueness
-            if (dto.IsGlobal)
+            // Validate name uniqueness within the version
+            if (!await ValidateNameUniqueForVersionAsync(programId, versionId, dto.Name, null, cancellationToken))
             {
-                if (!await _unitOfWork.UiComponents.IsNameUniqueForGlobalAsync(dto.Name, null, cancellationToken))
-                {
-                    throw new InvalidOperationException($"Global component with name '{dto.Name}' already exists.");
-                }
-            }
-            else
-            {
-                if (string.IsNullOrEmpty(dto.ProgramId))
-                {
-                    throw new ArgumentException("ProgramId is required for non-global components.");
-                }
-
-                var programObjectId = ParseObjectId(dto.ProgramId);
-                if (!await _unitOfWork.UiComponents.IsNameUniqueForProgramAsync(dto.Name, programObjectId, null, cancellationToken))
-                {
-                    throw new InvalidOperationException($"Component with name '{dto.Name}' already exists in this program.");
-                }
+                throw new InvalidOperationException($"Component with name '{dto.Name}' already exists in this version.");
             }
 
             var component = _mapper.Map<UiComponent>(dto);
+            component.ProgramId = programObjectId;
+            component.VersionId = versionObjectId;
             component.CreatedAt = DateTime.UtcNow;
             component.Creator = "system"; // Should come from current user context
             component.Status = "draft";
 
-            if (!dto.IsGlobal && !string.IsNullOrEmpty(dto.ProgramId))
-            {
-                component.ProgramId = ParseObjectId(dto.ProgramId);
-            }
-
             var createdComponent = await _unitOfWork.UiComponents.CreateAsync(component, cancellationToken);
 
-            _logger.LogInformation("Created UI component {ComponentId} with name {ComponentName} of type {ComponentType}",
-                createdComponent._ID, dto.Name, dto.Type);
+            _logger.LogInformation("Created UI component {ComponentId} with name {ComponentName} of type {ComponentType} for program {ProgramId}, version {VersionId}",
+                createdComponent._ID, dto.Name, dto.Type, programId, versionId);
 
             return _mapper.Map<UiComponentDto>(createdComponent);
         }
@@ -247,19 +254,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Validate name uniqueness if changed
             if (!string.IsNullOrEmpty(dto.Name) && dto.Name != existingComponent.Name)
             {
-                if (existingComponent.IsGlobal)
+                var programId = existingComponent.ProgramId.ToString();
+                var versionId = existingComponent.VersionId.ToString();
+
+                if (!await ValidateNameUniqueForVersionAsync(programId, versionId, dto.Name, id, cancellationToken))
                 {
-                    if (!await _unitOfWork.UiComponents.IsNameUniqueForGlobalAsync(dto.Name, objectId, cancellationToken))
-                    {
-                        throw new InvalidOperationException($"Global component with name '{dto.Name}' already exists.");
-                    }
-                }
-                else if (existingComponent.ProgramId.HasValue)
-                {
-                    if (!await _unitOfWork.UiComponents.IsNameUniqueForProgramAsync(dto.Name, existingComponent.ProgramId.Value, objectId, cancellationToken))
-                    {
-                        throw new InvalidOperationException($"Component with name '{dto.Name}' already exists in this program.");
-                    }
+                    throw new InvalidOperationException($"Component with name '{dto.Name}' already exists in this version.");
                 }
             }
 
@@ -294,6 +294,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException("Cannot delete component that is actively being used. Remove all active usages first.");
             }
 
+            // Delete component assets
+            try
+            {
+                await DeleteComponentAssetsAsync(component, cancellationToken);
+                _logger.LogInformation("Deleted assets for UI component {ComponentId}", id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete some assets for UI component {ComponentId}", id);
+            }
+
             var success = await _unitOfWork.UiComponents.DeleteAsync(objectId, cancellationToken);
 
             if (success)
@@ -306,13 +317,183 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #endregion
 
-        #region Component Filtering and Discovery
+        #region Version-specific Component Operations
 
-        public async Task<PagedResponse<UiComponentListDto>> GetGlobalComponentsAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<UiComponentListDto>> GetByProgramVersionAsync(string programId, string versionId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var components = await _unitOfWork.UiComponents.GetGlobalComponentsAsync(cancellationToken);
+            var programObjectId = ParseObjectId(programId);
+            var versionObjectId = ParseObjectId(versionId);
+
+            // Validate that program and version exist
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
+            if (!await _unitOfWork.Versions.ExistsAsync(versionObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
+            }
+
+            var components = await _unitOfWork.UiComponents.GetByProgramVersionAsync(programObjectId, versionObjectId, cancellationToken);
             return await CreatePagedComponentResponse(components, pagination, cancellationToken);
         }
+
+        public async Task<List<UiComponentListDto>> CopyComponentsToNewVersionAsync(string programId, string fromVersionId, string toVersionId, List<string>? componentNames = null, CancellationToken cancellationToken = default)
+        {
+            var programObjectId = ParseObjectId(programId);
+            var fromVersionObjectId = ParseObjectId(fromVersionId);
+            var toVersionObjectId = ParseObjectId(toVersionId);
+
+            // Validate inputs
+            if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
+            if (!await _unitOfWork.Versions.ExistsAsync(fromVersionObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Source version with ID {fromVersionId} not found.");
+            }
+
+            if (!await _unitOfWork.Versions.ExistsAsync(toVersionObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Target version with ID {toVersionId} not found.");
+            }
+
+            // Get source components
+            var sourceComponents = await _unitOfWork.UiComponents.GetByProgramVersionAsync(programObjectId, fromVersionObjectId, cancellationToken);
+            var componentsToList = sourceComponents.ToList();
+
+            // Filter by component names if specified
+            if (componentNames?.Any() == true)
+            {
+                componentsToList = componentsToList.Where(c => componentNames.Contains(c.Name)).ToList();
+            }
+
+            var copiedComponents = new List<UiComponent>();
+
+            foreach (var sourceComponent in componentsToList)
+            {
+                try
+                {
+                    // Check if component with same name already exists in target version
+                    if (!await ValidateNameUniqueForVersionAsync(programId, toVersionId, sourceComponent.Name, null, cancellationToken))
+                    {
+                        _logger.LogWarning("Component with name {ComponentName} already exists in target version, skipping", sourceComponent.Name);
+                        continue;
+                    }
+
+                    // Create new component in target version
+                    var newComponent = new UiComponent
+                    {
+                        Name = sourceComponent.Name,
+                        Description = sourceComponent.Description,
+                        Type = sourceComponent.Type,
+                        Creator = sourceComponent.Creator,
+                        CreatedAt = DateTime.UtcNow,
+                        ProgramId = programObjectId,
+                        VersionId = toVersionObjectId,
+                        Configuration = sourceComponent.Configuration,
+                        Schema = sourceComponent.Schema,
+                        Status = "draft", // New components start as draft
+                        Tags = new List<string>(sourceComponent.Tags)
+                    };
+
+                    var createdComponent = await _unitOfWork.UiComponents.CreateAsync(newComponent, cancellationToken);
+
+                    // Copy assets
+                    try
+                    {
+                        await CopyComponentAssetsAsync(sourceComponent, createdComponent, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to copy assets for component {ComponentName}", sourceComponent.Name);
+                    }
+
+                    copiedComponents.Add(createdComponent);
+
+                    _logger.LogInformation("Copied component {ComponentName} from version {FromVersion} to {ToVersion}",
+                        sourceComponent.Name, fromVersionId, toVersionId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to copy component {ComponentName} from version {FromVersion} to {ToVersion}",
+                        sourceComponent.Name, fromVersionId, toVersionId);
+                }
+            }
+
+            return await MapComponentListDtosAsync(copiedComponents, cancellationToken);
+        }
+
+        public async Task<bool> CopyComponentToVersionAsync(string componentId, string targetProgramId, string targetVersionId, string? newName = null, CancellationToken cancellationToken = default)
+        {
+            var componentObjectId = ParseObjectId(componentId);
+            var targetProgramObjectId = ParseObjectId(targetProgramId);
+            var targetVersionObjectId = ParseObjectId(targetVersionId);
+
+            var sourceComponent = await _unitOfWork.UiComponents.GetByIdAsync(componentObjectId, cancellationToken);
+            if (sourceComponent == null)
+            {
+                throw new KeyNotFoundException($"Source component with ID {componentId} not found.");
+            }
+
+            if (!await _unitOfWork.Programs.ExistsAsync(targetProgramObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Target program with ID {targetProgramId} not found.");
+            }
+
+            if (!await _unitOfWork.Versions.ExistsAsync(targetVersionObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Target version with ID {targetVersionId} not found.");
+            }
+
+            var componentName = newName ?? sourceComponent.Name;
+
+            // Check name uniqueness in target version
+            if (!await ValidateNameUniqueForVersionAsync(targetProgramId, targetVersionId, componentName, null, cancellationToken))
+            {
+                throw new InvalidOperationException($"Component with name '{componentName}' already exists in target version.");
+            }
+
+            // Create new component
+            var newComponent = new UiComponent
+            {
+                Name = componentName,
+                Description = sourceComponent.Description,
+                Type = sourceComponent.Type,
+                Creator = sourceComponent.Creator,
+                CreatedAt = DateTime.UtcNow,
+                ProgramId = targetProgramObjectId,
+                VersionId = targetVersionObjectId,
+                Configuration = sourceComponent.Configuration,
+                Schema = sourceComponent.Schema,
+                Status = "draft",
+                Tags = new List<string>(sourceComponent.Tags)
+            };
+
+            var createdComponent = await _unitOfWork.UiComponents.CreateAsync(newComponent, cancellationToken);
+
+            // Copy assets
+            try
+            {
+                await CopyComponentAssetsAsync(sourceComponent, createdComponent, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to copy assets when copying component {ComponentId}", componentId);
+            }
+
+            _logger.LogInformation("Copied component {ComponentId} to program {TargetProgramId}, version {TargetVersionId}",
+                componentId, targetProgramId, targetVersionId);
+
+            return true;
+        }
+
+        #endregion
+
+        #region Component Filtering and Discovery
 
         public async Task<PagedResponse<UiComponentListDto>> GetByProgramIdAsync(string programId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
@@ -345,16 +526,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await CreatePagedComponentResponse(components, pagination, cancellationToken);
         }
 
-        public async Task<PagedResponse<UiComponentListDto>> GetAvailableForProgramAsync(string programId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<UiComponentListDto>> GetAvailableForProgramVersionAsync(string programId, string versionId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+            var versionObjectId = ParseObjectId(versionId);
 
             if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
             {
                 throw new KeyNotFoundException($"Program with ID {programId} not found.");
             }
 
-            var components = await _unitOfWork.UiComponents.GetAvailableForProgramAsync(programObjectId, cancellationToken);
+            if (!await _unitOfWork.Versions.ExistsAsync(versionObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
+            }
+
+            var components = await _unitOfWork.UiComponents.GetByProgramVersionAsync(programObjectId, versionObjectId, cancellationToken);
 
             // Filter only active components
             var activeComponents = components.Where(c => c.Status == "active").ToList();
@@ -453,18 +640,23 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             try
             {
-                // Store each asset
+                // Store each asset using version-specific storage structure
+                var programId = component.ProgramId.ToString();
+                var versionId = component.VersionId.ToString();
+
                 foreach (var asset in dto.Assets)
                 {
+                    var componentAssetPath = $"components/{component.Name}/{asset.Path}";
                     var storageKey = await _fileStorageService.StoreFileAsync(
-                        $"components/{id}",
-                        asset.Path,
+                        programId,
+                        versionId,
+                        componentAssetPath,
                         asset.Content,
                         asset.ContentType,
                         cancellationToken);
 
                     _logger.LogDebug("Stored component asset {AssetPath} with storage key {StorageKey}",
-                        asset.Path, storageKey);
+                        componentAssetPath, storageKey);
                 }
 
                 _logger.LogInformation("Uploaded bundle for UI component {ComponentId} with {AssetCount} assets",
@@ -496,25 +688,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<List<UiComponentAssetDto>> GetComponentAssetsAsync(string id, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
+            var component = await _unitOfWork.UiComponents.GetByIdAsync(objectId, cancellationToken);
 
-            if (!await _unitOfWork.UiComponents.ExistsAsync(objectId, cancellationToken))
+            if (component == null)
             {
                 throw new KeyNotFoundException($"UI Component with ID {id} not found.");
             }
 
             try
             {
-                // Get component files from file storage
-                var files = await _fileStorageService.ListProgramFilesAsync($"components/{id}", null, cancellationToken);
+                // Get component files from version-specific storage
+                var programId = component.ProgramId.ToString();
+                var versionId = component.VersionId.ToString();
 
-                return files.Select(file => new UiComponentAssetDto
+                var files = await _fileStorageService.ListVersionFilesAsync(programId, versionId, cancellationToken);
+
+                // Filter files that belong to this component
+                var componentPrefix = $"components/{component.Name}/";
+                var componentFiles = files.Where(f => f.Path.StartsWith(componentPrefix)).ToList();
+
+                return componentFiles.Select(file => new UiComponentAssetDto
                 {
-                    Path = file.FilePath,
+                    Path = file.Path.Substring(componentPrefix.Length), // Remove component prefix
                     ContentType = file.ContentType,
-                    AssetType = DetermineAssetType(file.FilePath),
+                    AssetType = DetermineAssetType(file.Path),
                     Size = file.Size,
-                    LastModified = file.LastModified,
-                    Url = $"/api/components/{id}/assets/{Path.GetFileName(file.FilePath)}"
+                    LastModified = DateTime.UtcNow, // Would need proper tracking
+                    Url = $"/api/components/{id}/assets/{Path.GetFileName(file.Path)}"
                 }).ToList();
             }
             catch (Exception ex)
@@ -638,27 +838,39 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new List<UiComponentUsageDto>();
         }
 
-        public async Task<List<ProgramComponentMappingDto>> GetProgramComponentMappingsAsync(string programId, CancellationToken cancellationToken = default)
+        public async Task<List<ProgramComponentMappingDto>> GetProgramVersionComponentMappingsAsync(string programId, string versionId, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+            var versionObjectId = ParseObjectId(versionId);
 
             if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
             {
                 throw new KeyNotFoundException($"Program with ID {programId} not found.");
             }
 
+            if (!await _unitOfWork.Versions.ExistsAsync(versionObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
+            }
+
             // In a real implementation, this would query actual mappings
             return new List<ProgramComponentMappingDto>();
         }
 
-        public async Task<bool> MapComponentToProgramAsync(string programId, UiComponentMappingDto dto, CancellationToken cancellationToken = default)
+        public async Task<bool> MapComponentToProgramVersionAsync(string programId, string versionId, UiComponentMappingDto dto, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+            var versionObjectId = ParseObjectId(versionId);
             var componentObjectId = ParseObjectId(dto.ComponentId);
 
             if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
             {
                 throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
+            if (!await _unitOfWork.Versions.ExistsAsync(versionObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
             }
 
             if (!await _unitOfWork.UiComponents.ExistsAsync(componentObjectId, cancellationToken))
@@ -667,20 +879,26 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // In a real implementation, this would create the mapping
-            _logger.LogInformation("Mapped UI component {ComponentId} to program {ProgramId} with name {MappingName}",
-                dto.ComponentId, programId, dto.MappingName);
+            _logger.LogInformation("Mapped UI component {ComponentId} to program {ProgramId}, version {VersionId} with name {MappingName}",
+                dto.ComponentId, programId, versionId, dto.MappingName);
 
             return true;
         }
 
-        public async Task<bool> UnmapComponentFromProgramAsync(string programId, string componentId, CancellationToken cancellationToken = default)
+        public async Task<bool> UnmapComponentFromProgramVersionAsync(string programId, string versionId, string componentId, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
+            var versionObjectId = ParseObjectId(versionId);
             var componentObjectId = ParseObjectId(componentId);
 
             if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
             {
                 throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
+            if (!await _unitOfWork.Versions.ExistsAsync(versionObjectId, cancellationToken))
+            {
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
             }
 
             if (!await _unitOfWork.UiComponents.ExistsAsync(componentObjectId, cancellationToken))
@@ -689,7 +907,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // In a real implementation, this would remove the mapping
-            _logger.LogInformation("Unmapped UI component {ComponentId} from program {ProgramId}", componentId, programId);
+            _logger.LogInformation("Unmapped UI component {ComponentId} from program {ProgramId}, version {VersionId}", componentId, programId, versionId);
 
             return true;
         }
@@ -698,23 +916,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Component Discovery and Recommendations
 
-        public async Task<List<UiComponentRecommendationDto>> GetRecommendedComponentsAsync(string programId, CancellationToken cancellationToken = default)
+        public async Task<List<UiComponentRecommendationDto>> GetRecommendedComponentsAsync(string programId, string versionId, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
-            var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
+            var versionObjectId = ParseObjectId(versionId);
 
+            var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
             if (program == null)
             {
                 throw new KeyNotFoundException($"Program with ID {programId} not found.");
             }
 
-            // Get available components for this program
-            var availableComponents = await _unitOfWork.UiComponents.GetAvailableForProgramAsync(programObjectId, cancellationToken);
+            var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
+            if (version == null)
+            {
+                throw new KeyNotFoundException($"Version with ID {versionId} not found.");
+            }
+
+            // Get components from other versions of the same program
+            var otherVersionComponents = await _unitOfWork.UiComponents.GetByProgramIdAsync(programObjectId, cancellationToken);
+
+            // Filter out components from the current version
+            var availableComponents = otherVersionComponents.Where(c => c.VersionId != versionObjectId && c.Status == "active").ToList();
 
             // Generate recommendations based on program type and language
             var recommendations = new List<UiComponentRecommendationDto>();
 
-            foreach (var component in availableComponents.Where(c => c.Status == "active"))
+            foreach (var component in availableComponents)
             {
                 var compatibilityScore = CalculateCompatibilityScore(component, program);
                 if (compatibilityScore > 0.5)
@@ -724,6 +952,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         ComponentId = component._ID.ToString(),
                         ComponentName = component.Name,
                         ComponentType = component.Type,
+                        ProgramId = component.ProgramId.ToString(),
+                        VersionId = component.VersionId.ToString(),
                         RecommendationReason = GenerateRecommendationReason(component, program),
                         CompatibilityScore = compatibilityScore,
                         UsageCount = 0, // Would need usage tracking
@@ -755,14 +985,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Component Validation
 
-        public async Task<bool> ValidateNameUniqueForProgramAsync(string name, string? programId, string? excludeId = null, CancellationToken cancellationToken = default)
+        public async Task<bool> ValidateNameUniqueForVersionAsync(string programId, string versionId, string name, string? excludeId = null, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(programId))
-            {
-                return await ValidateNameUniqueForGlobalAsync(name, excludeId, cancellationToken);
-            }
-
             var programObjectId = ParseObjectId(programId);
+            var versionObjectId = ParseObjectId(versionId);
             MongoDB.Bson.ObjectId? excludeObjectId = null;
 
             if (!string.IsNullOrEmpty(excludeId))
@@ -770,22 +996,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 excludeObjectId = ParseObjectId(excludeId);
             }
 
-            return await _unitOfWork.UiComponents.IsNameUniqueForProgramAsync(name, programObjectId, excludeObjectId, cancellationToken);
+            return await _unitOfWork.UiComponents.IsNameUniqueForVersionAsync(programObjectId, versionObjectId, name, excludeObjectId, cancellationToken);
         }
 
-        public async Task<bool> ValidateNameUniqueForGlobalAsync(string name, string? excludeId = null, CancellationToken cancellationToken = default)
-        {
-            MongoDB.Bson.ObjectId? excludeObjectId = null;
-
-            if (!string.IsNullOrEmpty(excludeId))
-            {
-                excludeObjectId = ParseObjectId(excludeId);
-            }
-
-            return await _unitOfWork.UiComponents.IsNameUniqueForGlobalAsync(name, excludeObjectId, cancellationToken);
-        }
-
-        public async Task<UiComponentValidationResult> ValidateComponentDefinitionAsync(UiComponentCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<UiComponentValidationResult> ValidateComponentDefinitionAsync(string programId, string versionId, UiComponentCreateDto dto, CancellationToken cancellationToken = default)
         {
             var result = new UiComponentValidationResult { IsValid = true };
 
@@ -810,31 +1024,37 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 result.IsValid = false;
             }
 
-            // Validate program dependency
-            if (!dto.IsGlobal && string.IsNullOrEmpty(dto.ProgramId))
+            // Validate program and version exist
+            try
             {
-                result.Errors.Add("ProgramId is required for non-global components");
+                var programObjectId = ParseObjectId(programId);
+                var versionObjectId = ParseObjectId(versionId);
+
+                if (!await _unitOfWork.Programs.ExistsAsync(programObjectId, cancellationToken))
+                {
+                    result.Errors.Add($"Program with ID {programId} not found");
+                    result.IsValid = false;
+                }
+
+                if (!await _unitOfWork.Versions.ExistsAsync(versionObjectId, cancellationToken))
+                {
+                    result.Errors.Add($"Version with ID {versionId} not found");
+                    result.IsValid = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Invalid program or version ID: {ex.Message}");
                 result.IsValid = false;
             }
 
             // Name uniqueness validation
             try
             {
-                if (dto.IsGlobal)
+                if (!await ValidateNameUniqueForVersionAsync(programId, versionId, dto.Name, null, cancellationToken))
                 {
-                    if (!await ValidateNameUniqueForGlobalAsync(dto.Name, null, cancellationToken))
-                    {
-                        result.Errors.Add($"Global component with name '{dto.Name}' already exists");
-                        result.IsValid = false;
-                    }
-                }
-                else if (!string.IsNullOrEmpty(dto.ProgramId))
-                {
-                    if (!await ValidateNameUniqueForProgramAsync(dto.Name, dto.ProgramId, null, cancellationToken))
-                    {
-                        result.Errors.Add($"Component with name '{dto.Name}' already exists in this program");
-                        result.IsValid = false;
-                    }
+                    result.Errors.Add($"Component with name '{dto.Name}' already exists in this version");
+                    result.IsValid = false;
                 }
             }
             catch (Exception ex)
@@ -936,6 +1156,77 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Private Helper Methods
 
+        /// <summary>
+        /// Deletes all assets for a component using the version-specific storage structure
+        /// </summary>
+        private async Task DeleteComponentAssetsAsync(UiComponent component, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var programId = component.ProgramId.ToString();
+                var versionId = component.VersionId.ToString();
+
+                // Get all files for this version
+                var files = await _fileStorageService.ListVersionFilesAsync(programId, versionId, cancellationToken);
+
+                // Filter files that belong to this component
+                var componentPrefix = $"components/{component.Name}/";
+                var componentFiles = files.Where(f => f.Path.StartsWith(componentPrefix)).ToList();
+
+                // Delete each component file
+                foreach (var file in componentFiles)
+                {
+                    await _fileStorageService.DeleteFileAsync(programId, versionId, file.Path, cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete assets for component {ComponentId}", component._ID);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Copies assets from source component to target component
+        /// </summary>
+        private async Task CopyComponentAssetsAsync(UiComponent sourceComponent, UiComponent targetComponent, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var sourceProgramId = sourceComponent.ProgramId.ToString();
+                var sourceVersionId = sourceComponent.VersionId.ToString();
+                var targetProgramId = targetComponent.ProgramId.ToString();
+                var targetVersionId = targetComponent.VersionId.ToString();
+
+                // Get source component files
+                var sourceFiles = await _fileStorageService.ListVersionFilesAsync(sourceProgramId, sourceVersionId, cancellationToken);
+
+                var sourceComponentPrefix = $"components/{sourceComponent.Name}/";
+                var sourceComponentFiles = sourceFiles.Where(f => f.Path.StartsWith(sourceComponentPrefix)).ToList();
+
+                // Copy each file
+                foreach (var sourceFile in sourceComponentFiles)
+                {
+                    var content = await _fileStorageService.GetFileContentAsync(sourceProgramId, sourceVersionId, sourceFile.Path, cancellationToken);
+
+                    // Create target path with new component name
+                    var relativePath = sourceFile.Path.Substring(sourceComponentPrefix.Length);
+                    var targetPath = $"components/{targetComponent.Name}/{relativePath}";
+
+                    await _fileStorageService.StoreFileAsync(targetProgramId, targetVersionId, targetPath, content, sourceFile.ContentType, cancellationToken);
+                }
+
+                _logger.LogInformation("Copied {FileCount} assets from component {SourceComponent} to {TargetComponent}",
+                    sourceComponentFiles.Count, sourceComponent._ID, targetComponent._ID);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to copy assets from component {SourceComponent} to {TargetComponent}",
+                    sourceComponent._ID, targetComponent._ID);
+                throw;
+            }
+        }
+
         private async Task<List<UiComponentListDto>> MapComponentListDtosAsync(List<UiComponent> components, CancellationToken cancellationToken)
         {
             var dtos = new List<UiComponentListDto>();
@@ -959,21 +1250,32 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     dto.CreatorName = "Unknown";
                 }
 
-                // Get program name if not global
-                if (!component.IsGlobal && component.ProgramId.HasValue)
+                // Get program name
+                try
                 {
-                    try
+                    var program = await _unitOfWork.Programs.GetByIdAsync(component.ProgramId, cancellationToken);
+                    if (program != null)
                     {
-                        var program = await _unitOfWork.Programs.GetByIdAsync(component.ProgramId.Value, cancellationToken);
-                        if (program != null)
-                        {
-                            dto.ProgramName = program.Name;
-                        }
+                        dto.ProgramName = program.Name;
                     }
-                    catch (Exception ex)
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get program details for component {ComponentId}", component._ID);
+                }
+
+                // Get version number
+                try
+                {
+                    var version = await _unitOfWork.Versions.GetByIdAsync(component.VersionId, cancellationToken);
+                    if (version != null)
                     {
-                        _logger.LogWarning(ex, "Failed to get program details for component {ComponentId}", component._ID);
+                        dto.VersionNumber = version.VersionNumber;
                     }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get version details for component {ComponentId}", component._ID);
                 }
 
                 // Set usage count (would need proper tracking)
@@ -1069,12 +1371,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 return "Compatible with web applications";
             }
 
-            if (component.IsGlobal)
-            {
-                return "Globally available component";
-            }
-
-            return "General purpose component";
+            return "Reusable component from other versions";
         }
 
         private bool IsComponentCompatible(UiComponent component, UiComponentCompatibilitySearchDto dto)
@@ -1089,7 +1386,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (!string.IsNullOrEmpty(dto.ProgramType))
             {
                 // Simple compatibility check - in real implementation would be more sophisticated
-                if (dto.ProgramType == "web" && !component.Type.Contains("web") && !component.IsGlobal)
+                if (dto.ProgramType == "web" && !component.Type.Contains("web"))
                 {
                     return false;
                 }

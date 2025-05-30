@@ -8,8 +8,11 @@
         public string Type { get; set; } = string.Empty;
         public string Creator { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
-        public bool IsGlobal { get; set; }
-        public string? ProgramId { get; set; }
+
+        // Version-specific properties
+        public string ProgramId { get; set; } = string.Empty;
+        public string VersionId { get; set; } = string.Empty;
+
         public object Configuration { get; set; } = new object();
         public object Schema { get; set; } = new object();
         public string Status { get; set; } = string.Empty;
@@ -25,9 +28,13 @@
         public string Creator { get; set; } = string.Empty;
         public string CreatorName { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
-        public bool IsGlobal { get; set; }
-        public string? ProgramId { get; set; }
-        public string? ProgramName { get; set; }
+
+        // Version-specific properties
+        public string ProgramId { get; set; } = string.Empty;
+        public string ProgramName { get; set; } = string.Empty;
+        public string VersionId { get; set; } = string.Empty;
+        public int? VersionNumber { get; set; } // For display purposes
+
         public string Status { get; set; } = string.Empty;
         public int UsageCount { get; set; }
         public List<string> Tags { get; set; } = new();
@@ -36,7 +43,8 @@
     public class UiComponentDetailDto : UiComponentDto
     {
         public string CreatorName { get; set; } = string.Empty;
-        public string? ProgramName { get; set; }
+        public string ProgramName { get; set; } = string.Empty;
+        public int? VersionNumber { get; set; } // For display purposes
         public List<UiComponentAssetDto> Assets { get; set; } = new();
         public UiComponentBundleInfoDto? BundleInfo { get; set; }
         public UiComponentStatsDto Stats { get; set; } = new();
@@ -94,6 +102,8 @@
     {
         public string ProgramId { get; set; } = string.Empty;
         public string ProgramName { get; set; } = string.Empty;
+        public string VersionId { get; set; } = string.Empty;
+        public int? VersionNumber { get; set; }
         public string MappingName { get; set; } = string.Empty;
         public DateTime UsedSince { get; set; }
         public bool IsActive { get; set; }
@@ -104,6 +114,7 @@
     {
         public string Id { get; set; } = string.Empty;
         public string ProgramId { get; set; } = string.Empty;
+        public string VersionId { get; set; } = string.Empty;
         public string ComponentId { get; set; } = string.Empty;
         public string ComponentName { get; set; } = string.Empty;
         public string MappingName { get; set; } = string.Empty;
@@ -118,6 +129,8 @@
         public string ComponentId { get; set; } = string.Empty;
         public string ComponentName { get; set; } = string.Empty;
         public string ComponentType { get; set; } = string.Empty;
+        public string ProgramId { get; set; } = string.Empty;
+        public string VersionId { get; set; } = string.Empty;
         public string RecommendationReason { get; set; } = string.Empty;
         public double CompatibilityScore { get; set; }
         public int UsageCount { get; set; }
@@ -155,5 +168,27 @@
         public string Description { get; set; } = string.Empty;
         public int ComponentCount { get; set; }
         public List<string> SubCategories { get; set; } = new();
+    }
+
+    public class UiComponentCopyResultDto
+    {
+        public string ComponentId { get; set; } = string.Empty;
+        public string ComponentName { get; set; } = string.Empty;
+        public bool Success { get; set; }
+        public string? ErrorMessage { get; set; }
+        public bool AssetsCopied { get; set; }
+        public int AssetCount { get; set; }
+    }
+
+    public class UiComponentBulkCopyResultDto
+    {
+        public string FromProgramId { get; set; } = string.Empty;
+        public string FromVersionId { get; set; } = string.Empty;
+        public string ToProgramId { get; set; } = string.Empty;
+        public string ToVersionId { get; set; } = string.Empty;
+        public int TotalComponents { get; set; }
+        public int SuccessfulCopies { get; set; }
+        public int FailedCopies { get; set; }
+        public List<UiComponentCopyResultDto> Results { get; set; } = new();
     }
 }

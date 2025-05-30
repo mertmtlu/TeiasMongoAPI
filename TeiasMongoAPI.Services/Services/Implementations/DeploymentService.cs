@@ -14,6 +14,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
     public class DeploymentService : BaseService, IDeploymentService
     {
         private readonly IFileStorageService _fileStorageService;
+        private readonly IVersionService _versionService;
         private readonly DeploymentSettings _settings;
         private readonly Dictionary<AppDeploymentType, IDeploymentStrategy> _strategies;
 
@@ -22,10 +23,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IMapper mapper,
             ILogger<DeploymentService> logger,
             IFileStorageService fileStorageService,
+            IVersionService versionService,
             IOptions<DeploymentSettings> settings,
-            IEnumerable<IDeploymentStrategy> strategies) : base(unitOfWork, mapper, logger) 
+            IEnumerable<IDeploymentStrategy> strategies) : base(unitOfWork, mapper, logger)
         {
             _fileStorageService = fileStorageService;
+            _versionService = versionService;
             _settings = settings.Value;
             _strategies = strategies.ToDictionary(s => s.SupportedType, s => s);
         }
@@ -42,8 +45,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new NotSupportedException("Pre-built web app deployment is not supported");
             }
 
-            // Get program files
-            var files = await GetProgramFilesForDeployment(programId, cancellationToken);
+            // Get version to deploy and its files
+            var versionId = await GetDeploymentVersionIdAsync(program, cancellationToken);
+            var files = await GetVersionFilesForDeploymentAsync(programId, versionId, cancellationToken);
 
             // Deploy using strategy
             var result = await strategy.DeployAsync(programId, request, files, cancellationToken);
@@ -54,7 +58,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Update program deployment info
-            await UpdateProgramDeploymentInfo(program, AppDeploymentType.PreBuiltWebApp, request, result, cancellationToken);
+            await UpdateProgramDeploymentInfoAsync(program, AppDeploymentType.PreBuiltWebApp, request, result, versionId, cancellationToken);
 
             return new ProgramDeploymentDto
             {
@@ -81,8 +85,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new NotSupportedException("Static site deployment is not supported");
             }
 
-            // Get program files
-            var files = await GetProgramFilesForDeployment(programId, cancellationToken);
+            // Get version to deploy and its files
+            var versionId = await GetDeploymentVersionIdAsync(program, cancellationToken);
+            var files = await GetVersionFilesForDeploymentAsync(programId, versionId, cancellationToken);
 
             // Deploy using strategy
             var result = await strategy.DeployAsync(programId, request, files, cancellationToken);
@@ -93,7 +98,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Update program deployment info
-            await UpdateProgramDeploymentInfo(program, AppDeploymentType.StaticSite, request, result, cancellationToken);
+            await UpdateProgramDeploymentInfoAsync(program, AppDeploymentType.StaticSite, request, result, versionId, cancellationToken);
 
             return new ProgramDeploymentDto
             {
@@ -120,8 +125,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new NotSupportedException("Container app deployment is not supported");
             }
 
-            // Get program files
-            var files = await GetProgramFilesForDeployment(programId, cancellationToken);
+            // Get version to deploy and its files
+            var versionId = await GetDeploymentVersionIdAsync(program, cancellationToken);
+            var files = await GetVersionFilesForDeploymentAsync(programId, versionId, cancellationToken);
 
             // Deploy using strategy
             var result = await strategy.DeployAsync(programId, request, files, cancellationToken);
@@ -132,7 +138,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Update program deployment info
-            await UpdateProgramDeploymentInfo(program, AppDeploymentType.DockerContainer, request, result, cancellationToken);
+            await UpdateProgramDeploymentInfoAsync(program, AppDeploymentType.DockerContainer, request, result, versionId, cancellationToken);
 
             return new ProgramDeploymentDto
             {
@@ -440,12 +446,23 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 return result;
             }
 
-            // Check if program has files
-            var files = await _fileStorageService.ListProgramFilesAsync(programId, null, cancellationToken);
-            if (!files.Any())
+            // Check if program has deployable version with files
+            try
+            {
+                var versionId = await GetDeploymentVersionIdAsync(program, cancellationToken);
+                var files = await _fileStorageService.ListVersionFilesAsync(programId, versionId, cancellationToken);
+
+                if (!files.Any())
+                {
+                    result.IsValid = false;
+                    result.Errors.Add("Program has no files in the deployable version");
+                    return result;
+                }
+            }
+            catch (Exception ex)
             {
                 result.IsValid = false;
-                result.Errors.Add("Program has no files to deploy");
+                result.Errors.Add($"Failed to access program files: {ex.Message}");
                 return result;
             }
 
@@ -472,24 +489,49 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var options = new List<SupportedDeploymentOptionDto>();
 
             // Get program files to determine what deployment types are suitable
-            var files = await _fileStorageService.ListProgramFilesAsync(programId, null, cancellationToken);
-            var fileExtensions = files.Select(f => Path.GetExtension(f.FilePath).ToLowerInvariant()).Distinct().ToList();
-
-            // Check each supported deployment type
-            foreach (var strategy in _strategies.Values)
+            try
             {
-                var option = new SupportedDeploymentOptionDto
-                {
-                    DeploymentType = strategy.SupportedType,
-                    Name = GetDeploymentTypeName(strategy.SupportedType),
-                    Description = GetDeploymentTypeDescription(strategy.SupportedType),
-                    IsRecommended = IsRecommendedForProgram(strategy.SupportedType, program, fileExtensions),
-                    RequiredFeatures = GetRequiredFeatures(strategy.SupportedType),
-                    SupportedFeatures = GetSupportedFeatures(strategy.SupportedType),
-                    DefaultConfiguration = GetDefaultConfiguration(strategy.SupportedType)
-                };
+                var versionId = await GetDeploymentVersionIdAsync(program, cancellationToken);
+                var files = await _fileStorageService.ListVersionFilesAsync(programId, versionId, cancellationToken);
+                var fileExtensions = files.Select(f => Path.GetExtension(f.Path).ToLowerInvariant()).Distinct().ToList();
 
-                options.Add(option);
+                // Check each supported deployment type
+                foreach (var strategy in _strategies.Values)
+                {
+                    var option = new SupportedDeploymentOptionDto
+                    {
+                        DeploymentType = strategy.SupportedType,
+                        Name = GetDeploymentTypeName(strategy.SupportedType),
+                        Description = GetDeploymentTypeDescription(strategy.SupportedType),
+                        IsRecommended = IsRecommendedForProgram(strategy.SupportedType, program, fileExtensions),
+                        RequiredFeatures = GetRequiredFeatures(strategy.SupportedType),
+                        SupportedFeatures = GetSupportedFeatures(strategy.SupportedType),
+                        DefaultConfiguration = GetDefaultConfiguration(strategy.SupportedType)
+                    };
+
+                    options.Add(option);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to analyze program files for deployment options for program {ProgramId}", programId);
+
+                // Return basic options without file-based recommendations
+                foreach (var strategy in _strategies.Values)
+                {
+                    var option = new SupportedDeploymentOptionDto
+                    {
+                        DeploymentType = strategy.SupportedType,
+                        Name = GetDeploymentTypeName(strategy.SupportedType),
+                        Description = GetDeploymentTypeDescription(strategy.SupportedType),
+                        IsRecommended = false,
+                        RequiredFeatures = GetRequiredFeatures(strategy.SupportedType),
+                        SupportedFeatures = GetSupportedFeatures(strategy.SupportedType),
+                        DefaultConfiguration = GetDefaultConfiguration(strategy.SupportedType)
+                    };
+
+                    options.Add(option);
+                }
             }
 
             return options.OrderByDescending(o => o.IsRecommended).ToList();
@@ -510,34 +552,102 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return program;
         }
 
-        private async Task<List<ProgramFileUploadDto>> GetProgramFilesForDeployment(string programId, CancellationToken cancellationToken)
+        /// <summary>
+        /// Gets the version ID that should be used for deployment.
+        /// Priority: 1) Current version if set and approved, 2) Latest approved version
+        /// </summary>
+        private async Task<string> GetDeploymentVersionIdAsync(Program program, CancellationToken cancellationToken)
         {
-            var files = await _fileStorageService.ListProgramFilesAsync(programId, null, cancellationToken);
-            var uploadFiles = new List<ProgramFileUploadDto>();
-
-            foreach (var file in files)
+            // First try to use current version if it exists and is approved
+            if (!string.IsNullOrEmpty(program.CurrentVersion))
             {
                 try
                 {
-                    var content = await _fileStorageService.GetFileContentAsync(file.StorageKey, cancellationToken);
-                    uploadFiles.Add(new ProgramFileUploadDto
+                    var currentVersion = await _unitOfWork.Versions.GetByIdAsync(
+                        MongoDB.Bson.ObjectId.Parse(program.CurrentVersion), cancellationToken);
+
+                    if (currentVersion != null && currentVersion.Status == "approved")
                     {
-                        Path = file.FilePath,
-                        Content = content,
-                        ContentType = file.ContentType,
-                        Description = $"Deployment file for {file.FilePath}"
-                    });
+                        return program.CurrentVersion;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to get file {FilePath} for deployment", file.FilePath);
+                    _logger.LogWarning(ex, "Failed to verify current version {VersionId} for program {ProgramId}",
+                        program.CurrentVersion, program._ID);
                 }
+            }
+
+            // Fall back to latest approved version
+            try
+            {
+                var latestVersion = await _versionService.GetLatestVersionForProgramAsync(program._ID.ToString(), cancellationToken);
+                if (latestVersion != null)
+                {
+                    // Verify it's approved
+                    var version = await _unitOfWork.Versions.GetByIdAsync(
+                        MongoDB.Bson.ObjectId.Parse(latestVersion.Id), cancellationToken);
+
+                    if (version?.Status == "approved")
+                    {
+                        return latestVersion.Id;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get latest approved version for program {ProgramId}", program._ID);
+            }
+
+            throw new InvalidOperationException($"No approved version found for program {program._ID}. Cannot deploy.");
+        }
+
+        /// <summary>
+        /// Gets files for a specific version and converts them to deployment format
+        /// </summary>
+        private async Task<List<ProgramFileUploadDto>> GetVersionFilesForDeploymentAsync(string programId, string versionId, CancellationToken cancellationToken)
+        {
+            var uploadFiles = new List<ProgramFileUploadDto>();
+
+            try
+            {
+                var files = await _fileStorageService.ListVersionFilesAsync(programId, versionId, cancellationToken);
+
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        var content = await _fileStorageService.GetFileContentAsync(programId, versionId, file.Path, cancellationToken);
+                        uploadFiles.Add(new ProgramFileUploadDto
+                        {
+                            Path = file.Path,
+                            Content = content,
+                            ContentType = file.ContentType,
+                            Description = $"Deployment file from version {versionId}"
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to get file {FilePath} for deployment from program {ProgramId}, version {VersionId}",
+                            file.Path, programId, versionId);
+                    }
+                }
+
+                _logger.LogInformation("Retrieved {FileCount} files for deployment from program {ProgramId}, version {VersionId}",
+                    uploadFiles.Count, programId, versionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get files for deployment from program {ProgramId}, version {VersionId}",
+                    programId, versionId);
+                throw;
             }
 
             return uploadFiles;
         }
 
-        private async Task UpdateProgramDeploymentInfo(Program program, AppDeploymentType deploymentType, AppDeploymentRequestDto request, DeploymentResult result, CancellationToken cancellationToken)
+        private async Task UpdateProgramDeploymentInfoAsync(Program program, AppDeploymentType deploymentType,
+            AppDeploymentRequestDto request, DeploymentResult result, string versionId, CancellationToken cancellationToken)
         {
             program.DeploymentInfo = new AppDeploymentInfo
             {
@@ -548,7 +658,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 SupportedFeatures = request.SupportedFeatures
             };
 
+            // Store which version was deployed in metadata
+            program.DeploymentInfo.Configuration["deployedVersionId"] = versionId;
+
             await _unitOfWork.Programs.UpdateAsync(program._ID, program, cancellationToken);
+
+            _logger.LogInformation("Updated deployment info for program {ProgramId} with version {VersionId}",
+                program._ID, versionId);
         }
 
         private string GetApplicationUrl(string programId, AppDeploymentType deploymentType)
@@ -593,6 +709,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 AppDeploymentType.PreBuiltWebApp when program.Language is "angular" or "react" or "vue" => true,
                 AppDeploymentType.StaticSite when fileExtensions.Contains(".html") => true,
                 AppDeploymentType.DockerContainer when fileExtensions.Contains(".dockerfile") ||
+                                                          fileExtensions.Contains("dockerfile") ||
                                                           program.Language is "docker" => true,
                 _ => false
             };
