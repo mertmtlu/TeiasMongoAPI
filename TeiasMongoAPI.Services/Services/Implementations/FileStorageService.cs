@@ -307,7 +307,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 var files = new List<FileMetadata>();
                 var searchPath = versionId != null
-                    ? Path.Combine(_settings.BasePath, "programs", programId, "source", versionId, "files")
+                    ? Path.Combine(_settings.BasePath, "programs", programId, "files")
                     : Path.Combine(_settings.BasePath, "programs", programId);
 
                 if (!Directory.Exists(searchPath))

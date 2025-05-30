@@ -4,6 +4,7 @@ using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
 using TeiasMongoAPI.API.Configuration;
+using TeiasMongoAPI.API.Filters;
 using TeiasMongoAPI.API.Middleware;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Configuration;
@@ -35,17 +36,19 @@ namespace TeiasMongoAPI.API
             // Configure API Explorer
             builder.Services.AddEndpointsApiExplorer();
 
+            builder.Services.AddSignalR();
+
             // Configure Swagger/OpenAPI
             builder.Services.AddSwaggerGen(c =>
             {
                 c.SwaggerDoc("v1", new OpenApiInfo
                 {
-                    Title = "API",
+                    Title = "Teias Mongo API",
                     Version = "v2",
-                    Description = "API for managing infrastructure data",
+                    Description = "API for managing infrastructure data and collaborative programming",
                     Contact = new OpenApiContact
                     {
-                        Name = "Me",
+                        Name = "Development Team",
                         Email = "mertmtl0109@gmail.com"
                     }
                 });
@@ -75,13 +78,36 @@ namespace TeiasMongoAPI.API
                     }
                 });
 
-                // Add XML comments if available
-                var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
-                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-                if (File.Exists(xmlPath))
+                // Enhanced enum documentation
+                c.SchemaFilter<EnumSchemaFilter>();
+
+                //// Add examples for better documentation
+                //c.ExampleFilters();
+
+                // Include XML comments for better documentation
+                var xmlFiles = new[]
                 {
-                    c.IncludeXmlComments(xmlPath);
+                    "TeiasMongoAPI.API.xml",
+                    "TeiasMongoAPI.Services.xml",
+                    "TeiasMongoAPI.Core.xml"
+                };
+
+                foreach (var xmlFile in xmlFiles)
+                {
+                    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                    if (File.Exists(xmlPath))
+                    {
+                        c.IncludeXmlComments(xmlPath);
+                    }
                 }
+
+                // Generate detailed schemas
+                //c.UseAllOfToExtendReferenceSchemas();
+                //c.UseAllOfForInheritance();
+                //c.UseOneOfForPolymorphism();
+
+                // Custom schema IDs
+                //c.CustomSchemaIds(type => type.FullName?.Replace("+", "."));
             });
 
             // Configure MongoDB

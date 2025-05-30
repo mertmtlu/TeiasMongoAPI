@@ -2,9 +2,11 @@
 using AutoMapper;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System;
 using System.Diagnostics;
 using System.Text.Json;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
+using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.Interfaces;
@@ -206,7 +208,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
         private async Task<string> ExtractProjectFilesAsync(ProjectExecutionRequest request, ExecutionSession session, CancellationToken cancellationToken)
         {
-            var projectDir = Path.Combine(_settings.WorkingDirectory, "executions", session.ExecutionId);
+            var projectDir = Path.Combine(_settings.WorkingDirectory, session.ExecutionId);
             Directory.CreateDirectory(projectDir);
 
             await ExtractFilesToDirectoryAsync(request.ProgramId, request.VersionId, projectDir, cancellationToken);

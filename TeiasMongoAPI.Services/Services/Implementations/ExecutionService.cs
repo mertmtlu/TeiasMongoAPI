@@ -369,7 +369,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Check execution limits
-            await ValidateExecutionLimitsAsync(programId, "system", cancellationToken);
+            //await ValidateExecutionLimitsAsync(programId, "system", cancellationToken);
 
             // Create execution record
             var execution = new ExecutionModel
@@ -380,7 +380,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 ExecutionType = "project_execution", // NEW: Updated execution type
                 StartedAt = DateTime.UtcNow,
                 Status = "running",
-                Parameters = dto.Parameters,
+                Parameters = ConvertJsonElementToBson(dto.Parameters),
                 Results = new ExecutionResults(),
                 ResourceUsage = new ResourceUsage()
             };
@@ -395,6 +395,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _ = Task.Run(async () => await ExecuteProjectInBackgroundAsync(createdExecution, dto, cancellationToken));
 
             return _mapper.Map<ExecutionDto>(createdExecution);
+        }
+
+        private object ConvertJsonElementToBson(object parameters)
+        {
+            if (parameters == null) return null;
+
+            // Serialize to JSON string then deserialize to Dictionary
+            var json = System.Text.Json.JsonSerializer.Serialize(parameters);
+            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(json);
         }
 
         private async Task ExecuteProjectInBackgroundAsync(ExecutionModel execution, ProgramExecutionRequestDto dto, CancellationToken cancellationToken)

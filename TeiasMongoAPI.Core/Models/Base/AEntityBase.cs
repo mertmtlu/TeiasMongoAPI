@@ -5,13 +5,13 @@ using TeiasMongoAPI.Core.Models.KeyModels;
 namespace TeiasMongoAPI.Core.Models.Base
 {
     [BsonDiscriminator(RootClass = true)]
-    [BsonKnownTypes(
-        typeof(Client),
-        typeof(Region),
-        typeof(TM),
-        typeof(Building),
-        typeof(User),
-        typeof(AlternativeTM))]
+    //[BsonKnownTypes(
+    //    typeof(Client),
+    //    typeof(Region),
+    //    typeof(TM),
+    //    typeof(Building),
+    //    typeof(User),
+    //    typeof(AlternativeTM))]
     public abstract class AEntityBase
     {
         [BsonId]
