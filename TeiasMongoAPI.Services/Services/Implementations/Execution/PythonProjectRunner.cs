@@ -153,6 +153,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             }
         }
 
+        // Simplified ExecuteAsync method in PythonProjectRunner.cs (if using base class methods):
+
         public override async Task<ProjectExecutionResult> ExecuteAsync(ProjectExecutionContext context, CancellationToken cancellationToken = default)
         {
             var result = new ProjectExecutionResult
@@ -164,6 +166,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             try
             {
                 _logger.LogInformation("Executing Python project in {ProjectDirectory}", context.ProjectDirectory);
+
+                // Process input files from parameters (using base class method)
+                await ProcessInputFilesFromParametersAsync(context, cancellationToken);
 
                 var entryPoint = context.ProjectStructure.MainEntryPoint ?? "main.py";
                 if (!File.Exists(Path.Combine(context.ProjectDirectory, entryPoint)))
@@ -180,10 +185,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
                 var arguments = entryPoint;
 
-                // Add parameters if any
+                // Add parameters (using base class method)
                 if (context.Parameters != null && context.Parameters.ToString() != "{}")
                 {
-                    var paramJson = JsonSerializer.Serialize(context.Parameters);
+                    var processedParams = ProcessParametersForExecution(context.Parameters, context.ProjectDirectory);
+                    var paramJson = JsonSerializer.Serialize(processedParams);
                     arguments += $" '{paramJson}'";
                 }
 

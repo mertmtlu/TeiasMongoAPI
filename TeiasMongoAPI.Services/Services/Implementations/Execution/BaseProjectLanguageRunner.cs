@@ -171,6 +171,99 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             return string.Empty;
         }
 
+        protected async Task ProcessInputFilesFromParametersAsync(ProjectExecutionContext context, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var parametersJson = System.Text.Json.JsonSerializer.Serialize(context.Parameters);
+                var parametersDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(parametersJson);
+
+                if (parametersDict?.ContainsKey("inputFiles") == true)
+                {
+                    var inputFilesJson = System.Text.Json.JsonSerializer.Serialize(parametersDict["inputFiles"]);
+                    var inputFiles = System.Text.Json.JsonSerializer.Deserialize<List<InputFileData>>(inputFilesJson);
+
+                    if (inputFiles != null && inputFiles.Any())
+                    {
+                        // Create input directory in project
+                        var inputDir = Path.Combine(context.ProjectDirectory, "input");
+                        Directory.CreateDirectory(inputDir);
+
+                        foreach (var inputFile in inputFiles)
+                        {
+                            if (!string.IsNullOrEmpty(inputFile.Content))
+                            {
+                                var filePath = Path.Combine(inputDir, inputFile.Name);
+                                var content = Convert.FromBase64String(inputFile.Content);
+                                await File.WriteAllBytesAsync(filePath, content, cancellationToken);
+
+                                _logger.LogDebug("Created input file: {FilePath} ({Size} bytes)",
+                                    filePath, content.Length);
+                            }
+                        }
+
+                        _logger.LogInformation("Processed {FileCount} input files for execution {ExecutionId}",
+                            inputFiles.Count, context.ExecutionId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to process input files from parameters for execution {ExecutionId}", context.ExecutionId);
+                // Don't fail the execution, just log the warning
+            }
+        }
+
+        protected object ProcessParametersForExecution(object parameters, string projectDirectory)
+        {
+            try
+            {
+                var parametersJson = System.Text.Json.JsonSerializer.Serialize(parameters);
+                var parametersDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(parametersJson);
+
+                if (parametersDict?.ContainsKey("inputFiles") == true)
+                {
+                    // Get the input files info
+                    var inputFilesJson = System.Text.Json.JsonSerializer.Serialize(parametersDict["inputFiles"]);
+                    var inputFiles = System.Text.Json.JsonSerializer.Deserialize<List<InputFileData>>(inputFilesJson);
+
+                    if (inputFiles != null)
+                    {
+                        // Replace inputFiles with file paths that the program can use
+                        var filePaths = inputFiles.Select(f => $"./input/{f.Name}").ToList();
+                        var fileNames = inputFiles.Select(f => f.Name).ToList();
+
+                        parametersDict["inputFiles"] = filePaths;
+                        parametersDict["inputFileNames"] = fileNames;
+                        parametersDict["inputDirectory"] = "./input";
+                        parametersDict["hasInputFiles"] = true;
+                    }
+                }
+                else
+                {
+                    if (parametersDict != null)
+                    {
+                        parametersDict["hasInputFiles"] = false;
+                    }
+                }
+
+                return parametersDict ?? parameters;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to process parameters for execution");
+                return parameters; // Return original if processing fails
+            }
+        }
+
+        protected class InputFileData
+        {
+            public string Name { get; set; } = string.Empty;
+            public string Content { get; set; } = string.Empty; // Base64 encoded
+            public string ContentType { get; set; } = string.Empty;
+            public long Size { get; set; }
+        }
+
         protected class ProcessResult
         {
             public int ExitCode { get; set; }
