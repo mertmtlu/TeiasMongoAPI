@@ -1056,21 +1056,4 @@ namespace TeiasMongoAPI.API.Controllers
 
         #endregion
     }
-
-    #region Supporting DTOs (Placeholders)
-
-    public class BulkRequestStatusUpdateDto
-    {
-        [Required]
-        public required List<string> RequestIds { get; set; }
-
-        [Required]
-        [MaxLength(20)]
-        public required string Status { get; set; }
-
-        [MaxLength(500)]
-        public string? Reason { get; set; }
-    }
-
-    #endregion
 }

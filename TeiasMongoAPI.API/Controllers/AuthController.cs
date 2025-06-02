@@ -287,10 +287,4 @@ namespace TeiasMongoAPI.API.Controllers
 
         #endregion
     }
-
-    // Additional DTO for token revocation
-    public class RevokeTokenDto
-    {
-        public required string Token { get; set; }
-    }
 }

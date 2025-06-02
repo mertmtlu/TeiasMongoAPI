@@ -189,4 +189,17 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [MaxLength(500)]
         public string? LinkDescription { get; set; }
     }
+
+    public class BulkRequestStatusUpdateDto
+    {
+        [Required]
+        public required List<string> RequestIds { get; set; }
+
+        [Required]
+        [MaxLength(20)]
+        public required string Status { get; set; }
+
+        [MaxLength(500)]
+        public string? Reason { get; set; }
+    }
 }

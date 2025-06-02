@@ -572,28 +572,4 @@ namespace TeiasMongoAPI.API.Controllers
 
         #endregion
     }
-
-    #region Supporting DTOs
-
-    public class FileValidationRequest
-    {
-        [Required]
-        public required string FileName { get; set; }
-
-        [Required]
-        public required byte[] Content { get; set; }
-
-        [Required]
-        public required string ContentType { get; set; }
-    }
-
-    public class BulkOperationResult
-    {
-        public int SuccessCount { get; set; }
-        public int FailureCount { get; set; }
-        public int TotalProcessed { get; set; }
-        public List<string> Errors { get; set; } = new();
-    }
-
-    #endregion
 }

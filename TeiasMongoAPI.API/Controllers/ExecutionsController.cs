@@ -1144,13 +1144,4 @@ namespace TeiasMongoAPI.API.Controllers
 
         #endregion
     }
-
-    #region Supporting DTOs
-
-    public class DownloadRequest
-    {
-        public string DownloadPath { get; set; } = string.Empty;
-    }
-
-    #endregion
 }
