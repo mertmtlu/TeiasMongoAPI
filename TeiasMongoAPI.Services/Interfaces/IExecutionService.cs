@@ -83,5 +83,10 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<bool> ValidateExecutionPermissionsAsync(string programId, string userId, CancellationToken cancellationToken = default);
         Task<ExecutionSecurityScanResult> RunSecurityScanAsync(string programId, CancellationToken cancellationToken = default);
         Task<bool> IsExecutionAllowedAsync(string programId, string userId, CancellationToken cancellationToken = default);
+
+
+        Task<List<string>> GetSupportedLanguagesAsync(CancellationToken cancellationToken = default);
+        Task<ProjectStructureAnalysisDto> AnalyzeProjectStructureAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default);
+        Task<ProjectValidationResultDto> ValidateProjectAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default);
     }
 }
