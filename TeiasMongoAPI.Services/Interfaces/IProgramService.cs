@@ -1,4 +1,5 @@
-﻿using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
+﻿using MongoDB.Bson;
+using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
@@ -11,7 +12,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<ProgramDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default);
         Task<PagedResponse<ProgramListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<ProgramListDto>> SearchAsync(ProgramSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<ProgramDto> CreateAsync(ProgramCreateDto dto, CancellationToken cancellationToken = default);
+        Task<ProgramDto> CreateAsync(ProgramCreateDto dto, ObjectId? userId, CancellationToken cancellationToken = default);
         Task<ProgramDto> UpdateAsync(string id, ProgramUpdateDto dto, CancellationToken cancellationToken = default);
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
 

@@ -83,7 +83,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _programService.CreateAsync(dto, cancellationToken);
+                return await _programService.CreateAsync(dto, CurrentUserId, cancellationToken);
             }, "Create program");
         }
 

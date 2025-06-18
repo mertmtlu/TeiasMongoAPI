@@ -41,6 +41,13 @@ namespace TeiasMongoAPI.API
             // Configure Swagger/OpenAPI
             builder.Services.AddSwaggerGen(c =>
             {
+                c.CustomOperationIds(apiDesc =>
+                {
+                    var controllerName = apiDesc.ActionDescriptor.RouteValues["controller"];
+                    var actionName = apiDesc.ActionDescriptor.RouteValues["action"];
+                    return $"{controllerName}_{actionName}";
+                });
+
                 c.SwaggerDoc("v1", new OpenApiInfo
                 {
                     Title = "Teias Mongo API",

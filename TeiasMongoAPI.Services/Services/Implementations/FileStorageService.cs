@@ -623,7 +623,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public string BasePath { get; set; } = "./storage";
         public long MaxFileSizeBytes { get; set; } = 100 * 1024 * 1024; // 100 MB
         public int MaxFileNameLength { get; set; } = 255;
-        public List<string> BlockedExtensions { get; set; } = new() { ".exe", ".bat", ".cmd", ".scr", ".vbs", ".ps1" };
+        public List<string> BlockedExtensions { get; set; } = new() { ".bat", ".cmd", ".scr", ".vbs", ".ps1" };
         public List<string> AllowedContentTypes { get; set; } = new()
         {
             "text/plain", "text/html", "text/css", "text/javascript", "text/x-python", "text/x-csharp",

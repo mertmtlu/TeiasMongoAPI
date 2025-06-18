@@ -262,7 +262,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _executionService.ExecuteProgramAsync(programId, dto, cancellationToken);
+                return await _executionService.ExecuteProgramAsync(programId, CurrentUserId, dto, cancellationToken);
             }, $"Execute program {programId}");
         }
 
@@ -306,7 +306,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _executionService.ExecuteWithParametersAsync(dto.ProgramId, dto, cancellationToken);
+                return await _executionService.ExecuteWithParametersAsync(dto.ProgramId, CurrentUserId, dto, cancellationToken);
             }, "Execute with advanced parameters");
         }
 

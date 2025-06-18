@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.ComponentModel.DataAnnotations;
 using TeiasMongoAPI.API.Attributes;
 using TeiasMongoAPI.API.Controllers.Base;
 using TeiasMongoAPI.Core.Models.KeyModels;

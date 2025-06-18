@@ -1,6 +1,7 @@
 ﻿using AutoMapper;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using System.Diagnostics;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
@@ -345,7 +346,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Program Execution Operations
 
-        public async Task<ExecutionDto> ExecuteProgramAsync(string programId, ProgramExecutionRequestDto dto, CancellationToken cancellationToken = default)
+        public async Task<ExecutionDto> ExecuteProgramAsync(string programId, ObjectId? currentUser, ProgramExecutionRequestDto dto, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
             var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
@@ -381,15 +382,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException("Can only execute approved versions.");
             }
 
+            string user = "Undefined";
+
+            if (currentUser is ObjectId userId)
+            {
+                user = userId.ToString();
+            }
+
             // Check execution permissions and limits
-            await ValidateExecutionLimitsAsync(programId, "system", cancellationToken);
+            await ValidateExecutionLimitsAsync(programId, user, cancellationToken);
 
             // Create execution record
             var execution = new ExecutionModel
             {
                 ProgramId = programObjectId,
                 VersionId = versionObjectId,
-                UserId = "system", // Should come from current user context
+                UserId = user, // Should come from current user context
                 ExecutionType = "project_execution",
                 StartedAt = DateTime.UtcNow,
                 Status = "running",
@@ -463,7 +471,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<ExecutionDto>(createdExecution);
         }
 
-        public async Task<ExecutionDto> ExecuteWithParametersAsync(string programId, ExecutionParametersDto dto, CancellationToken cancellationToken = default)
+        public async Task<ExecutionDto> ExecuteWithParametersAsync(string programId, ObjectId? currentUser, ExecutionParametersDto dto, CancellationToken cancellationToken = default)
         {
             var programRequest = new ProgramExecutionRequestDto
             {
@@ -488,7 +496,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 return await ExecuteVersionAsync(dto.VersionId, versionRequest, cancellationToken);
             }
 
-            return await ExecuteProgramAsync(programId, programRequest, cancellationToken);
+            return await ExecuteProgramAsync(programId, currentUser, programRequest, cancellationToken);
         }
 
         #endregion

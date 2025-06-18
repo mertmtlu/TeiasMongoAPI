@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using System.Text.Json;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
@@ -16,7 +17,9 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
                 .ForMember(dest => dest.Status, opt => opt.MapFrom(src => "draft"))
                 .ForMember(dest => dest.CurrentVersion, opt => opt.Ignore()) // Set when first version is created
-                .ForMember(dest => dest.Permissions, opt => opt.MapFrom(src => new ProgramPermissions()));
+                .ForMember(dest => dest.Permissions, opt => opt.MapFrom(src => new ProgramPermissions()))
+                .ForMember(dest => dest.UiConfiguration, opt => opt.MapFrom(src => ConvertJsonElement(src.UiConfiguration)))
+                .ForMember(dest => dest.Metadata, opt => opt.MapFrom(src => ConvertJsonElement(src.Metadata)));
 
             CreateMap<ProgramUpdateDto, Program>()
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
@@ -101,6 +104,38 @@ namespace TeiasMongoAPI.Services.Mappings
             }
 
             return result;
+        }
+
+        private static object ConvertJsonElement(object value)
+        {
+            if (value is JsonElement jsonElement)
+            {
+                return ConvertJsonElementToObject(jsonElement);
+            }
+            return value ?? new object();
+        }
+
+        private static object ConvertJsonElementToObject(JsonElement element)
+        {
+            return element.ValueKind switch
+            {
+                JsonValueKind.Object => element.EnumerateObject()
+                    .ToDictionary(
+                        prop => prop.Name,
+                        prop => ConvertJsonElementToObject(prop.Value)
+                    ),
+                JsonValueKind.Array => element.EnumerateArray()
+                    .Select(ConvertJsonElementToObject)
+                    .ToArray(),
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Number when element.TryGetInt32(out int intValue) => intValue,
+                JsonValueKind.Number when element.TryGetInt64(out long longValue) => longValue,
+                JsonValueKind.Number when element.TryGetDouble(out double doubleValue) => doubleValue,
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Null => null,
+                _ => new object()
+            };
         }
     }
 }

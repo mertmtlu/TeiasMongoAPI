@@ -1,7 +1,10 @@
 ﻿using AutoMapper;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
+using TeiasMongoAPI.Core.Models.KeyModels;
+using TeiasMongoAPI.Data.Repositories;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
@@ -205,7 +208,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<ProgramDto> CreateAsync(ProgramCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<ProgramDto> CreateAsync(ProgramCreateDto dto, ObjectId? userId, CancellationToken cancellationToken = default)
         {
             // Validate name uniqueness
             if (!await _unitOfWork.Programs.IsNameUniqueAsync(dto.Name, null, cancellationToken))
@@ -216,6 +219,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var program = _mapper.Map<Program>(dto);
             program.CreatedAt = DateTime.UtcNow;
             program.Status = "draft";
+
+            if (userId is ObjectId id)
+            {
+                var user = await _unitOfWork.Users.GetByIdAsync(id);
+
+                var userPermission = new UserPermission
+                {
+                    UserId = user._ID.ToString(),
+                    AccessLevel = "admin"
+                };
+
+                program.Permissions.Users.Add(userPermission);
+                program.Creator = user.FullName;
+
+                _logger.LogInformation("Added {UserId} to {ProgramName} as admin", user.Username, program.Name);
+            }
 
             var createdProgram = await _unitOfWork.Programs.CreateAsync(program, cancellationToken);
 
@@ -290,6 +309,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             // Note: Files are now managed by IFileStorageService and should be deleted through that service
             // The file cleanup will be handled at the controller level or through a separate cleanup service
+
+            var versions = await _unitOfWork.Versions.GetByProgramIdAsync(objectId, cancellationToken);
+
+            foreach (var version in versions)
+            {
+                _unitOfWork.Versions.DeleteAsync(version._ID, cancellationToken);
+            }
 
             var success = await _unitOfWork.Programs.DeleteAsync(objectId, cancellationToken);
 

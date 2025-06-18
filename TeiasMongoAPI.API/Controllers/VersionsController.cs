@@ -81,7 +81,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _versionService.CreateAsync(dto, cancellationToken);
+                return await _versionService.CreateAsync(dto, CurrentUserId, cancellationToken);
             }, "Create version");
         }
 
@@ -432,7 +432,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _versionService.CommitChangesAsync(programId, dto, cancellationToken);
+                return await _versionService.CommitChangesAsync(programId, CurrentUserId, dto, cancellationToken);
             }, $"Commit changes for program {programId}");
         }
 

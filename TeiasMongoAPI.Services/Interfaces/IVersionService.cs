@@ -1,4 +1,5 @@
-﻿using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
+﻿using MongoDB.Bson;
+using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
@@ -11,7 +12,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<VersionDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default);
         Task<PagedResponse<VersionListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<VersionListDto>> SearchAsync(VersionSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<VersionDto> CreateAsync(VersionCreateDto dto, CancellationToken cancellationToken = default);
+        Task<VersionDto> CreateAsync(VersionCreateDto dto, ObjectId? objectId, CancellationToken cancellationToken = default);
         Task<VersionDto> UpdateAsync(string id, VersionUpdateDto dto, CancellationToken cancellationToken = default);
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
 
@@ -46,7 +47,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<List<VersionActivityDto>> GetVersionActivityAsync(string programId, int days = 30, CancellationToken cancellationToken = default);
 
         // Commit Operations (these will use IFileStorageService internally for file operations)
-        Task<VersionDto> CommitChangesAsync(string programId, VersionCommitDto dto, CancellationToken cancellationToken = default);
+        Task<VersionDto> CommitChangesAsync(string programId, ObjectId? objectId, VersionCommitDto dto, CancellationToken cancellationToken = default);
         Task<bool> ValidateCommitAsync(string programId, VersionCommitValidationDto dto, CancellationToken cancellationToken = default);
     }
 }

@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
@@ -181,7 +182,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<VersionDto> CreateAsync(VersionCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<VersionDto> CreateAsync(VersionCreateDto dto, ObjectId? objectId, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(dto.ProgramId);
             var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
@@ -194,18 +195,29 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Get next version number
             var nextVersionNumber = await _unitOfWork.Versions.GetNextVersionNumberAsync(programObjectId, cancellationToken);
 
+            string createdBy = "system";
+
+            if (objectId is ObjectId userId)
+            {
+                createdBy = userId.ToString();
+            }
+
             var version = new Version
             {
                 ProgramId = programObjectId,
                 VersionNumber = nextVersionNumber,
                 CommitMessage = dto.CommitMessage,
-                CreatedBy = "system", // This should come from current user context
+                CreatedBy = createdBy, // This should come from current user context
                 CreatedAt = DateTime.UtcNow,
                 Status = "pending",
                 Files = new List<VersionFile>()
             };
 
+            var currentVersion = await _unitOfWork.Versions.GetLatestVersionForProgramAsync(programObjectId, cancellationToken);
             var createdVersion = await _unitOfWork.Versions.CreateAsync(version, cancellationToken);
+
+            if (currentVersion is not null)
+                await _fileStorageService.CopyVersionFilesAsync(dto.ProgramId, currentVersion._ID.ToString(), createdVersion._ID.ToString(), cancellationToken);
 
             // Store files if provided using IFileStorageService
             if (dto.Files.Any())
@@ -260,9 +272,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Only allow deleting if version is pending and not the current version
-            if (version.Status != "pending")
+            if (version.Status == "approved")
             {
-                throw new InvalidOperationException("Cannot delete version that has been reviewed.");
+                throw new InvalidOperationException("Cannot delete version that has been approved.");
             }
 
             var program = await _unitOfWork.Programs.GetByIdAsync(version.ProgramId, cancellationToken);
@@ -742,7 +754,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Commit Operations
 
-        public async Task<VersionDto> CommitChangesAsync(string programId, VersionCommitDto dto, CancellationToken cancellationToken = default)
+        public async Task<VersionDto> CommitChangesAsync(string programId, ObjectId? objectId, VersionCommitDto dto, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
 
@@ -754,19 +766,30 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Create new version
             var nextVersionNumber = await _unitOfWork.Versions.GetNextVersionNumberAsync(programObjectId, cancellationToken);
 
+            string createdBy = "system";
+
+            if (objectId is ObjectId userId)
+            {
+                createdBy = userId.ToString();
+            }
+
             var version = new Version
             {
                 ProgramId = programObjectId,
                 VersionNumber = nextVersionNumber,
                 CommitMessage = dto.CommitMessage,
-                CreatedBy = "system", // Should come from current user context
+                CreatedBy = createdBy, // Should come from current user context
                 CreatedAt = DateTime.UtcNow,
                 Status = "pending",
                 Files = new List<VersionFile>()
             };
 
+            var currentVersion = await _unitOfWork.Versions.GetLatestVersionForProgramAsync(programObjectId, cancellationToken);
             var createdVersion = await _unitOfWork.Versions.CreateAsync(version, cancellationToken);
             var versionId = createdVersion._ID.ToString();
+
+            if (currentVersion is not null)
+                await _fileStorageService.CopyVersionFilesAsync(programId, currentVersion._ID.ToString(), versionId);
 
             // Process file changes using IFileStorageService
             var filesToStore = new List<VersionFileCreateDto>();

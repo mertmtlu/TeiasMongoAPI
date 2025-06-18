@@ -1,4 +1,5 @@
-﻿using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
+﻿using MongoDB.Bson;
+using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
@@ -24,9 +25,9 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<List<ExecutionListDto>> GetRecentExecutionsAsync(int count = 10, CancellationToken cancellationToken = default);
 
         // Program Execution Operations
-        Task<ExecutionDto> ExecuteProgramAsync(string programId, ProgramExecutionRequestDto dto, CancellationToken cancellationToken = default);
+        Task<ExecutionDto> ExecuteProgramAsync(string programId, ObjectId? currentUser, ProgramExecutionRequestDto dto, CancellationToken cancellationToken = default);
         Task<ExecutionDto> ExecuteVersionAsync(string versionId, VersionExecutionRequestDto dto, CancellationToken cancellationToken = default);
-        Task<ExecutionDto> ExecuteWithParametersAsync(string programId, ExecutionParametersDto dto, CancellationToken cancellationToken = default);
+        Task<ExecutionDto> ExecuteWithParametersAsync(string programId, ObjectId? currentUser, ExecutionParametersDto dto, CancellationToken cancellationToken = default);
 
         // Execution Control and Monitoring
         Task<bool> StopExecutionAsync(string id, CancellationToken cancellationToken = default);
