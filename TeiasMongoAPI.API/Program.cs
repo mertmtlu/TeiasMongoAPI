@@ -290,8 +290,12 @@ namespace TeiasMongoAPI.API
                     // c.RoutePrefix = string.Empty;
                 });
             }
+            else
+            {
+                app.UseHttpsRedirection();
 
-            app.UseHttpsRedirection();
+            }
+
 
             // CORS
             app.UseCors("AllowSpecificOrigins");

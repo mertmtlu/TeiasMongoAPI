@@ -264,8 +264,8 @@ namespace TeiasMongoAPI.API.Controllers
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
-                Secure = true, // Use HTTPS in production
-                SameSite = SameSiteMode.Strict,
+                Secure = false, // Use HTTPS in production
+                SameSite = SameSiteMode.Lax,
                 Expires = DateTime.UtcNow.AddDays(7) // Match your token expiration
             };
 
@@ -277,8 +277,8 @@ namespace TeiasMongoAPI.API.Controllers
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Strict,
+                Secure = false,
+                SameSite = SameSiteMode.Lax,
                 Expires = DateTime.UtcNow.AddDays(-1)
             };
 
