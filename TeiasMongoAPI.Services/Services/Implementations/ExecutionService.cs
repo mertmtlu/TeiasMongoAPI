@@ -103,8 +103,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 _logger.LogWarning(ex, "Failed to get version details for execution {ExecutionId}", id);
             }
 
-            // Get output files
-            dto.OutputFiles = await GetExecutionOutputFilesAsync(id, cancellationToken);
 
             // Get recent logs
             dto.RecentLogs = await GetExecutionLogsAsync(id, 50, cancellationToken);
@@ -693,109 +691,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<ExecutionResultDto>(execution.Results);
         }
 
-        public async Task<List<ExecutionOutputFileDto>> GetExecutionOutputFilesAsync(string id, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(id);
-            var execution = await _unitOfWork.Executions.GetByIdAsync(objectId, cancellationToken);
-
-            if (execution == null)
-            {
-                throw new KeyNotFoundException($"Execution with ID {id} not found.");
-            }
-
-            var outputFiles = new List<ExecutionOutputFileDto>();
-
-            // Note: Output files are execution-specific, not version files
-            // They would be stored in a separate execution output storage area
-            foreach (var outputFile in execution.Results.OutputFiles)
-            {
-                try
-                {
-                    // This would use a different storage mechanism for execution outputs
-                    outputFiles.Add(new ExecutionOutputFileDto
-                    {
-                        FileName = Path.GetFileName(outputFile),
-                        Path = outputFile,
-                        Size = 0, // Would need to get from storage
-                        ContentType = "application/octet-stream",
-                        CreatedAt = execution.CompletedAt ?? DateTime.UtcNow,
-                        DownloadUrl = $"/api/executions/{id}/results/{Path.GetFileName(outputFile)}"
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to get metadata for output file {OutputFile}", outputFile);
-                }
-            }
-
-            return outputFiles;
-        }
-
-        public async Task<ExecutionOutputFileContentDto> GetExecutionOutputFileAsync(string id, string fileName, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(id);
-            var execution = await _unitOfWork.Executions.GetByIdAsync(objectId, cancellationToken);
-
-            if (execution == null)
-            {
-                throw new KeyNotFoundException($"Execution with ID {id} not found.");
-            }
-
-            // Find the output file
-            var outputFileKey = execution.Results.OutputFiles
-                .FirstOrDefault(f => Path.GetFileName(f).Equals(fileName, StringComparison.OrdinalIgnoreCase));
-
-            if (outputFileKey == null)
-            {
-                throw new KeyNotFoundException($"Output file {fileName} not found for execution {id}.");
-            }
-
-            // This would use execution-specific output storage, not version file storage
-            // For now, return empty content
-            return new ExecutionOutputFileContentDto
-            {
-                FileName = fileName,
-                ContentType = "application/octet-stream",
-                Content = Array.Empty<byte>(),
-                Size = 0,
-                CreatedAt = execution.CompletedAt ?? DateTime.UtcNow
-            };
-        }
-
-        public async Task<bool> DownloadExecutionResultsAsync(string id, string downloadPath, CancellationToken cancellationToken = default)
-        {
-            var objectId = ParseObjectId(id);
-            var execution = await _unitOfWork.Executions.GetByIdAsync(objectId, cancellationToken);
-
-            if (execution == null)
-            {
-                throw new KeyNotFoundException($"Execution with ID {id} not found.");
-            }
-
-            try
-            {
-                Directory.CreateDirectory(downloadPath);
-
-                // Download execution output files (not version files)
-                foreach (var outputFile in execution.Results.OutputFiles)
-                {
-                    // This would download from execution output storage
-                    var fileName = Path.GetFileName(outputFile);
-                    var filePath = Path.Combine(downloadPath, fileName);
-
-                    // Placeholder - would download actual content
-                    await File.WriteAllTextAsync(filePath, $"Output file: {fileName}", cancellationToken);
-                }
-
-                _logger.LogInformation("Downloaded execution results for {ExecutionId} to {DownloadPath}", id, downloadPath);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to download execution results for {ExecutionId}", id);
-                return false;
-            }
-        }
 
         #endregion
 

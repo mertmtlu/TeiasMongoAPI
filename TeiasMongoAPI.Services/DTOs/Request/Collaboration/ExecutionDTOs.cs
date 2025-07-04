@@ -113,8 +113,4 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public string? Description { get; set; }
     }
 
-    public class DownloadRequest
-    {
-        public string DownloadPath { get; set; } = string.Empty;
-    }
 }

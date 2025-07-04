@@ -76,7 +76,6 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.ProgramName, opt => opt.Ignore()) // Resolved in service
                 .ForMember(dest => dest.UserName, opt => opt.Ignore()) // Resolved in service
                 .ForMember(dest => dest.VersionNumber, opt => opt.Ignore()) // Resolved in service
-                .ForMember(dest => dest.OutputFiles, opt => opt.Ignore()) // Resolved in service
                 .ForMember(dest => dest.RecentLogs, opt => opt.Ignore()) // Resolved in service
                 .ForMember(dest => dest.Environment, opt => opt.Ignore()) // Resolved in service
                 .ForMember(dest => dest.WebAppUrl, opt => opt.MapFrom(src => src.Results.WebAppUrl))

@@ -41,7 +41,6 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public string ProgramName { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty;
         public int? VersionNumber { get; set; }
-        public List<ExecutionOutputFileDto> OutputFiles { get; set; } = new();
         public List<string> RecentLogs { get; set; } = new();
         public ExecutionEnvironmentDto Environment { get; set; } = new();
         public string? WebAppUrl { get; set; }
@@ -58,24 +57,6 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public DateTime? CompletedAt { get; set; }
     }
 
-    public class ExecutionOutputFileDto
-    {
-        public string FileName { get; set; } = string.Empty;
-        public string Path { get; set; } = string.Empty;
-        public long Size { get; set; }
-        public string ContentType { get; set; } = string.Empty;
-        public DateTime CreatedAt { get; set; }
-        public string DownloadUrl { get; set; } = string.Empty;
-    }
-
-    public class ExecutionOutputFileContentDto
-    {
-        public string FileName { get; set; } = string.Empty;
-        public string ContentType { get; set; } = string.Empty;
-        public byte[] Content { get; set; } = Array.Empty<byte>();
-        public long Size { get; set; }
-        public DateTime CreatedAt { get; set; }
-    }
 
     public class ExecutionStatusDto
     {

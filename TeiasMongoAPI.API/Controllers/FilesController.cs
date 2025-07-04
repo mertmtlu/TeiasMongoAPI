@@ -450,6 +450,105 @@ namespace TeiasMongoAPI.API.Controllers
 
         #endregion
 
+        #region Bulk Download Operations
+
+        /// <summary>
+        /// Bulk download selected files from a program version as a ZIP archive
+        /// </summary>
+        [HttpPost("programs/{programId}/versions/{versionId}/bulk-download")]
+        [RequirePermission(UserPermissions.ViewPrograms)]
+        public async Task<IActionResult> BulkDownloadFiles(
+            string programId,
+            string versionId,
+            [FromBody] BulkDownloadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            // Validate programId
+            var programIdResult = ParseObjectId(programId, "programId");
+            if (programIdResult.Result != null) return programIdResult.Result!;
+
+            // Validate versionId
+            var versionIdResult = ParseObjectId(versionId, "versionId");
+            if (versionIdResult.Result != null) return versionIdResult.Result!;
+
+            if (request?.FilePaths == null || !request.FilePaths.Any())
+            {
+                return BadRequest(new ErrorResponse { Message = "At least one file path is required" });
+            }
+
+            // Validate model state
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            try
+            {
+                // Verify program and version exist and are accessible
+                await _programService.GetByIdAsync(programId, cancellationToken);
+                await _versionService.GetByIdAsync(versionId, cancellationToken);
+
+                var result = await _fileStorageService.BulkDownloadFilesAsync(
+                    programId, 
+                    versionId, 
+                    request.FilePaths, 
+                    request.IncludeMetadata, 
+                    request.CompressionLevel ?? "optimal", 
+                    cancellationToken);
+
+                return File(result.ZipContent, "application/zip", result.FileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to bulk download files for program {ProgramId}, version {VersionId}", programId, versionId);
+                return StatusCode(500, new ErrorResponse { Message = "Failed to create bulk download" });
+            }
+        }
+
+        /// <summary>
+        /// Download all files from a program version as a ZIP archive
+        /// </summary>
+        [HttpGet("programs/{programId}/versions/{versionId}/download-all")]
+        [RequirePermission(UserPermissions.ViewPrograms)]
+        public async Task<IActionResult> DownloadAllVersionFiles(
+            string programId,
+            string versionId,
+            [FromQuery] bool includeMetadata = false,
+            [FromQuery] string compressionLevel = "optimal",
+            CancellationToken cancellationToken = default)
+        {
+            // Validate programId
+            var programIdResult = ParseObjectId(programId, "programId");
+            if (programIdResult.Result != null) return programIdResult.Result!;
+
+            // Validate versionId
+            var versionIdResult = ParseObjectId(versionId, "versionId");
+            if (versionIdResult.Result != null) return versionIdResult.Result!;
+
+            try
+            {
+                // Verify program and version exist and are accessible
+                await _programService.GetByIdAsync(programId, cancellationToken);
+                await _versionService.GetByIdAsync(versionId, cancellationToken);
+
+                var result = await _fileStorageService.DownloadAllVersionFilesAsync(
+                    programId, 
+                    versionId, 
+                    includeMetadata, 
+                    compressionLevel, 
+                    cancellationToken);
+
+                return File(result.ZipContent, "application/zip", result.FileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download all files for program {ProgramId}, version {VersionId}", programId, versionId);
+                return StatusCode(500, new ErrorResponse { Message = "Failed to create download archive" });
+            }
+        }
+
+        #endregion
+
         #region Bulk Operations
 
         /// <summary>

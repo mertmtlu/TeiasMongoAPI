@@ -39,9 +39,6 @@ namespace TeiasMongoAPI.Services.Interfaces
 
         // Execution Results Management
         Task<ExecutionResultDto> GetExecutionResultAsync(string id, CancellationToken cancellationToken = default);
-        Task<List<ExecutionOutputFileDto>> GetExecutionOutputFilesAsync(string id, CancellationToken cancellationToken = default);
-        Task<ExecutionOutputFileContentDto> GetExecutionOutputFileAsync(string id, string fileName, CancellationToken cancellationToken = default);
-        Task<bool> DownloadExecutionResultsAsync(string id, string downloadPath, CancellationToken cancellationToken = default);
 
         // Web Application Execution
         Task<ExecutionDto> DeployWebApplicationAsync(string programId, WebAppDeploymentRequestDto dto, CancellationToken cancellationToken = default);

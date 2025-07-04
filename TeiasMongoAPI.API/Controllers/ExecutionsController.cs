@@ -453,71 +453,7 @@ namespace TeiasMongoAPI.API.Controllers
             }, $"Get execution result {id}");
         }
 
-        /// <summary>
-        /// Get execution output files
-        /// </summary>
-        [HttpGet("{id}/output-files")]
-        [RequirePermission(UserPermissions.ViewExecutionResults)]
-        public async Task<ActionResult<ApiResponse<List<ExecutionOutputFileDto>>>> GetExecutionOutputFiles(
-            string id,
-            CancellationToken cancellationToken = default)
-        {
-            var objectIdResult = ParseObjectId(id);
-            if (objectIdResult.Result != null) return objectIdResult.Result!;
 
-            return await ExecuteAsync(async () =>
-            {
-                return await _executionService.GetExecutionOutputFilesAsync(id, cancellationToken);
-            }, $"Get execution output files {id}");
-        }
-
-        /// <summary>
-        /// Get specific execution output file
-        /// </summary>
-        [HttpGet("{id}/output-files/{fileName}")]
-        [RequirePermission(UserPermissions.ViewExecutionResults)]
-        public async Task<ActionResult<ApiResponse<ExecutionOutputFileContentDto>>> GetExecutionOutputFile(
-            string id,
-            string fileName,
-            CancellationToken cancellationToken = default)
-        {
-            var objectIdResult = ParseObjectId(id);
-            if (objectIdResult.Result != null) return objectIdResult.Result!;
-
-            if (string.IsNullOrWhiteSpace(fileName))
-            {
-                return ValidationError<ExecutionOutputFileContentDto>("File name is required");
-            }
-
-            return await ExecuteAsync(async () =>
-            {
-                return await _executionService.GetExecutionOutputFileAsync(id, fileName, cancellationToken);
-            }, $"Get execution output file {id}/{fileName}");
-        }
-
-        /// <summary>
-        /// Download execution results
-        /// </summary>
-        [HttpPost("{id}/download")]
-        [RequirePermission(UserPermissions.ViewExecutionResults)]
-        public async Task<ActionResult<ApiResponse<bool>>> DownloadExecutionResults(
-            string id,
-            [FromBody] DownloadRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            var objectIdResult = ParseObjectId(id);
-            if (objectIdResult.Result != null) return objectIdResult.Result!;
-
-            if (string.IsNullOrWhiteSpace(request.DownloadPath))
-            {
-                return ValidationError<bool>("Download path is required");
-            }
-
-            return await ExecuteAsync(async () =>
-            {
-                return await _executionService.DownloadExecutionResultsAsync(id, request.DownloadPath, cancellationToken);
-            }, $"Download execution results {id}");
-        }
 
         #endregion
 

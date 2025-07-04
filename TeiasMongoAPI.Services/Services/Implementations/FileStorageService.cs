@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
+using System.IO.Compression;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
@@ -498,6 +499,90 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return Path.Combine(_settings.BasePath, programId, versionId, "files", normalizedPath);
         }
 
+        public async Task<BulkDownloadResult> BulkDownloadFilesAsync(string programId, string versionId, List<string> filePaths, bool includeMetadata = false, string compressionLevel = "optimal", CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var result = new BulkDownloadResult
+                {
+                    FileName = $"files-{programId}-v{versionId}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.zip"
+                };
+
+                using var memoryStream = new MemoryStream();
+                using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
+                {
+                    foreach (var filePath in filePaths)
+                    {
+                        try
+                        {
+                            var fileContent = await GetFileContentAsync(programId, versionId, filePath, cancellationToken);
+                            var entry = archive.CreateEntry(filePath, GetCompressionLevel(compressionLevel));
+                            
+                            using var entryStream = entry.Open();
+                            await entryStream.WriteAsync(fileContent, cancellationToken);
+                            
+                            result.IncludedFiles.Add(filePath);
+                            result.TotalSize += fileContent.Length;
+                            result.FileCount++;
+
+                            if (includeMetadata)
+                            {
+                                try
+                                {
+                                    var storageKey = GenerateStorageKey(programId, versionId, filePath);
+                                    var metadata = await GetFileMetadataAsync(storageKey, cancellationToken);
+                                    var metadataJson = System.Text.Json.JsonSerializer.Serialize(metadata, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                                    var metadataEntry = archive.CreateEntry($"_metadata/{filePath}.metadata.json", GetCompressionLevel(compressionLevel));
+                                    
+                                    using var metadataStream = metadataEntry.Open();
+                                    using var writer = new StreamWriter(metadataStream);
+                                    await writer.WriteAsync(metadataJson);
+                                }
+                                catch (Exception metadataEx)
+                                {
+                                    _logger.LogWarning(metadataEx, "Failed to include metadata for file {FilePath}", filePath);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to include file {FilePath} in bulk download", filePath);
+                            result.SkippedFiles.Add(filePath);
+                            result.Errors.Add($"Failed to download {filePath}: {ex.Message}");
+                        }
+                    }
+                }
+
+                result.ZipContent = memoryStream.ToArray();
+                
+                _logger.LogInformation("Bulk download completed for program {ProgramId}, version {VersionId}: {FileCount} files, {TotalSize} bytes",
+                    programId, versionId, result.FileCount, result.TotalSize);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create bulk download for program {ProgramId}, version {VersionId}", programId, versionId);
+                throw;
+            }
+        }
+
+        public async Task<BulkDownloadResult> DownloadAllVersionFilesAsync(string programId, string versionId, bool includeMetadata = false, string compressionLevel = "optimal", CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var allFiles = await ListVersionFilesAsync(programId, versionId, cancellationToken);
+                var filePaths = allFiles.Select(f => f.Path).ToList();
+                
+                return await BulkDownloadFilesAsync(programId, versionId, filePaths, includeMetadata, compressionLevel, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download all files for program {ProgramId}, version {VersionId}", programId, versionId);
+                throw;
+            }
+        }
+
         #region Private Helper Methods
 
         private void EnsureDirectoryExists(string path)
@@ -612,6 +697,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 ".gif" => "image/gif",
                 ".svg" => "image/svg+xml",
                 _ => "application/octet-stream"
+            };
+        }
+
+        private CompressionLevel GetCompressionLevel(string compressionLevel)
+        {
+            return compressionLevel?.ToLowerInvariant() switch
+            {
+                "fastest" => CompressionLevel.Fastest,
+                "none" => CompressionLevel.NoCompression,
+                "smallestsize" => CompressionLevel.SmallestSize,
+                _ => CompressionLevel.Optimal
             };
         }
 

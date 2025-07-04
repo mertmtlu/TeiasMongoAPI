@@ -18,4 +18,11 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [Required]
         public required string ContentType { get; set; }
     }
+
+    public class BulkDownloadRequest
+    {
+        public List<string> FilePaths { get; set; } = new();
+        public bool IncludeMetadata { get; set; } = false;
+        public string? CompressionLevel { get; set; } = "optimal";
+    }
 }

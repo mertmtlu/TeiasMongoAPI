@@ -81,11 +81,6 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Content, opt => opt.Ignore()) // Loaded separately from storage
                 .ForMember(dest => dest.LastModified, opt => opt.MapFrom(src => src.LastModified));
 
-            CreateMap<FileMetadata, ExecutionOutputFileDto>()
-                .ForMember(dest => dest.FileName, opt => opt.MapFrom(src => Path.GetFileName(src.FilePath)))
-                .ForMember(dest => dest.Path, opt => opt.MapFrom(src => src.FilePath))
-                .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => src.CreatedAt))
-                .ForMember(dest => dest.DownloadUrl, opt => opt.Ignore()); // Generated in service
 
             // File storage results
             CreateMap<FileMetadata, FileStorageResult>()

@@ -75,6 +75,16 @@ namespace TeiasMongoAPI.Services.Interfaces
         /// Gets the physical file path for a program version file
         /// </summary>
         string GetFilePath(string programId, string versionId, string filePath);
+
+        /// <summary>
+        /// Downloads multiple files as a zip archive from a specific program version
+        /// </summary>
+        Task<BulkDownloadResult> BulkDownloadFilesAsync(string programId, string versionId, List<string> filePaths, bool includeMetadata = false, string compressionLevel = "optimal", CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Downloads all files from a specific program version as a zip archive
+        /// </summary>
+        Task<BulkDownloadResult> DownloadAllVersionFilesAsync(string programId, string versionId, bool includeMetadata = false, string compressionLevel = "optimal", CancellationToken cancellationToken = default);
     }
 
     public class FileStorageResult
