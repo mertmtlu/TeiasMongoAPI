@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using MongoDB.Bson;
 
 namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 {
@@ -18,8 +19,8 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         // Note: ProgramId and VersionId are now passed as method parameters, not in DTO
         // This ensures they're always provided and validated at the service level
 
-        public object Configuration { get; set; } = new object();
-        public object Schema { get; set; } = new object();
+        public BsonDocument Configuration { get; set; } = new BsonDocument();
+        public BsonDocument Schema { get; set; } = new BsonDocument();
         public List<string> Tags { get; set; } = new();
     }
 
@@ -37,8 +38,8 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         // Note: Cannot change ProgramId or VersionId after creation
         // Components belong to a specific version and cannot be moved
 
-        public object? Configuration { get; set; }
-        public object? Schema { get; set; }
+        public BsonDocument? Configuration { get; set; }
+        public BsonDocument? Schema { get; set; }
         public List<string>? Tags { get; set; }
     }
 
@@ -87,13 +88,13 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
     public class UiComponentConfigUpdateDto
     {
         [Required]
-        public required object Configuration { get; set; }
+        public required BsonDocument Configuration { get; set; }
     }
 
     public class UiComponentSchemaUpdateDto
     {
         [Required]
-        public required object Schema { get; set; }
+        public required BsonDocument Schema { get; set; }
     }
 
     public class UiComponentMappingDto
@@ -105,7 +106,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [MaxLength(100)]
         public required string MappingName { get; set; }
 
-        public object MappingConfiguration { get; set; } = new object();
+        public BsonDocument MappingConfiguration { get; set; } = new BsonDocument();
         public int DisplayOrder { get; set; } = 0;
         public bool IsActive { get; set; } = true;
     }

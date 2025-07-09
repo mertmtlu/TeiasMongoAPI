@@ -1,4 +1,6 @@
-﻿namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
+﻿using MongoDB.Bson;
+
+namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
 {
     public class UiComponentDto
     {
@@ -13,8 +15,8 @@
         public string ProgramId { get; set; } = string.Empty;
         public string VersionId { get; set; } = string.Empty;
 
-        public object Configuration { get; set; } = new object();
-        public object Schema { get; set; } = new object();
+        public BsonDocument Configuration { get; set; } = new BsonDocument();
+        public BsonDocument Schema { get; set; } = new BsonDocument();
         public string Status { get; set; } = string.Empty;
         public List<string> Tags { get; set; } = new();
     }
@@ -84,7 +86,7 @@
     public class UiComponentConfigDto
     {
         public string ComponentId { get; set; } = string.Empty;
-        public object Configuration { get; set; } = new object();
+        public BsonDocument Configuration { get; set; } = new BsonDocument();
         public DateTime LastUpdated { get; set; }
         public string UpdatedBy { get; set; } = string.Empty;
     }
@@ -92,7 +94,7 @@
     public class UiComponentSchemaDto
     {
         public string ComponentId { get; set; } = string.Empty;
-        public object Schema { get; set; } = new object();
+        public BsonDocument Schema { get; set; } = new BsonDocument();
         public DateTime LastUpdated { get; set; }
         public string UpdatedBy { get; set; } = string.Empty;
         public bool IsValid { get; set; }
@@ -118,7 +120,7 @@
         public string ComponentId { get; set; } = string.Empty;
         public string ComponentName { get; set; } = string.Empty;
         public string MappingName { get; set; } = string.Empty;
-        public object MappingConfiguration { get; set; } = new object();
+        public BsonDocument MappingConfiguration { get; set; } = new BsonDocument();
         public int DisplayOrder { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }

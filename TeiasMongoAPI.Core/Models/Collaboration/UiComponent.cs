@@ -17,9 +17,9 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public ObjectId ProgramId { get; set; }  // Required - which program this component belongs to
         public ObjectId VersionId { get; set; }  // Required - which version this component belongs to
 
-        public object Configuration { get; set; } = new object();  // Component-specific configuration
-        public object Schema { get; set; } = new object();  // Expected inputs/outputs schema
-        public string Status { get; set; } = "draft";  // draft, active, deprecated
+        public BsonDocument Configuration { get; set; } = new BsonDocument();  // Component-specific configuration
+        public BsonDocument Schema { get; set; } = new BsonDocument();  // Expected inputs/outputs schema
+        public string Status { get; set; } = "active";  // draft, active, deprecated
         public List<string> Tags { get; set; } = new();
     }
 }

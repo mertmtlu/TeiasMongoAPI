@@ -31,7 +31,11 @@ namespace TeiasMongoAPI.API
                 configuration.ReadFrom.Configuration(context.Configuration));
 
             // Add services to the container.
-            builder.Services.AddControllers();
+            builder.Services.AddControllers()
+                .AddJsonOptions(options =>
+                {
+                    options.JsonSerializerOptions.Converters.Add(new TeiasMongoAPI.API.Converters.BsonDocumentJsonConverter());
+                });
 
             // Configure API Explorer
             builder.Services.AddEndpointsApiExplorer();
