@@ -286,7 +286,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _executionService.ExecuteVersionAsync(versionId, dto, cancellationToken);
+                return await _executionService.ExecuteVersionAsync(versionId, dto, CurrentUserId, cancellationToken);
             }, $"Execute version {versionId}");
         }
 

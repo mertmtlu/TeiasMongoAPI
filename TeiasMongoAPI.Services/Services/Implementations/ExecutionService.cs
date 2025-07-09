@@ -416,7 +416,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<ExecutionDto>(createdExecution);
         }
 
-        public async Task<ExecutionDto> ExecuteVersionAsync(string versionId, VersionExecutionRequestDto dto, CancellationToken cancellationToken = default)
+        public async Task<ExecutionDto> ExecuteVersionAsync(string versionId, VersionExecutionRequestDto dto, ObjectId? currentUserId, CancellationToken cancellationToken = default)
         {
             var versionObjectId = ParseObjectId(versionId);
             var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
@@ -432,18 +432,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Check execution limits
-            await ValidateExecutionLimitsAsync(version.ProgramId.ToString(), "system", cancellationToken);
+            await ValidateExecutionLimitsAsync(version.ProgramId.ToString(), currentUserId.ToString(), cancellationToken);
 
             // Create execution record
             var execution = new ExecutionModel
             {
                 ProgramId = version.ProgramId,
                 VersionId = versionObjectId,
-                UserId = "system", // Should come from current user context
+                UserId = currentUserId.ToString(), // Should come from current user context
                 ExecutionType = "project_execution",
                 StartedAt = DateTime.UtcNow,
                 Status = "running",
-                Parameters = dto.Parameters,
+                //Parameters = dto.Parameters,
                 Results = new ExecutionResults(),
                 ResourceUsage = new ResourceUsage()
             };
@@ -491,7 +491,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     SaveResults = dto.SaveResults,
                     TimeoutMinutes = dto.TimeoutMinutes
                 };
-                return await ExecuteVersionAsync(dto.VersionId, versionRequest, cancellationToken);
+                return await ExecuteVersionAsync(dto.VersionId, versionRequest, currentUser, cancellationToken);
             }
 
             return await ExecuteProgramAsync(programId, currentUser, programRequest, cancellationToken);

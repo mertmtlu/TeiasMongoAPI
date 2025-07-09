@@ -26,7 +26,7 @@ namespace TeiasMongoAPI.Services.Interfaces
 
         // Program Execution Operations
         Task<ExecutionDto> ExecuteProgramAsync(string programId, ObjectId? currentUser, ProgramExecutionRequestDto dto, CancellationToken cancellationToken = default);
-        Task<ExecutionDto> ExecuteVersionAsync(string versionId, VersionExecutionRequestDto dto, CancellationToken cancellationToken = default);
+        Task<ExecutionDto> ExecuteVersionAsync(string versionId, VersionExecutionRequestDto dto, ObjectId? currentUserId, CancellationToken cancellationToken = default);
         Task<ExecutionDto> ExecuteWithParametersAsync(string programId, ObjectId? currentUser, ExecutionParametersDto dto, CancellationToken cancellationToken = default);
 
         // Execution Control and Monitoring
