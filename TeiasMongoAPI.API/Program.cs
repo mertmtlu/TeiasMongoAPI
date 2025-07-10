@@ -35,6 +35,7 @@ namespace TeiasMongoAPI.API
                 .AddJsonOptions(options =>
                 {
                     options.JsonSerializerOptions.Converters.Add(new TeiasMongoAPI.API.Converters.BsonDocumentJsonConverter());
+                    options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
                 });
 
             // Configure API Explorer

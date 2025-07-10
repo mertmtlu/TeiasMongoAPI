@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using System.Diagnostics;
+using System.Text.Json;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
@@ -1922,9 +1923,59 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             if (parameters == null) return null;
 
-            // Serialize to JSON string then deserialize to Dictionary
+            // If it's already a simple type or Dictionary, return as-is
+            if (parameters is string || parameters is int || parameters is double || parameters is bool || parameters is Dictionary<string, object>)
+            {
+                return parameters;
+            }
+
+            // Serialize to JSON string then deserialize with proper type handling
             var json = System.Text.Json.JsonSerializer.Serialize(parameters);
-            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+            
+            // Use JsonDocument to properly handle nested objects and convert JsonElement to proper types
+            using var document = JsonDocument.Parse(json);
+            return ConvertJsonElementToObject(document.RootElement);
+        }
+
+        private object ConvertJsonElementToObject(JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.String:
+                    return element.GetString();
+                case JsonValueKind.Number:
+                    if (element.TryGetInt32(out int intValue))
+                        return intValue;
+                    if (element.TryGetInt64(out long longValue))
+                        return longValue;
+                    return element.GetDouble();
+                case JsonValueKind.True:
+                    return true;
+                case JsonValueKind.False:
+                    return false;
+                case JsonValueKind.Null:
+                    return null;
+                case JsonValueKind.Object:
+                    var dictionary = new Dictionary<string, object>();
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        dictionary[property.Name] = ConvertJsonElementToObject(property.Value);
+                    }
+                    return dictionary;
+                case JsonValueKind.Array:
+                    var array = new List<object>();
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        array.Add(ConvertJsonElementToObject(item));
+                    }
+                    return array;
+                default:
+                    return element.ToString();
+            }
         }
 
         private double? CalculateExecutionProgress(ExecutionModel execution)
