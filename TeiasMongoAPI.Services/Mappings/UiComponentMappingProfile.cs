@@ -3,6 +3,7 @@ using MongoDB.Bson;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
+using System.Text.Json;
 
 namespace TeiasMongoAPI.Services.Mappings
 {
@@ -17,11 +18,15 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
                 .ForMember(dest => dest.ProgramId, opt => opt.Ignore()) // Set in service from method parameter
                 .ForMember(dest => dest.VersionId, opt => opt.Ignore()) // Set in service from method parameter
-                .ForMember(dest => dest.Status, opt => opt.MapFrom(src => "draft"));
+                .ForMember(dest => dest.Status, opt => opt.MapFrom(src => "draft"))
+                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Configuration)))
+                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Schema)));
 
             CreateMap<UiComponentUpdateDto, UiComponent>()
                 .ForMember(dest => dest.ProgramId, opt => opt.Ignore()) // Cannot change after creation
                 .ForMember(dest => dest.VersionId, opt => opt.Ignore()) // Cannot change after creation
+                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => src.Configuration != null ? ParseJsonToBsonDocument(src.Configuration) : null))
+                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => src.Schema != null ? ParseJsonToBsonDocument(src.Schema) : null))
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
 
             // Domain to Response
@@ -66,7 +71,7 @@ namespace TeiasMongoAPI.Services.Mappings
 
             // Configuration and Schema mappings
             CreateMap<UiComponentConfigUpdateDto, UiComponent>()
-                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => src.Configuration))
+                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Configuration)))
                 .ForMember(dest => dest._ID, opt => opt.Ignore())
                 .ForMember(dest => dest.Name, opt => opt.Ignore())
                 .ForMember(dest => dest.Description, opt => opt.Ignore())
@@ -80,7 +85,7 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Tags, opt => opt.Ignore());
 
             CreateMap<UiComponentSchemaUpdateDto, UiComponent>()
-                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => src.Schema))
+                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Schema)))
                 .ForMember(dest => dest._ID, opt => opt.Ignore())
                 .ForMember(dest => dest.Name, opt => opt.Ignore())
                 .ForMember(dest => dest.Description, opt => opt.Ignore())
@@ -253,6 +258,23 @@ namespace TeiasMongoAPI.Services.Mappings
                 "web_component" => new List<string> { "angular_elements", "react_components", "vue_components" },
                 _ => new List<string>()
             };
+        }
+
+        private static BsonDocument ParseJsonToBsonDocument(string jsonString)
+        {
+            if (string.IsNullOrWhiteSpace(jsonString))
+                return new BsonDocument();
+
+            try
+            {
+                return BsonDocument.Parse(jsonString);
+            }
+            catch (Exception)
+            {
+                // If parsing fails, return empty BsonDocument
+                // The service layer will handle validation and provide proper error messages
+                return new BsonDocument();
+            }
         }
     }
 }

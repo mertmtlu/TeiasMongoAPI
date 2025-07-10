@@ -19,8 +19,8 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         // Note: ProgramId and VersionId are now passed as method parameters, not in DTO
         // This ensures they're always provided and validated at the service level
 
-        public BsonDocument Configuration { get; set; } = new BsonDocument();
-        public BsonDocument Schema { get; set; } = new BsonDocument();
+        public string Configuration { get; set; } = string.Empty;
+        public string Schema { get; set; } = string.Empty;
         public List<string> Tags { get; set; } = new();
     }
 
@@ -38,8 +38,8 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         // Note: Cannot change ProgramId or VersionId after creation
         // Components belong to a specific version and cannot be moved
 
-        public BsonDocument? Configuration { get; set; }
-        public BsonDocument? Schema { get; set; }
+        public string? Configuration { get; set; }
+        public string? Schema { get; set; }
         public List<string>? Tags { get; set; }
     }
 
@@ -88,13 +88,13 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
     public class UiComponentConfigUpdateDto
     {
         [Required]
-        public required BsonDocument Configuration { get; set; }
+        public required string Configuration { get; set; }
     }
 
     public class UiComponentSchemaUpdateDto
     {
         [Required]
-        public required BsonDocument Schema { get; set; }
+        public required string Schema { get; set; }
     }
 
     public class UiComponentMappingDto

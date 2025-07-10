@@ -1,6 +1,7 @@
 ﻿using AutoMapper;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
+using System.Text.Json;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
@@ -221,6 +222,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Component with name '{dto.Name}' already exists in this version.");
             }
 
+            // Validate JSON strings for Configuration and Schema
+            ValidateJsonString(dto.Configuration, "Configuration");
+            ValidateJsonString(dto.Schema, "Schema");
+
             var component = _mapper.Map<UiComponent>(dto);
             component.ProgramId = programObjectId;
             component.VersionId = versionObjectId;
@@ -262,6 +267,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     throw new InvalidOperationException($"Component with name '{dto.Name}' already exists in this version.");
                 }
+            }
+
+            // Validate JSON strings for Configuration and Schema if provided
+            if (!string.IsNullOrEmpty(dto.Configuration))
+            {
+                ValidateJsonString(dto.Configuration, "Configuration");
+            }
+            if (!string.IsNullOrEmpty(dto.Schema))
+            {
+                ValidateJsonString(dto.Schema, "Schema");
             }
 
             _mapper.Map(dto, existingComponent);
@@ -758,7 +773,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"UI Component with ID {id} not found.");
             }
 
-            component.Configuration = dto.Configuration;
+            // Validate JSON string for Configuration
+            ValidateJsonString(dto.Configuration, "Configuration");
+
+            // Use AutoMapper to update the component
+            _mapper.Map(dto, component);
 
             var success = await _unitOfWork.UiComponents.UpdateAsync(objectId, component, cancellationToken);
 
@@ -800,7 +819,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"UI Component with ID {id} not found.");
             }
 
-            component.Schema = dto.Schema;
+            // Validate JSON string for Schema
+            ValidateJsonString(dto.Schema, "Schema");
+
+            // Use AutoMapper to update the component
+            _mapper.Map(dto, component);
 
             var success = await _unitOfWork.UiComponents.UpdateAsync(objectId, component, cancellationToken);
 
@@ -1433,6 +1456,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 "navigation",
                 "layout"
             };
+        }
+
+        private static void ValidateJsonString(string jsonString, string fieldName)
+        {
+            if (string.IsNullOrWhiteSpace(jsonString))
+                return; // Empty is valid
+
+            try
+            {
+                using var document = JsonDocument.Parse(jsonString);
+                // If parsing succeeds, the JSON is valid
+            }
+            catch (JsonException ex)
+            {
+                throw new ArgumentException($"Invalid JSON format in {fieldName}: {ex.Message}", ex);
+            }
         }
 
         #endregion

@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
 using TeiasMongoAPI.API.Attributes;
 using TeiasMongoAPI.API.Controllers.Base;
 using TeiasMongoAPI.Core.Models.KeyModels;
@@ -988,8 +990,8 @@ namespace TeiasMongoAPI.API.Controllers
                     Name = newName ?? $"{originalComponent.Name}_Copy",
                     Description = originalComponent.Description,
                     Type = originalComponent.Type,
-                    Configuration = originalComponent.Configuration,
-                    Schema = originalComponent.Schema,
+                    Configuration = originalComponent.Configuration != null ? originalComponent.Configuration.ToJson() : string.Empty,
+                    Schema = originalComponent.Schema != null ? originalComponent.Schema.ToJson() : string.Empty,
                     Tags = originalComponent.Tags?.ToList() ?? new List<string>()
                 };
 
