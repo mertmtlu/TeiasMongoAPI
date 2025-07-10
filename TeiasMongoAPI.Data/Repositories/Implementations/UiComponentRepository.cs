@@ -360,5 +360,22 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         }
 
         #endregion
+
+        #region Latest Active Component for Python UI Generation
+
+        public async Task<UiComponent?> GetLatestActiveByProgramAsync(ObjectId programId, CancellationToken cancellationToken = default)
+        {
+            var filter = Builders<UiComponent>.Filter.And(
+                Builders<UiComponent>.Filter.Eq(c => c.ProgramId, programId),
+                Builders<UiComponent>.Filter.Eq(c => c.Status, "active")
+            );
+
+            return await _collection
+                .Find(filter)
+                .SortByDescending(c => c.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        #endregion
     }
 }

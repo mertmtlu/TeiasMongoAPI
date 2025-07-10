@@ -52,5 +52,8 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         Task<IEnumerable<string>> GetAllTagsAsync(CancellationToken cancellationToken = default);
         Task<IEnumerable<UiComponent>> GetByTagsAsync(List<string> tags, CancellationToken cancellationToken = default);
         Task<Dictionary<string, int>> GetComponentCountByTypeAsync(CancellationToken cancellationToken = default);
+
+        // Latest Active Component for Python UI Generation
+        Task<UiComponent?> GetLatestActiveByProgramAsync(ObjectId programId, CancellationToken cancellationToken = default);
     }
 }

@@ -3,15 +3,23 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
+using TeiasMongoAPI.Core.Interfaces.Repositories;
+using TeiasMongoAPI.Services.Helpers;
+using MongoDB.Bson;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 {
     public class PythonProjectRunner : BaseProjectLanguageRunner
     {
+        private readonly IUnitOfWork _unitOfWork;
+        
         public override string Language => "Python";
         public override int Priority => 20;
 
-        public PythonProjectRunner(ILogger<PythonProjectRunner> logger) : base(logger) { }
+        public PythonProjectRunner(ILogger<PythonProjectRunner> logger, IUnitOfWork unitOfWork) : base(logger) 
+        {
+            _unitOfWork = unitOfWork;
+        }
 
         public override async Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default)
         {
@@ -153,6 +161,35 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             }
         }
 
+        public async Task GenerateUIComponentFileAsync(string projectDirectory, ObjectId programId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                _logger.LogInformation("Generating UIComponent.py for program {ProgramId} in {ProjectDirectory}", programId, projectDirectory);
+
+                var latestComponent = await _unitOfWork.UiComponents.GetLatestActiveByProgramAsync(programId, cancellationToken);
+                
+                if (latestComponent == null)
+                {
+                    _logger.LogInformation("No active UI component found for program {ProgramId}, skipping UIComponent.py generation", programId);
+                    return;
+                }
+
+                var pythonCode = UIComponentPythonGenerator.GenerateUIComponentPython(latestComponent);
+                var uiComponentPath = Path.Combine(projectDirectory, "UIComponent.py");
+                
+                await File.WriteAllTextAsync(uiComponentPath, pythonCode, cancellationToken);
+                
+                _logger.LogInformation("Successfully generated UIComponent.py for component '{ComponentName}' ({ComponentId})", 
+                    latestComponent.Name, latestComponent._ID);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to generate UIComponent.py for program {ProgramId} in {ProjectDirectory}", programId, projectDirectory);
+                // Don't fail the execution, just log the error
+            }
+        }
+
         // Simplified ExecuteAsync method in PythonProjectRunner.cs (if using base class methods):
 
         public override async Task<ProjectExecutionResult> ExecuteAsync(ProjectExecutionContext context, CancellationToken cancellationToken = default)
@@ -169,6 +206,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
                 // Process input files from parameters (using base class method)
                 await ProcessInputFilesFromParametersAsync(context, cancellationToken);
+
+                // Generate UIComponent.py file based on the latest active UI component for the program
+                var programId = ExtractProgramIdFromContext(context);
+                if (programId != ObjectId.Empty)
+                {
+                    await GenerateUIComponentFileAsync(context.ProjectDirectory, programId, cancellationToken);
+                }
 
                 var entryPoint = context.ProjectStructure.MainEntryPoint ?? "main.py";
                 if (!File.Exists(Path.Combine(context.ProjectDirectory, entryPoint)))
@@ -352,6 +396,36 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             }
 
             return string.Empty;
+        }
+
+        private ObjectId ExtractProgramIdFromContext(ProjectExecutionContext context)
+        {
+            try
+            {
+                // Extract program ID from the execution directory path
+                // Path format: ./storage/{programId}/{versionId}/execution/{executionId}/project
+                var projectPath = context.ProjectDirectory.Replace("\\", "/");
+                var pathParts = projectPath.Split('/');
+                
+                // Find the storage directory index
+                var storageIndex = Array.FindIndex(pathParts, p => p.Equals("storage", StringComparison.OrdinalIgnoreCase));
+                if (storageIndex >= 0 && storageIndex + 1 < pathParts.Length)
+                {
+                    var programIdString = pathParts[storageIndex + 1];
+                    if (ObjectId.TryParse(programIdString, out var programId))
+                    {
+                        return programId;
+                    }
+                }
+                
+                _logger.LogWarning("Could not extract program ID from project directory path: {ProjectDirectory}", context.ProjectDirectory);
+                return ObjectId.Empty;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to extract program ID from context");
+                return ObjectId.Empty;
+            }
         }
 
         private long EstimateMemoryUsage(string? output)
