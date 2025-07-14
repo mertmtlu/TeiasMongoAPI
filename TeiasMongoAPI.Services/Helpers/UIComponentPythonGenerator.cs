@@ -18,6 +18,7 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("from typing import Optional, List, Dict, Any, Union");
             sb.AppendLine("import json");
             sb.AppendLine("import re");
+            sb.AppendLine("import sys");
             sb.AppendLine();
 
             // Component class
@@ -39,6 +40,7 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine($"            'component_description': '{component.Description}',");
             sb.AppendLine($"            'created_at': '{component.CreatedAt:yyyy-MM-dd HH:mm:ss}'");
             sb.AppendLine("        }");
+            sb.AppendLine("        self.from_json(sys.argv[1])");
             sb.AppendLine();
 
             // Generate properties for each element

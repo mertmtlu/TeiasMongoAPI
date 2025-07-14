@@ -231,7 +231,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             component.VersionId = versionObjectId;
             component.CreatedAt = DateTime.UtcNow;
             component.Creator = "system"; // Should come from current user context
-            component.Status = "draft";
+            component.Status = "active";
 
             var createdComponent = await _unitOfWork.UiComponents.CreateAsync(component, cancellationToken);
 
@@ -412,7 +412,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         VersionId = toVersionObjectId,
                         Configuration = sourceComponent.Configuration,
                         Schema = sourceComponent.Schema,
-                        Status = "draft", // New components start as draft
+                        Status = "active",
                         Tags = new List<string>(sourceComponent.Tags)
                     };
 
@@ -485,7 +485,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 VersionId = targetVersionObjectId,
                 Configuration = sourceComponent.Configuration,
                 Schema = sourceComponent.Schema,
-                Status = "draft",
+                Status = "active",
                 Tags = new List<string>(sourceComponent.Tags)
             };
 

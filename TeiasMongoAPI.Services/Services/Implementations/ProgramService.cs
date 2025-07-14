@@ -240,6 +240,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             _logger.LogInformation("Created program {ProgramId} with name {ProgramName}", createdProgram._ID, createdProgram.Name);
 
+            Core.Models.Collaboration.Version version = new()
+            {
+                ProgramId = createdProgram._ID,
+                VersionNumber = 1,
+                CommitMessage = "Auto generated version",
+                CreatedBy = userId.ToString() ?? "system",
+            };
+
+            var createdVersion = await _unitOfWork.Versions.CreateAsync(version, cancellationToken);
+
+            createdProgram.CurrentVersion = createdVersion._ID.ToString();
+            await _unitOfWork.Programs.UpdateAsync(createdProgram._ID, createdProgram, cancellationToken);
+
             return _mapper.Map<ProgramDto>(createdProgram);
         }
 

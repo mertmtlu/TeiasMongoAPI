@@ -18,7 +18,7 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
                 .ForMember(dest => dest.ProgramId, opt => opt.Ignore()) // Set in service from method parameter
                 .ForMember(dest => dest.VersionId, opt => opt.Ignore()) // Set in service from method parameter
-                .ForMember(dest => dest.Status, opt => opt.MapFrom(src => "draft"))
+                .ForMember(dest => dest.Status, opt => opt.MapFrom(src => "active"))
                 .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Configuration)))
                 .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Schema)));
 
