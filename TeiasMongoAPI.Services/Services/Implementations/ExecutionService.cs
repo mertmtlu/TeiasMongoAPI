@@ -1483,7 +1483,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<bool> ValidateExecutionPermissionsAsync(string programId, string userId, CancellationToken cancellationToken = default)
         {
             return await _programService.ValidateUserAccessAsync(programId, userId, "Execute", cancellationToken) ||
-                await _programService.ValidateUserAccessAsync(programId, userId, "Admin", cancellationToken) ||
+                await _programService.ValidateUserAccessAsync(programId, userId, "admin", cancellationToken) ||
                 await _programService.ValidateUserAccessAsync(programId, userId, "Write", cancellationToken);
         }
 

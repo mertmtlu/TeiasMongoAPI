@@ -143,8 +143,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             try
             {
-                var content = await GetFileContentAsync(programId, versionId, filePath, cancellationToken);
-                var storageKey = GenerateStorageKey(programId, versionId, filePath);
+                var decodedFilePath = System.Web.HttpUtility.UrlDecode(filePath);
+
+                var content = await GetFileContentAsync(programId, versionId, decodedFilePath, cancellationToken);
+                var storageKey = GenerateStorageKey(programId, versionId, decodedFilePath);
                 var metadata = await GetFileMetadataAsync(storageKey, cancellationToken);
 
                 return new VersionFileDetailDto

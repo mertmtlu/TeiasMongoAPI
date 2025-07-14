@@ -834,10 +834,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Define access level hierarchy
             var accessLevels = new Dictionary<string, int>
             {
-                { "Read", 1 },
-                { "Write", 2 },
-                { "Admin", 3 },
-                { "Execute", 4 }
+                { "read", 1 },
+                { "write", 2 },
+                { "Execute", 3 },
+                { "admin", 4 },
             };
 
             if (!accessLevels.TryGetValue(userAccessLevel, out var userLevel) ||

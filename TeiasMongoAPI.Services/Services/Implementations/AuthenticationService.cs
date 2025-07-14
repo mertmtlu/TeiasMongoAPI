@@ -190,8 +190,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             return new AuthenticationResponseDto
             {
-                AccessToken = accessToken,
-                RefreshToken = refreshToken.Token,
+                AccessToken = "accessToken",
+                RefreshToken = "refreshToken.Token",
                 ExpiresAt = refreshToken.Expires,
                 TokenType = "Bearer",
                 User = createdUserDto
