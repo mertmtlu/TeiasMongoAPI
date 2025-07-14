@@ -8,120 +8,378 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         {
             [UserRoles.Admin] = new List<string>
             {
-                // Client permissions
-                UserPermissions.ViewClients,
-                UserPermissions.CreateClients,
-                UserPermissions.UpdateClients,
-                UserPermissions.DeleteClients,
-                
-                // Region permissions
-                UserPermissions.ViewRegions,
-                UserPermissions.CreateRegions,
-                UserPermissions.UpdateRegions,
-                UserPermissions.DeleteRegions,
-                
-                // TM permissions
-                UserPermissions.ViewTMs,
-                UserPermissions.CreateTMs,
-                UserPermissions.UpdateTMs,
-                UserPermissions.DeleteTMs,
-                
-                // Building permissions
-                UserPermissions.ViewBuildings,
-                UserPermissions.CreateBuildings,
-                UserPermissions.UpdateBuildings,
-                UserPermissions.DeleteBuildings,
-                
-                // User management permissions
-                UserPermissions.ViewUsers,
-                UserPermissions.CreateUsers,
-                UserPermissions.UpdateUsers,
-                UserPermissions.DeleteUsers,
-                UserPermissions.ManageRoles,
-                
-                // Reports permissions
-                UserPermissions.ViewReports,
-                UserPermissions.GenerateReports,
-                UserPermissions.ExportReports
+                 // Client permissions (Manager only)
+                 UserPermissions.ViewClients,
+                 UserPermissions.CreateClients,
+                 UserPermissions.UpdateClients,
+                 UserPermissions.DeleteClients,
+
+                 // Region permissions (Manager only)
+                 UserPermissions.ViewRegions,
+                 UserPermissions.CreateRegions,
+                 UserPermissions.UpdateRegions,
+                 UserPermissions.DeleteRegions,
+
+                 // TM permissions (Manager only)
+                 UserPermissions.ViewTMs,
+                 UserPermissions.CreateTMs,
+                 UserPermissions.UpdateTMs,
+                 UserPermissions.DeleteTMs,
+
+                 // Building permissions (Engineer only)
+                 UserPermissions.ViewBuildings,
+                 UserPermissions.CreateBuildings,
+                 UserPermissions.UpdateBuildings,
+                 UserPermissions.DeleteBuildings,
+
+                 // Block permissions (Engineer only)
+                 UserPermissions.ViewBlocks,
+                 UserPermissions.CreateBlocks,
+                 UserPermissions.UpdateBlocks,
+                 UserPermissions.DeleteBlocks,
+
+                 // Alternative TM permissions (Engineer for technical, Manager for business)
+                 UserPermissions.ViewAlternativeTMs,
+                 UserPermissions.CreateAlternativeTMs,
+                 UserPermissions.UpdateAlternativeTMs,
+                 UserPermissions.DeleteAlternativeTMs,
+
+                 // User management (Admin only)
+                 UserPermissions.ViewUsers,
+                 UserPermissions.CreateUsers,
+                 UserPermissions.UpdateUsers,
+                 UserPermissions.DeleteUsers,
+                 UserPermissions.ManageRoles,
+
+                 // Reports permissions
+                 UserPermissions.ViewReports,
+                 UserPermissions.GenerateReports,
+                 UserPermissions.ExportReports,
+                 UserPermissions.ViewAuditLogs,
+
+                 // Program (software) permission
+                 UserPermissions.ViewPrograms,
+                 UserPermissions.CreatePrograms,
+                 UserPermissions.UpdatePrograms,
+                 UserPermissions.DeletePrograms,
+                 UserPermissions.DeployPrograms,
+                 UserPermissions.ManagePrograms,
+                 UserPermissions.ExecutePrograms,
+
+                 // Version permissions  
+                 UserPermissions.ViewVersions,
+                 UserPermissions.CreateVersions,
+                 UserPermissions.UpdateVersions,
+                 UserPermissions.DeleteVersions,
+                 UserPermissions.ApproveVersions,
+                 UserPermissions.RejectVersions,
+                 UserPermissions.DeployVersions,
+
+                 // Execution permissions
+                 UserPermissions.ViewExecutions,
+                 UserPermissions.CreateExecutions,
+                 UserPermissions.ManageExecutions,
+                 UserPermissions.ViewExecutionResults,
+
+                 // UI Component permissions
+                 UserPermissions.ViewComponents,
+                 UserPermissions.CreateComponents,
+                 UserPermissions.UpdateComponents,
+                 UserPermissions.DeleteComponents,
+
+                 // Request permissions
+                 UserPermissions.ViewRequests,
+                 UserPermissions.CreateRequests,
+                 UserPermissions.UpdateRequests,
+                 UserPermissions.DeleteRequests,
+                 UserPermissions.AssignRequests,
             },
 
             [UserRoles.Manager] = new List<string>
             {
-                // Full access to business entities
-                UserPermissions.ViewClients,
-                UserPermissions.CreateClients,
-                UserPermissions.UpdateClients,
-                UserPermissions.DeleteClients,
+                                 // Client permissions (Manager only)
+                 UserPermissions.ViewClients,
+                 UserPermissions.CreateClients,
+                 UserPermissions.UpdateClients,
+                 UserPermissions.DeleteClients,
 
-                UserPermissions.ViewRegions,
-                UserPermissions.CreateRegions,
-                UserPermissions.UpdateRegions,
-                UserPermissions.DeleteRegions,
+                 // Region permissions (Manager only)
+                 UserPermissions.ViewRegions,
+                 UserPermissions.CreateRegions,
+                 UserPermissions.UpdateRegions,
+                 UserPermissions.DeleteRegions,
 
-                UserPermissions.ViewTMs,
-                UserPermissions.CreateTMs,
-                UserPermissions.UpdateTMs,
-                UserPermissions.DeleteTMs,
-                
-                // View-only access to technical entities
-                UserPermissions.ViewBuildings,
-                
-                // View-only access to users
-                UserPermissions.ViewUsers,
-                
-                // Reports permissions
-                UserPermissions.ViewReports,
-                UserPermissions.GenerateReports,
-                UserPermissions.ExportReports
+                 // TM permissions (Manager only)
+                 UserPermissions.ViewTMs,
+                 UserPermissions.CreateTMs,
+                 UserPermissions.UpdateTMs,
+                 UserPermissions.DeleteTMs,
+
+                 // Building permissions (Engineer only)
+                 UserPermissions.ViewBuildings,
+                 UserPermissions.CreateBuildings,
+                 UserPermissions.UpdateBuildings,
+                 UserPermissions.DeleteBuildings,
+
+                 // Block permissions (Engineer only)
+                 UserPermissions.ViewBlocks,
+                 UserPermissions.CreateBlocks,
+                 UserPermissions.UpdateBlocks,
+                 UserPermissions.DeleteBlocks,
+
+                 // Alternative TM permissions (Engineer for technical, Manager for business)
+                 UserPermissions.ViewAlternativeTMs,
+                 UserPermissions.CreateAlternativeTMs,
+                 UserPermissions.UpdateAlternativeTMs,
+                 UserPermissions.DeleteAlternativeTMs,
+
+                 // User management (Admin only)
+                 UserPermissions.ViewUsers,
+                 UserPermissions.CreateUsers,
+                 UserPermissions.UpdateUsers,
+                 UserPermissions.DeleteUsers,
+                 UserPermissions.ManageRoles,
+
+                 // Reports permissions
+                 UserPermissions.ViewReports,
+                 UserPermissions.GenerateReports,
+                 UserPermissions.ExportReports,
+                 UserPermissions.ViewAuditLogs,
+
+                 // Program (software) permission
+                 UserPermissions.ViewPrograms,
+                 UserPermissions.CreatePrograms,
+                 UserPermissions.UpdatePrograms,
+                 UserPermissions.DeletePrograms,
+                 UserPermissions.DeployPrograms,
+                 UserPermissions.ManagePrograms,
+                 UserPermissions.ExecutePrograms,
+
+                 // Version permissions  
+                 UserPermissions.ViewVersions,
+                 UserPermissions.CreateVersions,
+                 UserPermissions.UpdateVersions,
+                 UserPermissions.DeleteVersions,
+                 UserPermissions.ApproveVersions,
+                 UserPermissions.RejectVersions,
+                 UserPermissions.DeployVersions,
+
+                 // Execution permissions
+                 UserPermissions.ViewExecutions,
+                 UserPermissions.CreateExecutions,
+                 UserPermissions.ManageExecutions,
+                 UserPermissions.ViewExecutionResults,
+
+                 // UI Component permissions
+                 UserPermissions.ViewComponents,
+                 UserPermissions.CreateComponents,
+                 UserPermissions.UpdateComponents,
+                 UserPermissions.DeleteComponents,
+
+                 // Request permissions
+                 UserPermissions.ViewRequests,
+                 UserPermissions.CreateRequests,
+                 UserPermissions.UpdateRequests,
+                 UserPermissions.DeleteRequests,
+                 UserPermissions.AssignRequests,
             },
 
             [UserRoles.Engineer] = new List<string>
             {
-                // View-only access to business entities
-                UserPermissions.ViewClients,
-                UserPermissions.ViewRegions,
-                UserPermissions.ViewTMs,
-                
-                // Full access to technical entities
-                UserPermissions.ViewBuildings,
-                UserPermissions.CreateBuildings,
-                UserPermissions.UpdateBuildings,
-                UserPermissions.DeleteBuildings,
-                
-                // View-only access to users
-                UserPermissions.ViewUsers,
-                
-                // Reports permissions
-                UserPermissions.ViewReports,
-                UserPermissions.GenerateReports,
-                UserPermissions.ExportReports
+                 // Client permissions (Manager only)
+                 UserPermissions.ViewClients,
+
+                 // Region permissions (Manager only)
+                 UserPermissions.ViewRegions,
+
+                 // TM permissions (Manager only)
+                 UserPermissions.ViewTMs,
+
+                 // Building permissions (Engineer only)
+                 UserPermissions.ViewBuildings,
+                 UserPermissions.CreateBuildings,
+                 UserPermissions.UpdateBuildings,
+                 UserPermissions.DeleteBuildings,
+
+                 // Block permissions (Engineer only)
+                 UserPermissions.ViewBlocks,
+                 UserPermissions.CreateBlocks,
+                 UserPermissions.UpdateBlocks,
+                 UserPermissions.DeleteBlocks,
+
+                 // Alternative TM permissions (Engineer for technical, Manager for business)
+                 UserPermissions.ViewAlternativeTMs,
+
+                 // User management (Admin only)
+                 UserPermissions.ViewUsers,
+                 UserPermissions.UpdateUsers,
+
+                 // Reports permissions
+                 UserPermissions.ViewReports,
+                 UserPermissions.GenerateReports,
+                 UserPermissions.ExportReports,
+
+                 // Program (software) permission
+                 UserPermissions.ViewPrograms,
+                 UserPermissions.CreatePrograms,
+                 UserPermissions.UpdatePrograms,
+                 UserPermissions.DeletePrograms,
+                 UserPermissions.DeployPrograms,
+                 UserPermissions.ManagePrograms,
+                 UserPermissions.ExecutePrograms,
+
+                 // Version permissions  
+                 UserPermissions.ViewVersions,
+                 UserPermissions.CreateVersions,
+                 UserPermissions.UpdateVersions,
+                 UserPermissions.DeleteVersions,
+                 UserPermissions.ApproveVersions,
+                 UserPermissions.RejectVersions,
+                 UserPermissions.DeployVersions,
+
+                 // Execution permissions
+                 UserPermissions.ViewExecutions,
+                 UserPermissions.CreateExecutions,
+                 UserPermissions.ManageExecutions,
+                 UserPermissions.ViewExecutionResults,
+
+                 // UI Component permissions
+                 UserPermissions.ViewComponents,
+                 UserPermissions.CreateComponents,
+                 UserPermissions.UpdateComponents,
+                 UserPermissions.DeleteComponents,
+
+                 // Request permissions
+                 UserPermissions.ViewRequests,
+                 UserPermissions.CreateRequests,
+                 UserPermissions.UpdateRequests,
             },
 
             [UserRoles.Viewer] = new List<string>
             {
-                // Read-only access to all entities
-                UserPermissions.ViewClients,
-                UserPermissions.ViewRegions,
-                UserPermissions.ViewTMs,
-                UserPermissions.ViewBuildings,
-                UserPermissions.ViewUsers,
-                UserPermissions.ViewReports,
-                UserPermissions.ExportReports
+                 // Client permissions (Manager only)
+                 UserPermissions.ViewClients,
+
+                 // Region permissions (Manager only)
+                 UserPermissions.ViewRegions,
+
+                 // TM permissions (Manager only)
+                 UserPermissions.ViewTMs,
+
+                 // Building permissions (Engineer only)
+                 UserPermissions.ViewBuildings,
+
+                 // Block permissions (Engineer only)
+                 UserPermissions.ViewBlocks,
+
+                 // Alternative TM permissions (Engineer for technical, Manager for business)
+                 UserPermissions.ViewAlternativeTMs,
+
+                 // User management (Admin only)
+                 UserPermissions.ViewUsers,
+
+                 // Reports permissions
+                 UserPermissions.ViewReports,
+                 UserPermissions.GenerateReports,
+
+                 // Program (software) permission
+                 UserPermissions.ViewPrograms,
+                 UserPermissions.CreatePrograms,
+                 UserPermissions.UpdatePrograms,
+                 UserPermissions.DeletePrograms,
+                 UserPermissions.DeployPrograms,
+                 UserPermissions.ManagePrograms,
+                 UserPermissions.ExecutePrograms,
+
+                 // Version permissions  
+                 UserPermissions.ViewVersions,
+                 UserPermissions.CreateVersions,
+                 UserPermissions.UpdateVersions,
+                 UserPermissions.DeleteVersions,
+                 UserPermissions.ApproveVersions,
+                 UserPermissions.RejectVersions,
+                 UserPermissions.DeployVersions,
+
+                 // Execution permissions
+                 UserPermissions.ViewExecutions,
+                 UserPermissions.CreateExecutions,
+                 UserPermissions.ManageExecutions,
+                 UserPermissions.ViewExecutionResults,
+
+                 // UI Component permissions
+                 UserPermissions.ViewComponents,
+                 UserPermissions.CreateComponents,
+                 UserPermissions.UpdateComponents,
+                 UserPermissions.DeleteComponents,
+
+                 // Request permissions
+                 UserPermissions.ViewRequests,
+                 UserPermissions.CreateRequests,
+                 UserPermissions.UpdateRequests,
             },
 
             [UserRoles.Auditor] = new List<string>
             {
-                // Read access to all entities
-                UserPermissions.ViewClients,
-                UserPermissions.ViewRegions,
-                UserPermissions.ViewTMs,
-                UserPermissions.ViewBuildings,
-                UserPermissions.ViewUsers,
-                
-                // Full reports access
-                UserPermissions.ViewReports,
-                UserPermissions.GenerateReports,
-                UserPermissions.ExportReports
+                 // Client permissions (Manager only)
+                 UserPermissions.ViewClients,
+
+                 // Region permissions (Manager only)
+                 UserPermissions.ViewRegions,
+
+                 // TM permissions (Manager only)
+                 UserPermissions.ViewTMs,
+
+                 // Building permissions (Engineer only)
+                 UserPermissions.ViewBuildings,
+
+                 // Block permissions (Engineer only)
+                 UserPermissions.ViewBlocks,
+
+                 // Alternative TM permissions (Engineer for technical, Manager for business)
+                 UserPermissions.ViewAlternativeTMs,
+
+                 // User management (Admin only)
+                 UserPermissions.ViewUsers,
+                 UserPermissions.ManageRoles,
+
+                 // Reports permissions
+                 UserPermissions.ViewReports,
+                 UserPermissions.GenerateReports,
+                 UserPermissions.ExportReports,
+                 UserPermissions.ViewAuditLogs,
+
+                 // Program (software) permission
+                 UserPermissions.ViewPrograms,
+                 UserPermissions.UpdatePrograms,
+                 UserPermissions.DeletePrograms,
+                 UserPermissions.DeployPrograms,
+                 UserPermissions.ExecutePrograms,
+
+                 // Version permissions  
+                 UserPermissions.ViewVersions,
+                 UserPermissions.UpdateVersions,
+                 UserPermissions.ApproveVersions,
+                 UserPermissions.RejectVersions,
+                 UserPermissions.DeployVersions,
+
+                 // Execution permissions
+                 UserPermissions.ViewExecutions,
+                 UserPermissions.CreateExecutions,
+                 UserPermissions.ManageExecutions,
+                 UserPermissions.ViewExecutionResults,
+
+                 // UI Component permissions
+                 UserPermissions.ViewComponents,
+                 UserPermissions.CreateComponents,
+                 UserPermissions.UpdateComponents,
+                 UserPermissions.DeleteComponents,
+
+                 // Request permissions
+                 UserPermissions.ViewRequests,
+                 UserPermissions.CreateRequests,
+                 UserPermissions.UpdateRequests,
+                 UserPermissions.DeleteRequests,
+                 UserPermissions.AssignRequests,
             }
         };
 
