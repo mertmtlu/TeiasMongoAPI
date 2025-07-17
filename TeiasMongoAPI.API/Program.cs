@@ -212,6 +212,10 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IProjectLanguageRunner, NodeJsProjectRunner>();
             builder.Services.AddScoped<IProjectLanguageRunner, PythonProjectRunner>();
 
+            // Register Workflow Services
+            builder.Services.AddScoped<IWorkflowService, WorkflowService>();
+            builder.Services.AddScoped<IWorkflowExecutionEngine, WorkflowExecutionEngine>();
+            builder.Services.AddScoped<IWorkflowValidationService, WorkflowValidationService>();
 
             // Register Background Services
             builder.Services.AddHostedService<TokenCleanupService>();
