@@ -93,11 +93,19 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  UserPermissions.UpdateRequests,
                  UserPermissions.DeleteRequests,
                  UserPermissions.AssignRequests,
+
+                 // Workflow permissions
+                 UserPermissions.ViewWorkflows,
+                 UserPermissions.CreateWorkflows,
+                 UserPermissions.EditWorkflows,
+                 UserPermissions.DeleteWorkflows,
+                 UserPermissions.ExecuteWorkflows,
+                 UserPermissions.ManageWorkflows
             },
 
             [UserRoles.Manager] = new List<string>
             {
-                                 // Client permissions (Manager only)
+                 // Client permissions (Manager only)
                  UserPermissions.ViewClients,
                  UserPermissions.CreateClients,
                  UserPermissions.UpdateClients,
@@ -182,6 +190,14 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  UserPermissions.UpdateRequests,
                  UserPermissions.DeleteRequests,
                  UserPermissions.AssignRequests,
+
+                 // Workflow permissions
+                 UserPermissions.ViewWorkflows,
+                 UserPermissions.CreateWorkflows,
+                 UserPermissions.EditWorkflows,
+                 UserPermissions.DeleteWorkflows,
+                 UserPermissions.ExecuteWorkflows,
+                 UserPermissions.ManageWorkflows
             },
 
             [UserRoles.Engineer] = new List<string>
@@ -253,6 +269,14 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  UserPermissions.ViewRequests,
                  UserPermissions.CreateRequests,
                  UserPermissions.UpdateRequests,
+
+                 // Workflow permissions
+                 UserPermissions.ViewWorkflows,
+                 UserPermissions.CreateWorkflows,
+                 UserPermissions.EditWorkflows,
+                 UserPermissions.DeleteWorkflows,
+                 UserPermissions.ExecuteWorkflows,
+                 UserPermissions.ManageWorkflows
             },
 
             [UserRoles.Viewer] = new List<string>
@@ -316,6 +340,10 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  UserPermissions.ViewRequests,
                  UserPermissions.CreateRequests,
                  UserPermissions.UpdateRequests,
+
+                 // Workflow permissions
+                 UserPermissions.ViewWorkflows,
+                 UserPermissions.ExecuteWorkflows
             },
 
             [UserRoles.Auditor] = new List<string>
@@ -380,6 +408,14 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  UserPermissions.UpdateRequests,
                  UserPermissions.DeleteRequests,
                  UserPermissions.AssignRequests,
+
+                 // Workflow permissions
+                 UserPermissions.ViewWorkflows,
+                 UserPermissions.CreateWorkflows,
+                 UserPermissions.EditWorkflows,
+                 UserPermissions.DeleteWorkflows,
+                 UserPermissions.ExecuteWorkflows,
+                 UserPermissions.ManageWorkflows
             }
         };
 

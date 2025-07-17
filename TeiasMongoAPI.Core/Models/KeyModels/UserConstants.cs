@@ -98,5 +98,13 @@
         public const string UpdateRequests = "requests.update";
         public const string DeleteRequests = "requests.delete";
         public const string AssignRequests = "requests.assign";
+
+        // Workflow permissions
+        public const string ViewWorkflows = "workflows.view";
+        public const string CreateWorkflows = "workflows.create";
+        public const string EditWorkflows = "workflows.edit";
+        public const string DeleteWorkflows = "workflows.delete";
+        public const string ExecuteWorkflows = "workflows.execute";
+        public const string ManageWorkflows = "workflows.manage";
     }
 }
