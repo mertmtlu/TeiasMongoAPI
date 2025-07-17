@@ -836,12 +836,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 { "read", 1 },
                 { "write", 2 },
-                { "Execute", 3 },
+                { "execute", 3 },
                 { "admin", 4 },
             };
 
-            if (!accessLevels.TryGetValue(userAccessLevel, out var userLevel) ||
-                !accessLevels.TryGetValue(requiredAccessLevel, out var requiredLevel))
+            if (!accessLevels.TryGetValue(userAccessLevel.ToLower(), out var userLevel) ||
+                !accessLevels.TryGetValue(requiredAccessLevel.ToLower(), out var requiredLevel))
             {
                 return false;
             }

@@ -74,6 +74,13 @@ namespace TeiasMongoAPI.Services.Helpers
             var placeholder = element.GetValue("placeholder", "").AsString;
             var required = element.GetValue("required", false).AsBoolean;
 
+            // Handle table elements specifically
+            if (elementType == "table")
+            {
+                GenerateTableProperties(sb, element);
+                return;
+            }
+
             // Property getter
             sb.AppendLine($"    @property");
             sb.AppendLine($"    def {elementName}(self) -> {GetPythonType(elementType)}:");
@@ -102,6 +109,152 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine();
         }
 
+        private static void GenerateTableProperties(StringBuilder sb, BsonDocument element)
+        {
+            var elementName = element.GetValue("name", "").AsString;
+            var elementLabel = element.GetValue("label", "").AsString;
+            var required = element.GetValue("required", false).AsBoolean;
+
+            // Get table configuration
+            var tableConfig = element.GetValue("tableConfig", new BsonDocument()).AsBsonDocument;
+            var rows = tableConfig.GetValue("rows", 3).AsInt32;
+            var columns = tableConfig.GetValue("columns", 3).AsInt32;
+            var cells = tableConfig.GetValue("cells", new BsonArray()).AsBsonArray;
+
+            // Generate properties for the overall table
+            sb.AppendLine($"    @property");
+            sb.AppendLine($"    def {elementName}(self) -> Dict[str, Any]:");
+            sb.AppendLine($"        \"\"\"");
+            sb.AppendLine($"        {elementLabel} - Table data structure");
+            sb.AppendLine($"        Type: table ({rows}x{columns})");
+            sb.AppendLine($"        Required: {required}");
+            sb.AppendLine($"        \"\"\"");
+            sb.AppendLine($"        table_data = {{}}");
+
+            // Generate individual cell properties
+            foreach (var cell in cells)
+            {
+                var cellDoc = cell.AsBsonDocument;
+                var cellId = cellDoc.GetValue("cellId", "").AsString;
+                var customName = cellDoc.GetValue("customName", "").AsString;
+                var cellType = cellDoc.GetValue("type", "text").AsString;
+
+                // Use custom name if available, otherwise use cellId
+                var propertyName = !string.IsNullOrEmpty(customName) ? customName : cellId;
+
+                sb.AppendLine($"        table_data['{propertyName}'] = self._values.get('{elementName}_{cellId}', '')");
+            }
+
+            sb.AppendLine($"        return table_data");
+            sb.AppendLine();
+
+            // Generate setter for the table
+            sb.AppendLine($"    @{elementName}.setter");
+            sb.AppendLine($"    def {elementName}(self, value: Dict[str, Any]):");
+            if (required)
+            {
+                sb.AppendLine($"        if not value:");
+                sb.AppendLine($"            raise ValueError('{elementLabel} is required')");
+            }
+            sb.AppendLine($"        if not isinstance(value, dict):");
+            sb.AppendLine($"            raise ValueError('Table value must be a dictionary')");
+
+            // Set individual cell values
+            foreach (var cell in cells)
+            {
+                var cellDoc = cell.AsBsonDocument;
+                var cellId = cellDoc.GetValue("cellId", "").AsString;
+                var customName = cellDoc.GetValue("customName", "").AsString;
+                var propertyName = !string.IsNullOrEmpty(customName) ? customName : cellId;
+
+                sb.AppendLine($"        if '{propertyName}' in value:");
+                sb.AppendLine($"            self._values['{elementName}_{cellId}'] = value['{propertyName}']");
+            }
+            sb.AppendLine();
+
+            // Generate individual cell property accessors
+            foreach (var cell in cells)
+            {
+                var cellDoc = cell.AsBsonDocument;
+                var cellId = cellDoc.GetValue("cellId", "").AsString;
+                var customName = cellDoc.GetValue("customName", "").AsString;
+                var cellType = cellDoc.GetValue("type", "text").AsString;
+
+                // Use custom name if available, otherwise use cellId
+                var propertyName = !string.IsNullOrEmpty(customName) ? customName : cellId;
+                var cellKey = $"{elementName}_{cellId}";
+
+                // Property getter
+                sb.AppendLine($"    @property");
+                sb.AppendLine($"    def {propertyName}(self) -> {GetPythonTypeForCell(cellType)}:");
+                sb.AppendLine($"        \"\"\"");
+                sb.AppendLine($"        Cell {cellId}");
+                if (!string.IsNullOrEmpty(customName))
+                {
+                    sb.AppendLine($"        Custom name: {customName}");
+                }
+                sb.AppendLine($"        Type: {cellType}");
+                sb.AppendLine($"        \"\"\"");
+                sb.AppendLine($"        return self._values.get('{cellKey}', {GetDefaultValueForCell(cellType)})");
+                sb.AppendLine();
+
+                // Property setter
+                sb.AppendLine($"    @{propertyName}.setter");
+                sb.AppendLine($"    def {propertyName}(self, value: {GetPythonTypeForCell(cellType)}):");
+                GenerateValidationForCell(sb, cellType, cellDoc);
+                sb.AppendLine($"        self._values['{cellKey}'] = value");
+                sb.AppendLine();
+            }
+        }
+
+        private static string GetPythonTypeForCell(string cellType)
+        {
+            return cellType switch
+            {
+                "text" => "Optional[str]",
+                "number" => "Optional[Union[int, float]]",
+                "dropdown" => "Optional[str]",
+                "date" => "Optional[str]",
+                _ => "Optional[str]"
+            };
+        }
+
+        private static string GetDefaultValueForCell(string cellType)
+        {
+            return cellType switch
+            {
+                "text" => "''",
+                "number" => "None",
+                "dropdown" => "None",
+                "date" => "None",
+                _ => "''"
+            };
+        }
+
+        private static void GenerateValidationForCell(StringBuilder sb, string cellType, BsonDocument cellDoc)
+        {
+            switch (cellType)
+            {
+                case "number":
+                    sb.AppendLine($"        if value is not None and not isinstance(value, (int, float)):");
+                    sb.AppendLine($"            try:");
+                    sb.AppendLine($"                value = float(value)");
+                    sb.AppendLine($"            except (ValueError, TypeError):");
+                    sb.AppendLine($"                raise ValueError('Value must be a number')");
+                    break;
+                case "dropdown":
+                    if (cellDoc.Contains("options"))
+                    {
+                        var options = cellDoc["options"].AsBsonArray;
+                        var optionsList = string.Join(", ", options.Select(o => $"'{o.AsString}'"));
+                        sb.AppendLine($"        valid_options = [{optionsList}]");
+                        sb.AppendLine($"        if value is not None and value not in valid_options:");
+                        sb.AppendLine($"            raise ValueError(f'Invalid option: {{value}}. Valid options: {{valid_options}}')");
+                    }
+                    break;
+            }
+        }
+
         private static void GenerateHelperMethods(StringBuilder sb, UiComponent component)
         {
             // Get all values method
@@ -128,11 +281,125 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        return json.dumps(self._values, default=str)");
             sb.AppendLine();
 
-            // From JSON method
+            // From JSON method - UPDATED to handle table elements
             sb.AppendLine("    def from_json(self, json_str: str):");
             sb.AppendLine("        \"\"\"Load values from JSON string\"\"\"");
-            sb.AppendLine("        data = self.parse_js_object_params(json_str)");
-            sb.AppendLine("        self._values.update(data)");
+            sb.AppendLine("        try:");
+            sb.AppendLine("            # Try to parse as proper JSON first");
+            sb.AppendLine("            data = json.loads(json_str)");
+            sb.AppendLine("            self._load_from_dict(data)");
+            sb.AppendLine("        except json.JSONDecodeError:");
+            sb.AppendLine("            # Fallback to custom JS object parsing");
+            sb.AppendLine("            data = self.parse_js_object_params(json_str)");
+            sb.AppendLine("            self._load_from_dict(data)");
+            sb.AppendLine();
+
+            // Add new helper method _load_from_dict
+            sb.AppendLine("    def _load_from_dict(self, data: Dict[str, Any]):");
+            sb.AppendLine("        \"\"\"Load values from dictionary, handling table elements specially\"\"\"");
+            sb.AppendLine("        for key, value in data.items():");
+            sb.AppendLine("            # Check if this is a table element");
+            sb.AppendLine("            if self._is_table_element(key) and isinstance(value, dict):");
+            sb.AppendLine("                # Expand table data into individual cell keys");
+            sb.AppendLine("                for cell_key, cell_value in value.items():");
+            sb.AppendLine("                    # Find the actual cell ID from custom name or use the key directly");
+            sb.AppendLine("                    actual_cell_id = self._find_cell_id_by_name(key, cell_key)");
+            sb.AppendLine("                    if actual_cell_id:");
+            sb.AppendLine("                        self._values[f'{key}_{actual_cell_id}'] = cell_value");
+            sb.AppendLine("                    else:");
+            sb.AppendLine("                        # If no mapping found, assume it's already a cell ID");
+            sb.AppendLine("                        self._values[f'{key}_{cell_key}'] = cell_value");
+            sb.AppendLine("            else:");
+            sb.AppendLine("                # Regular element");
+            sb.AppendLine("                self._values[key] = value");
+            sb.AppendLine();
+
+            // Add helper method to check if element is a table
+            sb.AppendLine("    def _is_table_element(self, element_name: str) -> bool:");
+            sb.AppendLine("        \"\"\"Check if the given element name corresponds to a table element\"\"\"");
+
+            // Generate the table element checks based on actual elements
+            if (component.Configuration != null && component.Configuration.Contains("elements"))
+            {
+                var elements = component.Configuration["elements"].AsBsonArray;
+                var tableElements = elements.Where(e => e.AsBsonDocument.GetValue("type", "").AsString == "table").ToList();
+
+                if (tableElements.Any())
+                {
+                    sb.AppendLine("        table_elements = {");
+                    foreach (var tableElement in tableElements)
+                    {
+                        var elementDoc = tableElement.AsBsonDocument;
+                        var elementName = elementDoc.GetValue("name", "").AsString;
+                        sb.AppendLine($"            '{elementName}': True,");
+                    }
+                    sb.AppendLine("        }");
+                    sb.AppendLine("        return element_name in table_elements");
+                }
+                else
+                {
+                    sb.AppendLine("        return False");
+                }
+            }
+            else
+            {
+                sb.AppendLine("        return False");
+            }
+            sb.AppendLine();
+
+            // Add helper method to find cell ID by custom name
+            sb.AppendLine("    def _find_cell_id_by_name(self, table_name: str, cell_name: str) -> Optional[str]:");
+            sb.AppendLine("        \"\"\"Find the actual cell ID by custom name or return the name if it's already a cell ID\"\"\"");
+
+            // Generate cell mappings for each table element
+            if (component.Configuration != null && component.Configuration.Contains("elements"))
+            {
+                var elements = component.Configuration["elements"].AsBsonArray;
+                var tableElements = elements.Where(e => e.AsBsonDocument.GetValue("type", "").AsString == "table").ToList();
+
+                if (tableElements.Any())
+                {
+                    sb.AppendLine("        cell_mappings = {");
+                    foreach (var tableElement in tableElements)
+                    {
+                        var elementDoc = tableElement.AsBsonDocument;
+                        var elementName = elementDoc.GetValue("name", "").AsString;
+                        var tableConfig = elementDoc.GetValue("tableConfig", new BsonDocument()).AsBsonDocument;
+                        var cells = tableConfig.GetValue("cells", new BsonArray()).AsBsonArray;
+
+                        sb.AppendLine($"            '{elementName}': {{");
+
+                        foreach (var cell in cells)
+                        {
+                            var cellDoc = cell.AsBsonDocument;
+                            var cellId = cellDoc.GetValue("cellId", "").AsString;
+                            var customName = cellDoc.GetValue("customName", "").AsString;
+
+                            if (!string.IsNullOrEmpty(customName))
+                            {
+                                sb.AppendLine($"                '{customName}': '{cellId}',");
+                            }
+                            // Also map the cell ID to itself for direct access
+                            sb.AppendLine($"                '{cellId}': '{cellId}',");
+                        }
+
+                        sb.AppendLine("            },");
+                    }
+                    sb.AppendLine("        }");
+                    sb.AppendLine();
+                    sb.AppendLine("        if table_name in cell_mappings:");
+                    sb.AppendLine("            return cell_mappings[table_name].get(cell_name, cell_name)");
+                    sb.AppendLine("        return cell_name");
+                }
+                else
+                {
+                    sb.AppendLine("        return cell_name");
+                }
+            }
+            else
+            {
+                sb.AppendLine("        return cell_name");
+            }
             sb.AppendLine();
 
             sb.AppendLine("    def parse_value(self, value_str):");
@@ -151,17 +418,24 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("            return float(value_str)");
             sb.AppendLine("        else:");
             sb.AppendLine("            return value_str");
-
-            
-            // JSON parse method
-            sb.AppendLine("    def parse_js_object_params(self, param_string: str):");
-            sb.AppendLine("        \"\"\"Parse JavaScript-style object notation\"\"\"");
             sb.AppendLine();
+
+            // Updated parse_js_object_params method to handle nested objects better
+            sb.AppendLine("    def parse_js_object_params(self, param_string: str) -> Dict[str, Any]:");
+            sb.AppendLine("        \"\"\"Parse JavaScript-style object notation with support for nested objects\"\"\"");
+            sb.AppendLine("        try:");
+            sb.AppendLine("            # First try to parse as JSON");
+            sb.AppendLine("            return json.loads(param_string)");
+            sb.AppendLine("        except json.JSONDecodeError:");
+            sb.AppendLine("            pass");
+            sb.AppendLine();
+            sb.AppendLine("        # Fallback to custom parsing");
             sb.AppendLine("        # Remove outer quotes and braces");
             sb.AppendLine("        clean_string = param_string.strip().strip(\"'\\\"\").strip('{ }')");
             sb.AppendLine("        params = {}");
             sb.AppendLine();
-            sb.AppendLine("        # Split by comma, but handle nested structures");
+            sb.AppendLine("        # Simple key-value parsing (this is a simplified version)");
+            sb.AppendLine("        # For complex nested objects, JSON parsing above should work");
             sb.AppendLine("        current_key = \"\"");
             sb.AppendLine("        current_value = \"\"");
             sb.AppendLine("        in_key = True");
@@ -213,12 +487,37 @@ namespace TeiasMongoAPI.Services.Helpers
                     var elementDoc = element.AsBsonDocument;
                     var elementName = elementDoc.GetValue("name", "").AsString;
                     var elementLabel = elementDoc.GetValue("label", "").AsString;
+                    var elementType = elementDoc.GetValue("type", "").AsString;
                     var required = elementDoc.GetValue("required", false).AsBoolean;
 
                     if (required)
                     {
-                        sb.AppendLine($"        if not self._values.get('{elementName}'):");
-                        sb.AppendLine($"            errors.append('{elementLabel} is required')");
+                        if (elementType == "table")
+                        {
+                            // For table elements, check if any cell has a value
+                            sb.AppendLine($"        # Check table element: {elementName}");
+                            sb.AppendLine($"        table_has_value = False");
+
+                            var tableConfig = elementDoc.GetValue("tableConfig", new BsonDocument()).AsBsonDocument;
+                            var cells = tableConfig.GetValue("cells", new BsonArray()).AsBsonArray;
+
+                            foreach (var cell in cells)
+                            {
+                                var cellDoc = cell.AsBsonDocument;
+                                var cellId = cellDoc.GetValue("cellId", "").AsString;
+                                sb.AppendLine($"        if self._values.get('{elementName}_{cellId}'):");
+                                sb.AppendLine($"            table_has_value = True");
+                                sb.AppendLine($"            break");
+                            }
+
+                            sb.AppendLine($"        if not table_has_value:");
+                            sb.AppendLine($"            errors.append('{elementLabel} is required')");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"        if not self._values.get('{elementName}'):");
+                            sb.AppendLine($"            errors.append('{elementLabel} is required')");
+                        }
                     }
                 }
             }
@@ -256,6 +555,7 @@ namespace TeiasMongoAPI.Services.Helpers
                 "date_input" => "Optional[str]",
                 "slider" => "Optional[Union[int, float]]",
                 "multi_select" => "Optional[List[str]]",
+                "table" => "Optional[Dict[str, Any]]",
                 _ => "Optional[Any]"
             };
         }
@@ -276,6 +576,7 @@ namespace TeiasMongoAPI.Services.Helpers
                 "date_input" => "None",
                 "slider" => "None",
                 "multi_select" => "[]",
+                "table" => "{}",
                 _ => "None"
             };
         }

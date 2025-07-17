@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.Interfaces.Execution;
@@ -221,15 +222,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 var parametersJson = System.Text.Json.JsonSerializer.Serialize(parameters);
                 var parametersDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(parametersJson);
 
-                if (parametersDict?.ContainsKey("inputFiles") == true)
+                if (parametersDict == null)
                 {
-                    // Get the input files info
+                    return parameters;
+                }
+
+                // Process input files (existing logic)
+                if (parametersDict.ContainsKey("inputFiles"))
+                {
                     var inputFilesJson = System.Text.Json.JsonSerializer.Serialize(parametersDict["inputFiles"]);
                     var inputFiles = System.Text.Json.JsonSerializer.Deserialize<List<InputFileData>>(inputFilesJson);
 
                     if (inputFiles != null)
                     {
-                        // Replace inputFiles with file paths that the program can use
                         var filePaths = inputFiles.Select(f => $"./input/{f.Name}").ToList();
                         var fileNames = inputFiles.Select(f => f.Name).ToList();
 
@@ -241,13 +246,45 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 }
                 else
                 {
-                    if (parametersDict != null)
+                    parametersDict["hasInputFiles"] = false;
+                }
+
+                // Process table elements - flatten nested table data
+                var processedParameters = new Dictionary<string, object>();
+
+                foreach (var kvp in parametersDict)
+                {
+                    if (kvp.Value is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
                     {
-                        parametersDict["hasInputFiles"] = false;
+                        // Check if this might be a table element (nested object structure)
+                        var nestedDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(jsonElement.GetRawText());
+
+                        if (nestedDict != null && IsTableElement(nestedDict))
+                        {
+                            // This is a table element - flatten it
+                            foreach (var cellKvp in nestedDict)
+                            {
+                                var cellKey = $"{kvp.Key}_{cellKvp.Key}";
+                                processedParameters[cellKey] = cellKvp.Value;
+                            }
+
+                            // Also keep the original table structure for backward compatibility
+                            processedParameters[kvp.Key] = nestedDict;
+                        }
+                        else
+                        {
+                            // Regular nested object, keep as is
+                            processedParameters[kvp.Key] = nestedDict;
+                        }
+                    }
+                    else
+                    {
+                        // Regular parameter, keep as is
+                        processedParameters[kvp.Key] = kvp.Value;
                     }
                 }
 
-                return parametersDict ?? parameters;
+                return processedParameters;
             }
             catch (Exception ex)
             {
@@ -256,6 +293,39 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             }
         }
 
+        private bool IsTableElement(Dictionary<string, object> dict)
+        {
+            // Heuristic to determine if this is a table element:
+            // 1. All keys should be cell IDs (like "a1", "b1") or custom names
+            // 2. Values should be simple types (strings, numbers, booleans)
+            // 3. Should have multiple entries (tables typically have multiple cells)
+
+            if (dict.Count == 0)
+                return false;
+
+            // Check if all values are simple types (not nested objects)
+            foreach (var kvp in dict)
+            {
+                if (kvp.Value is JsonElement jsonElement)
+                {
+                    if (jsonElement.ValueKind == JsonValueKind.Object || jsonElement.ValueKind == JsonValueKind.Array)
+                    {
+                        return false; // Complex nested structure, probably not a table
+                    }
+                }
+                else if (kvp.Value is Dictionary<string, object> || kvp.Value is List<object>)
+                {
+                    return false; // Complex nested structure, probably not a table
+                }
+            }
+
+            // Additional heuristics could be added here:
+            // - Check for cell ID patterns (a1, b1, etc.)
+            // - Check for common table-like key patterns
+            // - Check against known table element names from component configuration
+
+            return true; // Likely a table element
+        }
         protected class InputFileData
         {
             public string Name { get; set; } = string.Empty;
