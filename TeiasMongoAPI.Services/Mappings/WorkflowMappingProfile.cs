@@ -1,4 +1,5 @@
 using AutoMapper;
+using MongoDB.Bson;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
@@ -9,12 +10,39 @@ namespace TeiasMongoAPI.Services.Mappings
     {
         public WorkflowMappingProfile()
         {
+            // CRITICAL: Add type converters FIRST to handle Dictionary<string, object> <-> BsonDocument conversion
+            CreateTypeConverters();
+
             CreateWorkflowMappings();
             CreateWorkflowNodeMappings();
             CreateWorkflowEdgeMappings();
             CreateWorkflowExecutionMappings();
             CreateWorkflowPermissionMappings();
             CreateWorkflowSettingsMappings();
+        }
+
+        private void CreateTypeConverters()
+        {
+            // Handle Dictionary<string, object> to BsonDocument conversion
+            CreateMap<Dictionary<string, object>, BsonDocument>()
+                .ConvertUsing(dict => dict != null ? new BsonDocument(dict) : null);
+
+            CreateMap<BsonDocument, Dictionary<string, object>>()
+                .ConvertUsing(doc => doc != null ? doc.ToDictionary() : null);
+
+            // Handle nullable versions
+            CreateMap<Dictionary<string, object>?, BsonDocument?>()
+                .ConvertUsing(dict => dict != null ? new BsonDocument(dict) : null);
+
+            CreateMap<BsonDocument?, Dictionary<string, object>?>()
+                .ConvertUsing(doc => doc != null ? doc.ToDictionary() : null);
+
+            // Handle collections of dictionaries/documents
+            //    CreateMap<List<Dictionary<string, object>>, List<BsonDocument>>()
+            //        .ConvertUsing(dicts => dicts?.Select(d => d != null ? new BsonDocument(d) : null).Where(b => b != null).ToList() ?? new List<BsonDocument>());
+
+            //    CreateMap<List<BsonDocument>, List<Dictionary<string, object>>>()
+            //        .ConvertUsing(docs => docs?.Select(d => d?.ToDictionary()).Where(d => d != null).ToList() ?? new List<Dictionary<string, object>>());
         }
 
         private void CreateWorkflowMappings()
@@ -50,9 +78,9 @@ namespace TeiasMongoAPI.Services.Mappings
 
             CreateMap<Workflow, WorkflowListDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
-                .ForMember(dest => dest.NodeCount, opt => opt.MapFrom(src => src.Nodes.Count))
-                .ForMember(dest => dest.EdgeCount, opt => opt.MapFrom(src => src.Edges.Count))
-                .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.Permissions.IsPublic))
+                .ForMember(dest => dest.NodeCount, opt => opt.MapFrom(src => src.Nodes != null ? src.Nodes.Count : 0))
+                .ForMember(dest => dest.EdgeCount, opt => opt.MapFrom(src => src.Edges != null ? src.Edges.Count : 0))
+                .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.Permissions != null ? src.Permissions.IsPublic : false))
                 .ForMember(dest => dest.ComplexityLevel, opt => opt.Ignore()) // Will be calculated
                 .ForMember(dest => dest.HasPermission, opt => opt.Ignore()); // Will be set by service
         }
@@ -61,15 +89,15 @@ namespace TeiasMongoAPI.Services.Mappings
         {
             // Workflow Node mappings
             CreateMap<WorkflowNodeCreateDto, WorkflowNode>()
-                .ForMember(dest => dest.ProgramId, opt => opt.MapFrom(src => MongoDB.Bson.ObjectId.Parse(src.ProgramId)))
-                .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.VersionId) ? MongoDB.Bson.ObjectId.Parse(src.VersionId) : (MongoDB.Bson.ObjectId?)null))
+                .ForMember(dest => dest.ProgramId, opt => opt.MapFrom(src => ObjectId.Parse(src.ProgramId)))
+                .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.VersionId) ? ObjectId.Parse(src.VersionId) : (ObjectId?)null))
                 .ForMember(dest => dest.CreatedAt, opt => opt.Ignore()) // Will be set by service
                 .ForMember(dest => dest.UpdatedAt, opt => opt.Ignore());
 
             CreateMap<WorkflowNodeUpdateDto, WorkflowNode>()
                 .ForMember(dest => dest.Id, opt => opt.Ignore())
-                .ForMember(dest => dest.ProgramId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.ProgramId) ? MongoDB.Bson.ObjectId.Parse(src.ProgramId) : MongoDB.Bson.ObjectId.Empty))
-                .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.VersionId) ? MongoDB.Bson.ObjectId.Parse(src.VersionId) : (MongoDB.Bson.ObjectId?)null))
+                .ForMember(dest => dest.ProgramId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.ProgramId) ? ObjectId.Parse(src.ProgramId) : ObjectId.Empty))
+                .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.VersionId) ? ObjectId.Parse(src.VersionId) : (ObjectId?)null))
                 .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
                 .ForMember(dest => dest.UpdatedAt, opt => opt.Ignore()) // Will be set by service
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
@@ -124,19 +152,32 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.Duration, opt => opt.MapFrom(src => src.CompletedAt.HasValue ? src.CompletedAt.Value - src.StartedAt : (TimeSpan?)null))
                 .ForMember(dest => dest.ErrorMessage, opt => opt.MapFrom(src => src.Error != null ? src.Error.Message : null))
-                .ForMember(dest => dest.NodeStatuses, opt => opt.MapFrom(src => src.NodeExecutions.ToDictionary(ne => ne.NodeId, ne => ne.Status)))
-                .ForMember(dest => dest.Metadata, opt => opt.MapFrom(src => src.Metadata.ToDictionary()));
+                .ForMember(dest => dest.NodeStatuses, opt => opt.MapFrom(src => src.NodeExecutions != null ? src.NodeExecutions.ToDictionary(ne => ne.NodeId, ne => ne.Status) : new Dictionary<string, NodeExecutionStatus>()))
+                .ForMember(dest => dest.Metadata, opt => opt.MapFrom(src => src.Metadata)); // Type converter will handle BsonDocument -> Dictionary
 
             CreateMap<NodeExecution, NodeExecutionDto>()
-                .ForMember(dest => dest.ProgramExecutionId, opt => opt.MapFrom(src => src.ProgramExecutionId != null ? src.ProgramExecutionId.ToString() : null));
+                .ForMember(dest => dest.ProgramExecutionId, opt => opt.MapFrom(src => src.ProgramExecutionId != null ? src.ProgramExecutionId.ToString() : null))
+                .ForMember(dest => dest.Duration, opt => opt.MapFrom(src => src.CompletedAt.HasValue && src.StartedAt.HasValue ? src.CompletedAt.Value - src.StartedAt.Value : (TimeSpan?)null));
 
-            // Execution sub-component mappings
+            // Execution sub-component mappings - handle Dictionary conversions explicitly
             CreateMap<WorkflowExecutionProgress, WorkflowExecutionProgressDto>().ReverseMap();
-            CreateMap<WorkflowExecutionResults, WorkflowExecutionResultsDto>().ReverseMap();
+
+            CreateMap<WorkflowExecutionResults, WorkflowExecutionResultsDto>()
+                .ForMember(dest => dest.FinalOutputs, opt => opt.MapFrom(src => src.FinalOutputs)) // Type converter handles this
+                .ForMember(dest => dest.IntermediateResults, opt => opt.MapFrom(src => src.IntermediateResults)) // Type converter handles this
+                .ReverseMap();
+
             CreateMap<WorkflowExecutionError, WorkflowExecutionErrorDto>().ReverseMap();
             CreateMap<NodeExecutionError, NodeExecutionErrorDto>().ReverseMap();
-            CreateMap<WorkflowResourceUsage, WorkflowResourceUsageDto>().ReverseMap();
-            CreateMap<WorkflowExecutionLog, WorkflowExecutionLogDto>().ReverseMap();
+
+            CreateMap<WorkflowResourceUsage, WorkflowResourceUsageDto>()
+                .ForMember(dest => dest.NodeResourceUsage, opt => opt.MapFrom(src => src.NodeResourceUsage)) // Type converter handles this
+                .ReverseMap();
+
+            CreateMap<WorkflowExecutionLog, WorkflowExecutionLogDto>()
+                .ForMember(dest => dest.Metadata, opt => opt.MapFrom(src => src.Metadata)) // Type converter handles this
+                .ReverseMap();
+
             CreateMap<WorkflowExecutionStatistics, WorkflowExecutionStatisticsDto>().ReverseMap();
         }
 

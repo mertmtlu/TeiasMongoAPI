@@ -36,12 +36,12 @@ namespace TeiasMongoAPI.Services.Validators.Auth
 
             RuleFor(x => x.FirstName)
                 .MaximumLength(100).WithMessage("First name cannot exceed 100 characters")
-                .Matches("^[a-zA-Z\\s-']+$").When(x => !string.IsNullOrEmpty(x.FirstName))
+                .Matches("^[a-zA-ZçÇğĞıİöÖşŞüÜ\\s-']+$").When(x => !string.IsNullOrEmpty(x.FirstName))
                 .WithMessage("First name can only contain letters, spaces, hyphens, and apostrophes");
 
             RuleFor(x => x.LastName)
                 .MaximumLength(100).WithMessage("Last name cannot exceed 100 characters")
-                .Matches("^[a-zA-Z\\s-']+$").When(x => !string.IsNullOrEmpty(x.LastName))
+                .Matches("^[a-zA-ZçÇğĞıİöÖşŞüÜ\\s-']+$").When(x => !string.IsNullOrEmpty(x.LastName))
                 .WithMessage("Last name can only contain letters, spaces, hyphens, and apostrophes");
         }
 
