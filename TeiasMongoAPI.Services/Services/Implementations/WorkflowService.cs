@@ -32,7 +32,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<PagedResponse<WorkflowListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var workflows = await _unitOfWork.Workflows.GetWorkflowsWithPaginationAsync(
-                pagination.PageNumber * pagination.PageSize,
+                (pagination.PageNumber - 1) * pagination.PageSize,
                 pagination.PageSize,
                 cancellationToken: cancellationToken);
 

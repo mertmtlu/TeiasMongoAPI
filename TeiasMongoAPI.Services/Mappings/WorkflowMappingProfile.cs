@@ -130,6 +130,10 @@ namespace TeiasMongoAPI.Services.Mappings
 
         private void CreateWorkflowExecutionMappings()
         {
+            CreateMap<WorkflowExecution, WorkflowExecutionResponseDto>()
+                .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
+                .ForMember(dest => dest.WorkflowId, opt => opt.MapFrom(src => src.WorkflowId.ToString()));
+
             // Workflow Execution mappings
             CreateMap<WorkflowExecution, WorkflowExecutionSummaryDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))

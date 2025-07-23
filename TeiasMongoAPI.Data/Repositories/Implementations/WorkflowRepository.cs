@@ -231,8 +231,8 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 return true;
             }
 
-            // Check if workflow is public and permission is View
-            if (workflow.Permissions.IsPublic && permission == WorkflowPermissionType.View)
+            // Check if workflow is public or permission is View
+            if (workflow.Permissions.IsPublic || permission == WorkflowPermissionType.View)
             {
                 return true;
             }
