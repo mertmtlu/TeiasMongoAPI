@@ -291,6 +291,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     {
                         throw new InvalidOperationException($"Cannot manually execute node {nodeId} - workflow execution {executionId} is currently running automatically. Wait for workflow completion or cancel the workflow first.");
                     }
+                    else if (execution?.Status == WorkflowExecutionStatus.Completed)
+                    {
+                        throw new InvalidOperationException($"Cannot execute node {nodeId} - workflow execution has already completed at {execution.CompletedAt:yyyy-MM-dd HH:mm:ss} UTC");
+                    }
+                    else if (execution?.Status == WorkflowExecutionStatus.Failed)
+                    {
+                        throw new InvalidOperationException($"Cannot execute node {nodeId} - workflow execution failed at {execution.CompletedAt:yyyy-MM-dd HH:mm:ss} UTC");
+                    }
+                    else if (execution?.Status == WorkflowExecutionStatus.Cancelled)
+                    {
+                        throw new InvalidOperationException($"Cannot execute node {nodeId} - workflow execution was cancelled at {execution.CompletedAt:yyyy-MM-dd HH:mm:ss} UTC");
+                    }
                 }
 
                 var node = session.Workflow.Nodes.First(n => n.Id == nodeId);

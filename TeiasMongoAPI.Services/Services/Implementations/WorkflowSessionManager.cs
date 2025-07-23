@@ -55,6 +55,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public int SessionCount => _activeSessions.Count;
 
-        public IReadOnlyCollection<string> SessionKeys => _activeSessions.Keys;
+        public IReadOnlyCollection<string> SessionKeys => _activeSessions.Keys.ToList();
     }
 }
