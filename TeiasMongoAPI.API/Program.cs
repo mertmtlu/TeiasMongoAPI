@@ -215,6 +215,9 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IWorkflowService, WorkflowService>();
             builder.Services.AddScoped<IWorkflowExecutionEngine, WorkflowExecutionEngine>();
             builder.Services.AddScoped<IWorkflowValidationService, WorkflowValidationService>();
+            
+            // Register Session Manager as Singleton
+            builder.Services.AddSingleton<IWorkflowSessionManager, WorkflowSessionManager>();
 
             // Register Background Services
             builder.Services.AddHostedService<TokenCleanupService>();

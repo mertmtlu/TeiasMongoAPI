@@ -18,7 +18,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IWorkflowValidationService _validationService;
         private readonly IProjectExecutionEngine _projectExecutionEngine;
         private readonly IFileStorageService _fileStorageService;
-        private readonly ConcurrentDictionary<string, WorkflowExecutionSession> _activeSessions = new();
+        private readonly IWorkflowSessionManager _sessionManager;
         private readonly SemaphoreSlim _executionSemaphore = new(10, 10); // Limit concurrent workflows
 
         public WorkflowExecutionEngine(
@@ -27,18 +27,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             ILogger<WorkflowExecutionEngine> logger,
             IWorkflowValidationService validationService,
             IProjectExecutionEngine projectExecutionEngine,
-            IFileStorageService fileStorageService)
+            IFileStorageService fileStorageService,
+            IWorkflowSessionManager sessionManager)
             : base(unitOfWork, mapper, logger)
         {
             _validationService = validationService;
             _projectExecutionEngine = projectExecutionEngine;
             _fileStorageService = fileStorageService;
+            _sessionManager = sessionManager;
+            _logger.LogInformation($"WorkflowExecutionEngine instance created: {GetHashCode()}");
         }
 
         public async Task<WorkflowExecutionResponseDto> ExecuteWorkflowAsync(WorkflowExecutionRequest request, ObjectId currentUserId, CancellationToken cancellationToken = default)
         {
             var executionId = ObjectId.GenerateNewId();
-            _logger.LogInformation($"Starting workflow execution {executionId} for workflow {request.WorkflowId} by user {currentUserId}");
+            _logger.LogInformation($"[Instance {GetHashCode()}] Starting workflow execution {executionId} for workflow {request.WorkflowId} by user {currentUserId}");
 
             try
             {
@@ -121,7 +124,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     CancellationTokenSource = new CancellationTokenSource()
                 };
 
-                _activeSessions[executionId.ToString()] = session;
+                _sessionManager.AddSession(executionId.ToString(), session);
 
                 // Start execution in background
                 _ = Task.Run(async () => await ExecuteWorkflowInternalAsync(session, cancellationToken), cancellationToken);
@@ -199,7 +202,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             finally
             {
                 _executionSemaphore.Release();
-                _activeSessions.TryRemove(session.ExecutionId, out _);
+                _sessionManager.RemoveSession(session.ExecutionId);
             }
         }
 
@@ -236,7 +239,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 await semaphore.WaitAsync(cancellationToken);
                 try
                 {
-                    var nodeExecution = await ExecuteNodeAsync(session.ExecutionId, nodeId, cancellationToken);
+                    var nodeExecution = await ExecuteNodeInternalAsync(session.ExecutionId, nodeId, isExternalCall: false, cancellationToken);
                     
                     if (nodeExecution.Status == NodeExecutionStatus.Completed)
                     {
@@ -262,13 +265,32 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<NodeExecutionResponseDto> ExecuteNodeAsync(string executionId, string nodeId, CancellationToken cancellationToken = default)
         {
-            _logger.LogInformation($"Executing node {nodeId} in workflow execution {executionId}");
+            return await ExecuteNodeInternalAsync(executionId, nodeId, isExternalCall: true, cancellationToken);
+        }
+
+        private async Task<NodeExecutionResponseDto> ExecuteNodeInternalAsync(string executionId, string nodeId, bool isExternalCall, CancellationToken cancellationToken = default)
+        {
+            _logger.LogInformation($"[Instance {GetHashCode()}] Executing node {nodeId} in workflow execution {executionId} (External: {isExternalCall})");
+            _logger.LogInformation($"[Instance {GetHashCode()}] Active sessions count: {_sessionManager.SessionCount}, Session keys: [{string.Join(", ", _sessionManager.SessionKeys)}]");
 
             try
             {
-                if (!_activeSessions.TryGetValue(executionId, out var session))
+                if (!_sessionManager.TryGetSession(executionId, out var session))
                 {
-                    throw new InvalidOperationException($"Execution session {executionId} not found");
+                    
+                    // Enhanced validation: Check database for execution status
+                    var executionStatus = await GetExecutionStatusFromDatabaseAsync(executionId, cancellationToken);
+                    throw new InvalidOperationException(executionStatus.ErrorMessage);
+                }
+
+                // Check if this is being called externally while workflow is running internally
+                if (isExternalCall)
+                {
+                    var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
+                    if (execution?.Status == WorkflowExecutionStatus.Running)
+                    {
+                        throw new InvalidOperationException($"Cannot manually execute node {nodeId} - workflow execution {executionId} is currently running automatically. Wait for workflow completion or cancel the workflow first.");
+                    }
                 }
 
                 var node = session.Workflow.Nodes.First(n => n.Id == nodeId);
@@ -601,7 +623,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<bool> PauseWorkflowAsync(string executionId, CancellationToken cancellationToken = default)
         {
-            if (_activeSessions.TryGetValue(executionId, out var session))
+            if (_sessionManager.TryGetSession(executionId, out var session))
             {
                 session.CancellationTokenSource.Cancel();
             }
@@ -611,10 +633,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<bool> CancelWorkflowAsync(string executionId, CancellationToken cancellationToken = default)
         {
-            if (_activeSessions.TryGetValue(executionId, out var session))
+            if (_sessionManager.TryGetSession(executionId, out var session))
             {
                 session.CancellationTokenSource.Cancel();
-                _activeSessions.TryRemove(executionId, out _);
+                _sessionManager.RemoveSession(executionId);
             }
 
             return await _unitOfWork.WorkflowExecutions.CancelExecutionAsync(ObjectId.Parse(executionId), cancellationToken);
@@ -637,25 +659,41 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
             if (execution == null)
             {
-                throw new InvalidOperationException($"Execution {executionId} not found");
+                throw new InvalidOperationException($"Workflow execution {executionId} not found");
+            }
+
+            // Check if execution is in a state that allows node retry
+            if (execution.Status == WorkflowExecutionStatus.Completed)
+            {
+                throw new InvalidOperationException($"Cannot retry node - workflow execution has already completed at {execution.CompletedAt:yyyy-MM-dd HH:mm:ss} UTC");
+            }
+            if (execution.Status == WorkflowExecutionStatus.Cancelled)
+            {
+                throw new InvalidOperationException($"Cannot retry node - workflow execution was cancelled at {execution.CompletedAt:yyyy-MM-dd HH:mm:ss} UTC");
             }
 
             var nodeExecution = execution.NodeExecutions.FirstOrDefault(ne => ne.NodeId == nodeId);
             if (nodeExecution == null)
             {
-                throw new InvalidOperationException($"Node execution {nodeId} not found");
+                throw new InvalidOperationException($"Node execution {nodeId} not found in workflow {executionId}");
             }
 
             if (nodeExecution.RetryCount >= nodeExecution.MaxRetries)
             {
-                throw new InvalidOperationException($"Maximum retry attempts exceeded for node {nodeId}");
+                throw new InvalidOperationException($"Maximum retry attempts ({nodeExecution.MaxRetries}) exceeded for node {nodeId}");
+            }
+
+            // Only retry failed nodes
+            if (nodeExecution.Status != NodeExecutionStatus.Failed)
+            {
+                throw new InvalidOperationException($"Cannot retry node {nodeId} - node is in {nodeExecution.Status} state. Only failed nodes can be retried");
             }
 
             nodeExecution.RetryCount++;
             nodeExecution.Status = NodeExecutionStatus.Retrying;
             await _unitOfWork.WorkflowExecutions.UpdateNodeExecutionAsync(ObjectId.Parse(executionId), nodeId, nodeExecution, cancellationToken);
 
-            return await ExecuteNodeAsync(executionId, nodeId, cancellationToken);
+            return await ExecuteNodeInternalAsync(executionId, nodeId, isExternalCall: false, cancellationToken);
         }
 
         public async Task<bool> SkipNodeAsync(string executionId, string nodeId, string reason, CancellationToken cancellationToken = default)
@@ -682,7 +720,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<WorkflowDataContractDto> GetNodeOutputAsync(string executionId, string nodeId, CancellationToken cancellationToken = default)
         {
-            if (_activeSessions.TryGetValue(executionId, out var session))
+            if (_sessionManager.TryGetSession(executionId, out var session))
             {
                 if (session.NodeOutputs.TryGetValue(nodeId, out var output))
                 {
@@ -709,7 +747,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<Dictionary<string, WorkflowDataContractDto>> GetAllNodeOutputsAsync(string executionId, CancellationToken cancellationToken = default)
         {
-            if (_activeSessions.TryGetValue(executionId, out var session))
+            if (_sessionManager.TryGetSession(executionId, out var session))
             {
                 return session.NodeOutputs.ToDictionary(kvp => kvp.Key, kvp => _mapper.Map<WorkflowDataContractDto>(kvp.Value));
             }
@@ -789,12 +827,78 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<bool> CleanupExecutionAsync(string executionId, CancellationToken cancellationToken = default)
         {
             // Remove from active sessions
-            _activeSessions.TryRemove(executionId, out _);
+            _sessionManager.RemoveSession(executionId);
 
             // Clean up temporary files and resources
             // This would involve cleaning up storage, temporary files, etc.
             
             return true;
+        }
+
+        private async Task<ExecutionStatusInfo> GetExecutionStatusFromDatabaseAsync(string executionId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
+                
+                if (execution == null)
+                {
+                    return new ExecutionStatusInfo
+                    {
+                        Exists = false,
+                        ErrorMessage = $"Workflow execution {executionId} not found"
+                    };
+                }
+
+                return execution.Status switch
+                {
+                    WorkflowExecutionStatus.Completed => new ExecutionStatusInfo
+                    {
+                        Exists = true,
+                        Status = execution.Status,
+                        ErrorMessage = $"Cannot execute node {executionId} - workflow execution has already completed at {execution.CompletedAt:yyyy-MM-dd HH:mm:ss} UTC"
+                    },
+                    WorkflowExecutionStatus.Failed => new ExecutionStatusInfo
+                    {
+                        Exists = true,
+                        Status = execution.Status,
+                        ErrorMessage = $"Cannot execute node {executionId} - workflow execution failed at {execution.CompletedAt:yyyy-MM-dd HH:mm:ss} UTC"
+                    },
+                    WorkflowExecutionStatus.Cancelled => new ExecutionStatusInfo
+                    {
+                        Exists = true,
+                        Status = execution.Status,
+                        ErrorMessage = $"Cannot execute node {executionId} - workflow execution was cancelled at {execution.CompletedAt:yyyy-MM-dd HH:mm:ss} UTC"
+                    },
+                    WorkflowExecutionStatus.Paused => new ExecutionStatusInfo
+                    {
+                        Exists = true,
+                        Status = execution.Status,
+                        ErrorMessage = $"Cannot execute node {executionId} - workflow execution is paused. Resume the execution first"
+                    },
+                    WorkflowExecutionStatus.Running => new ExecutionStatusInfo
+                    {
+                        Exists = true,
+                        Status = execution.Status,
+                        ErrorMessage = $"Execution session {executionId} not found in active sessions, but execution is still marked as running. This may indicate a system restart or session cleanup"
+                    },
+                    _ => new ExecutionStatusInfo
+                    {
+                        Exists = true,
+                        Status = execution.Status,
+                        ErrorMessage = $"Cannot execute node {executionId} - workflow execution is in {execution.Status} state"
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error checking execution status for {executionId}");
+                return new ExecutionStatusInfo
+                {
+                    Exists = false,
+                    ErrorMessage = $"Error checking execution status: {ex.Message}"
+                };
+            }
         }
     }
 
@@ -809,5 +913,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public required HashSet<string> CompletedNodes { get; set; }
         public required HashSet<string> FailedNodes { get; set; }
         public required CancellationTokenSource CancellationTokenSource { get; set; }
+    }
+
+    public class ExecutionStatusInfo
+    {
+        public bool Exists { get; set; }
+        public WorkflowExecutionStatus? Status { get; set; }
+        public string ErrorMessage { get; set; } = string.Empty;
     }
 }
