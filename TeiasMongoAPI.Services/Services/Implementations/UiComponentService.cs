@@ -290,7 +290,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             _logger.LogInformation("Updated UI component {ComponentId}", id);
 
-            return _mapper.Map<UiComponentDto>(existingComponent);
+            try
+            {
+                return _mapper.Map<UiComponentDto>(existingComponent);
+
+            }
+            catch (Exception e)
+            {
+                return _mapper.Map<UiComponentDto>(existingComponent);
+            }
         }
 
         public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
