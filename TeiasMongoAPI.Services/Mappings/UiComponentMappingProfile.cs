@@ -77,7 +77,6 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Description, opt => opt.Ignore())
                 .ForMember(dest => dest.Type, opt => opt.Ignore())
                 .ForMember(dest => dest.Creator, opt => opt.Ignore())
-                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => ConvertBsonObjectToStandardObject(src.Configuration)))
                 .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
                 .ForMember(dest => dest.ProgramId, opt => opt.Ignore())
                 .ForMember(dest => dest.VersionId, opt => opt.Ignore())
@@ -91,7 +90,6 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Name, opt => opt.Ignore())
                 .ForMember(dest => dest.Description, opt => opt.Ignore())
                 .ForMember(dest => dest.Type, opt => opt.Ignore())
-                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => ConvertBsonObjectToStandardObject(src.Schema)))
                 .ForMember(dest => dest.Creator, opt => opt.Ignore())
                 .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
                 .ForMember(dest => dest.ProgramId, opt => opt.Ignore())
@@ -183,16 +181,35 @@ namespace TeiasMongoAPI.Services.Mappings
 
         // V V V ADD THIS NEW HELPER METHOD V V V
         // HELPER 2: Converts BsonDocument from the database into a standard Dictionary for DTOs
-        private static object ConvertBsonObjectToStandardObject(object obj)
+        private static Dictionary<string, object> ConvertBsonObjectToStandardObject(object obj)
         {
+            if (obj == null)
+                return new Dictionary<string, object>();
+
             if (obj is BsonDocument bsonDoc)
             {
                 // The .ToDictionary() method recursively converts the BsonDocument
                 // into a standard Dictionary<string, object>.
                 return bsonDoc.ToDictionary();
             }
-            // If it's not a BsonDocument (perhaps it's already a Dictionary), return it as is.
-            return obj;
+
+            if (obj is Dictionary<string, object> dict)
+                return dict;
+
+            // If it's any other type, try to convert it to dictionary or return empty
+            try
+            {
+                if (obj is string jsonString && !string.IsNullOrWhiteSpace(jsonString))
+                {
+                    return ParseJsonToDictionary(jsonString);
+                }
+            }
+            catch
+            {
+                // If conversion fails, return empty dictionary
+            }
+
+            return new Dictionary<string, object>();
         }
 
         private static object ConvertObject(object obj)

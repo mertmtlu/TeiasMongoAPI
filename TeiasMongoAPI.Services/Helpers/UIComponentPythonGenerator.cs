@@ -1,5 +1,6 @@
 using MongoDB.Bson;
 using System.Text;
+using System.Text.Json;
 using TeiasMongoAPI.Core.Models.Collaboration;
 
 namespace TeiasMongoAPI.Services.Helpers
@@ -43,15 +44,31 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        self.from_json(sys.argv[1])");
             sb.AppendLine();
 
-            // Generate properties for each element
-            if (component.Configuration is Dictionary<string, object> config && config.ContainsKey("elements"))
+            Dictionary<string, object> config = null;
+            if (component.Configuration is string configString && !string.IsNullOrWhiteSpace(configString))
             {
-                var elements = config["elements"] as IEnumerable<object>;
-                if (elements != null)
+                try
                 {
-                    foreach (var element in elements)
+                    // This is the line that performs the conversion
+                    config = JsonSerializer.Deserialize<Dictionary<string, object>>(configString);
+                }
+                catch (JsonException)
+                {
+                    // The string was not valid JSON. Log this error if needed.
+                    // config will remain null.
+                }
+            }
+
+            // Generate properties for each element
+            if (config != null && config.ContainsKey("elements"))
+            {
+                // Important: The elements are likely JsonElement, so we need to handle that
+                if (config["elements"] is JsonElement elementsArray && elementsArray.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement element in elementsArray.EnumerateArray())
                     {
-                        var elementDoc = element as Dictionary<string, object>;
+                        // Deserialize each element in the array into its own dictionary
+                        var elementDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(element.GetRawText());
                         if (elementDoc != null)
                         {
                             GenerateElementProperty(sb, elementDoc);
