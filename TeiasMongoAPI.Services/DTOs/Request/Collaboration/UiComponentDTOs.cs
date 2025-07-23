@@ -1,5 +1,4 @@
 ﻿using System.ComponentModel.DataAnnotations;
-using MongoDB.Bson;
 
 namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 {
@@ -106,7 +105,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [MaxLength(100)]
         public required string MappingName { get; set; }
 
-        public BsonDocument MappingConfiguration { get; set; } = new BsonDocument();
+        public object MappingConfiguration { get; set; } = new();
         public int DisplayOrder { get; set; } = 0;
         public bool IsActive { get; set; } = true;
     }

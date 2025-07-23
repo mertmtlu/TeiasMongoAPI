@@ -19,14 +19,14 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.ProgramId, opt => opt.Ignore()) // Set in service from method parameter
                 .ForMember(dest => dest.VersionId, opt => opt.Ignore()) // Set in service from method parameter
                 .ForMember(dest => dest.Status, opt => opt.MapFrom(src => "active"))
-                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Configuration)))
-                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Schema)));
+                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => ParseJsonToDictionary(src.Configuration)))
+                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => ParseJsonToDictionary(src.Schema)));
 
             CreateMap<UiComponentUpdateDto, UiComponent>()
                 .ForMember(dest => dest.ProgramId, opt => opt.Ignore()) // Cannot change after creation
                 .ForMember(dest => dest.VersionId, opt => opt.Ignore()) // Cannot change after creation
-                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => src.Configuration != null ? ParseJsonToBsonDocument(src.Configuration) : null))
-                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => src.Schema != null ? ParseJsonToBsonDocument(src.Schema) : null))
+                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => src.Configuration != null ? ParseJsonToDictionary(src.Configuration) : null))
+                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => src.Schema != null ? ParseJsonToDictionary(src.Schema) : null))
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
 
             // Domain to Response
@@ -71,7 +71,7 @@ namespace TeiasMongoAPI.Services.Mappings
 
             // Configuration and Schema mappings
             CreateMap<UiComponentConfigUpdateDto, UiComponent>()
-                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Configuration)))
+                .ForMember(dest => dest.Configuration, opt => opt.MapFrom(src => ParseJsonToDictionary(src.Configuration)))
                 .ForMember(dest => dest._ID, opt => opt.Ignore())
                 .ForMember(dest => dest.Name, opt => opt.Ignore())
                 .ForMember(dest => dest.Description, opt => opt.Ignore())
@@ -85,7 +85,7 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Tags, opt => opt.Ignore());
 
             CreateMap<UiComponentSchemaUpdateDto, UiComponent>()
-                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => ParseJsonToBsonDocument(src.Schema)))
+                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => ParseJsonToDictionary(src.Schema)))
                 .ForMember(dest => dest._ID, opt => opt.Ignore())
                 .ForMember(dest => dest.Name, opt => opt.Ignore())
                 .ForMember(dest => dest.Description, opt => opt.Ignore())
@@ -260,20 +260,20 @@ namespace TeiasMongoAPI.Services.Mappings
             };
         }
 
-        private static BsonDocument ParseJsonToBsonDocument(string jsonString)
+        private static Dictionary<string, object> ParseJsonToDictionary(string jsonString)
         {
             if (string.IsNullOrWhiteSpace(jsonString))
-                return new BsonDocument();
+                return new Dictionary<string, object>();
 
             try
             {
-                return BsonDocument.Parse(jsonString);
+                return JsonSerializer.Deserialize<Dictionary<string, object>>(jsonString) ?? new Dictionary<string, object>();
             }
             catch (Exception)
             {
-                // If parsing fails, return empty BsonDocument
+                // If parsing fails, return empty Dictionary
                 // The service layer will handle validation and provide proper error messages
-                return new BsonDocument();
+                return new Dictionary<string, object>();
             }
         }
     }

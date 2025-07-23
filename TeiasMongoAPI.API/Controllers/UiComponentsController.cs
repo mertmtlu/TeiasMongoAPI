@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
-using MongoDB.Bson.Serialization;
 using TeiasMongoAPI.API.Attributes;
 using TeiasMongoAPI.API.Controllers.Base;
 using TeiasMongoAPI.Core.Models.KeyModels;

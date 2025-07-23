@@ -1,4 +1,3 @@
-using MongoDB.Bson;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
@@ -41,7 +40,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public WorkflowSettingsDto Settings { get; set; } = new();
         public WorkflowPermissionDto Permissions { get; set; } = new();
         public List<string> Tags { get; set; } = new();
-        public BsonDocument Metadata { get; set; } = new();
+        public Dictionary<string, object> Metadata { get; set; } = new();
         public bool IsTemplate { get; set; }
         public string? TemplateId { get; set; }
         public string? LastExecutionId { get; set; }
@@ -66,7 +65,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public NodeExecutionSettingsDto ExecutionSettings { get; set; } = new();
         public NodeConditionalExecutionDto? ConditionalExecution { get; set; }
         public NodeUIConfigurationDto UIConfiguration { get; set; } = new();
-        public BsonDocument Metadata { get; set; } = new();
+        public Dictionary<string, object> Metadata { get; set; } = new();
         public bool IsDisabled { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -84,7 +83,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public EdgeConditionDto? Condition { get; set; }
         public EdgeTransformationDto? Transformation { get; set; }
         public EdgeUIConfigurationDto UIConfiguration { get; set; } = new();
-        public BsonDocument Metadata { get; set; } = new();
+        public Dictionary<string, object> Metadata { get; set; } = new();
         public bool IsDisabled { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -253,5 +252,126 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         Warning,
         Error,
         Critical
+    }
+
+    public class WorkflowDataContractDto
+    {
+        public string ContractId { get; set; } = string.Empty;
+        public string SourceNodeId { get; set; } = string.Empty;
+        public string TargetNodeId { get; set; } = string.Empty;
+        public WorkflowDataType DataType { get; set; }
+        public Dictionary<string, object> Data { get; set; } = new();
+        public DataContractMetadataDto Metadata { get; set; } = new();
+        public Dictionary<string, object>? Schema { get; set; }
+        public string Version { get; set; } = "1.0";
+        public DateTime Timestamp { get; set; }
+        public DateTime? ExpiresAt { get; set; }
+        public string? Checksum { get; set; }
+        public CompressionType Compression { get; set; }
+        public EncryptionInfoDto? Encryption { get; set; }
+        public List<DataAttachmentDto> Attachments { get; set; } = new();
+    }
+
+    public class DataContractMetadataDto
+    {
+        public string ContentType { get; set; } = "application/json";
+        public string Encoding { get; set; } = "UTF-8";
+        public long Size { get; set; }
+        public string? OriginalFormat { get; set; }
+        public List<DataTransformationDto> Transformations { get; set; } = new();
+        public List<DataValidationResultDto> ValidationResults { get; set; } = new();
+        public DataQualityMetricsDto Quality { get; set; } = new();
+        public DataLineageDto Lineage { get; set; } = new();
+        public Dictionary<string, object> CustomMetadata { get; set; } = new();
+    }
+
+    public class DataTransformationDto
+    {
+        public string TransformationId { get; set; } = string.Empty;
+        public TransformationType Type { get; set; }
+        public string Expression { get; set; } = string.Empty;
+        public DateTime AppliedAt { get; set; }
+        public string AppliedBy { get; set; } = string.Empty;
+        public Dictionary<string, object>? InputSchema { get; set; }
+        public Dictionary<string, object>? OutputSchema { get; set; }
+        public bool Success { get; set; } = true;
+        public string? Error { get; set; }
+    }
+
+    public class DataValidationResultDto
+    {
+        public string ValidationId { get; set; } = string.Empty;
+        public bool IsValid { get; set; } = true;
+        public List<string> Errors { get; set; } = new();
+        public List<string> Warnings { get; set; } = new();
+        public DateTime ValidatedAt { get; set; }
+        public ValidationType ValidationType { get; set; }
+        public Dictionary<string, object>? SchemaUsed { get; set; }
+    }
+
+    public class DataQualityMetricsDto
+    {
+        public double Completeness { get; set; } = 1.0;
+        public double Accuracy { get; set; } = 1.0;
+        public double Consistency { get; set; } = 1.0;
+        public double Validity { get; set; } = 1.0;
+        public double Timeliness { get; set; } = 1.0;
+        public double Uniqueness { get; set; } = 1.0;
+        public double OverallScore { get; set; } = 1.0;
+        public List<DataQualityIssueDto> Issues { get; set; } = new();
+    }
+
+    public class DataQualityIssueDto
+    {
+        public DataQualityIssueType Type { get; set; }
+        public IssueSeverity Severity { get; set; }
+        public string Description { get; set; } = string.Empty;
+        public string? Field { get; set; }
+        public string? Recommendation { get; set; }
+    }
+
+    public class DataLineageDto
+    {
+        public List<string> SourceNodes { get; set; } = new();
+        public List<string> TransformationPath { get; set; } = new();
+        public List<DataDependencyDto> Dependencies { get; set; } = new();
+        public List<DataSourceDto> OriginalSources { get; set; } = new();
+    }
+
+    public class DataDependencyDto
+    {
+        public string NodeId { get; set; } = string.Empty;
+        public string OutputName { get; set; } = string.Empty;
+        public DependencyType DependencyType { get; set; }
+        public bool IsOptional { get; set; } = false;
+    }
+
+    public class DataSourceDto
+    {
+        public string SourceId { get; set; } = string.Empty;
+        public DataSourceType SourceType { get; set; }
+        public string Location { get; set; } = string.Empty;
+        public DateTime AccessedAt { get; set; }
+        public string? Version { get; set; }
+    }
+
+    public class EncryptionInfoDto
+    {
+        public string Algorithm { get; set; } = string.Empty;
+        public string KeyId { get; set; } = string.Empty;
+        public bool IsEncrypted { get; set; } = false;
+        public List<string> EncryptedFields { get; set; } = new();
+    }
+
+    public class DataAttachmentDto
+    {
+        public string AttachmentId { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public long Size { get; set; }
+        public string StoragePath { get; set; } = string.Empty;
+        public string Checksum { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
     }
 }

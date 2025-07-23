@@ -1,5 +1,4 @@
-﻿using MongoDB.Bson;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 {

@@ -6,6 +6,7 @@ using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
+using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Services.Services.Base;
@@ -34,10 +35,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _fileStorageService = fileStorageService;
         }
 
-        public async Task<WorkflowExecution> ExecuteWorkflowAsync(WorkflowExecutionRequest request, CancellationToken cancellationToken = default)
+        public async Task<WorkflowExecutionResponseDto> ExecuteWorkflowAsync(WorkflowExecutionRequest request, ObjectId currentUserId, CancellationToken cancellationToken = default)
         {
-            var executionId = Guid.NewGuid().ToString();
-            _logger.LogInformation($"Starting workflow execution {executionId} for workflow {request.WorkflowId} by user {request.UserId}");
+            var executionId = ObjectId.GenerateNewId();
+            _logger.LogInformation($"Starting workflow execution {executionId} for workflow {request.WorkflowId} by user {currentUserId}");
 
             try
             {
@@ -56,14 +57,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
 
                 // Validate permissions
-                var permissionResult = await _validationService.ValidateWorkflowPermissionsAsync(workflow, request.UserId, cancellationToken);
+                var permissionResult = await _validationService.ValidateWorkflowPermissionsAsync(workflow, currentUserId.ToString(), cancellationToken);
                 if (!permissionResult.IsValid)
                 {
-                    throw new UnauthorizedAccessException($"User {request.UserId} does not have permission to execute workflow {workflow.Name}");
+                    throw new UnauthorizedAccessException($"User {currentUserId} does not have permission to execute workflow {workflow.Name}");
                 }
 
                 // Validate execution context
-                var executionValidationResult = await _validationService.ValidateWorkflowExecutionAsync(workflow, request.ExecutionContext, cancellationToken);
+                var executionContext = _mapper.Map<WorkflowExecutionContext>(request.ExecutionContext);
+                var executionValidationResult = await _validationService.ValidateWorkflowExecutionAsync(workflow, executionContext, cancellationToken);
                 if (!executionValidationResult.IsValid)
                 {
                     throw new InvalidOperationException($"Execution validation failed: {string.Join(", ", executionValidationResult.Errors.Select(e => e.Message))}");
@@ -72,14 +74,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Create workflow execution record
                 var execution = new WorkflowExecution
                 {
-                    _ID = ObjectId.Parse(executionId),
+                    _ID = executionId,
                     WorkflowId = workflow._ID,
                     WorkflowVersion = workflow.Version,
                     ExecutionName = request.ExecutionName,
-                    ExecutedBy = request.UserId,
+                    ExecutedBy = currentUserId.ToString(),
                     StartedAt = DateTime.UtcNow,
                     Status = WorkflowExecutionStatus.Running,
-                    ExecutionContext = request.ExecutionContext,
+                    ExecutionContext = executionContext,
                     Progress = new WorkflowExecutionProgress
                     {
                         TotalNodes = workflow.Nodes.Count,
@@ -108,7 +110,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Create execution session
                 var session = new WorkflowExecutionSession
                 {
-                    ExecutionId = executionId,
+                    ExecutionId = executionId.ToString(),
                     Workflow = workflow,
                     Execution = execution,
                     Options = request.Options,
@@ -119,13 +121,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     CancellationTokenSource = new CancellationTokenSource()
                 };
 
-                _activeSessions[executionId] = session;
+                _activeSessions[executionId.ToString()] = session;
 
                 // Start execution in background
                 _ = Task.Run(async () => await ExecuteWorkflowInternalAsync(session, cancellationToken), cancellationToken);
 
                 _logger.LogInformation($"Workflow execution {executionId} started successfully");
-                return execution;
+                return _mapper.Map<WorkflowExecutionResponseDto>(execution);
             }
             catch (Exception ex)
             {
@@ -258,7 +260,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }, cancellationToken);
         }
 
-        public async Task<NodeExecution> ExecuteNodeAsync(string executionId, string nodeId, CancellationToken cancellationToken = default)
+        public async Task<NodeExecutionResponseDto> ExecuteNodeAsync(string executionId, string nodeId, CancellationToken cancellationToken = default)
         {
             _logger.LogInformation($"Executing node {nodeId} in workflow execution {executionId}");
 
@@ -335,7 +337,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Update node execution in database
                 await _unitOfWork.WorkflowExecutions.UpdateNodeExecutionAsync(ObjectId.Parse(executionId), nodeId, nodeExecution, cancellationToken);
 
-                return nodeExecution;
+                return _mapper.Map<NodeExecutionResponseDto>(nodeExecution);
             }
             catch (Exception ex)
             {
@@ -580,7 +582,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             await _unitOfWork.WorkflowExecutions.UpdateAsync(ObjectId.Parse(session.ExecutionId), execution, cancellationToken);
         }
 
-        public async Task<WorkflowExecution> ResumeWorkflowAsync(string executionId, CancellationToken cancellationToken = default)
+        public async Task<WorkflowExecutionResponseDto> ResumeWorkflowAsync(string executionId, CancellationToken cancellationToken = default)
         {
             var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
             if (execution == null)
@@ -594,7 +596,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             await _unitOfWork.WorkflowExecutions.ResumeExecutionAsync(ObjectId.Parse(executionId), cancellationToken);
-            return execution;
+            return _mapper.Map<WorkflowExecutionResponseDto>(execution);
         }
 
         public async Task<bool> PauseWorkflowAsync(string executionId, CancellationToken cancellationToken = default)
@@ -618,18 +620,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await _unitOfWork.WorkflowExecutions.CancelExecutionAsync(ObjectId.Parse(executionId), cancellationToken);
         }
 
-        public async Task<WorkflowExecution> GetExecutionStatusAsync(string executionId, CancellationToken cancellationToken = default)
+        public async Task<WorkflowExecutionResponseDto> GetExecutionStatusAsync(string executionId, CancellationToken cancellationToken = default)
         {
-            return await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
+            var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
+            return _mapper.Map<WorkflowExecutionResponseDto>(execution);
         }
 
-        public async Task<List<WorkflowExecution>> GetActiveExecutionsAsync(CancellationToken cancellationToken = default)
+        public async Task<List<WorkflowExecutionResponseDto>> GetActiveExecutionsAsync(CancellationToken cancellationToken = default)
         {
             var executions = await _unitOfWork.WorkflowExecutions.GetRunningExecutionsAsync(cancellationToken);
-            return executions.ToList();
+            return _mapper.Map<List<WorkflowExecutionResponseDto>>(executions.ToList());
         }
 
-        public async Task<NodeExecution> RetryNodeAsync(string executionId, string nodeId, CancellationToken cancellationToken = default)
+        public async Task<NodeExecutionResponseDto> RetryNodeAsync(string executionId, string nodeId, CancellationToken cancellationToken = default)
         {
             var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
             if (execution == null)
@@ -677,13 +680,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await _unitOfWork.WorkflowExecutions.UpdateNodeExecutionAsync(ObjectId.Parse(executionId), nodeId, nodeExecution, cancellationToken);
         }
 
-        public async Task<WorkflowDataContract> GetNodeOutputAsync(string executionId, string nodeId, CancellationToken cancellationToken = default)
+        public async Task<WorkflowDataContractDto> GetNodeOutputAsync(string executionId, string nodeId, CancellationToken cancellationToken = default)
         {
             if (_activeSessions.TryGetValue(executionId, out var session))
             {
                 if (session.NodeOutputs.TryGetValue(nodeId, out var output))
                 {
-                    return output;
+                    return _mapper.Map<WorkflowDataContractDto>(output);
                 }
             }
 
@@ -691,23 +694,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
             if (execution?.Results?.IntermediateResults?.ContainsKey(nodeId) == true)
             {
-                return new WorkflowDataContract
+                var contract = new WorkflowDataContract
                 {
                     SourceNodeId = nodeId,
                     Data = execution.Results.IntermediateResults[nodeId],
                     DataType = WorkflowDataType.JSON,
                     Timestamp = DateTime.UtcNow
                 };
+                return _mapper.Map<WorkflowDataContractDto>(contract);
             }
 
             throw new InvalidOperationException($"Output not found for node {nodeId} in execution {executionId}");
         }
 
-        public async Task<Dictionary<string, WorkflowDataContract>> GetAllNodeOutputsAsync(string executionId, CancellationToken cancellationToken = default)
+        public async Task<Dictionary<string, WorkflowDataContractDto>> GetAllNodeOutputsAsync(string executionId, CancellationToken cancellationToken = default)
         {
             if (_activeSessions.TryGetValue(executionId, out var session))
             {
-                return session.NodeOutputs.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                return session.NodeOutputs.ToDictionary(kvp => kvp.Key, kvp => _mapper.Map<WorkflowDataContractDto>(kvp.Value));
             }
 
             var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
@@ -715,19 +719,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 return execution.Results.IntermediateResults.ToDictionary(
                     kvp => kvp.Key,
-                    kvp => new WorkflowDataContract
+                    kvp => _mapper.Map<WorkflowDataContractDto>(new WorkflowDataContract
                     {
                         SourceNodeId = kvp.Key,
                         Data = kvp.Value,
                         DataType = WorkflowDataType.JSON,
                         Timestamp = DateTime.UtcNow
-                    });
+                    }));
             }
 
-            return new Dictionary<string, WorkflowDataContract>();
+            return new Dictionary<string, WorkflowDataContractDto>();
         }
 
-        public async Task<WorkflowExecutionStatistics> GetExecutionStatisticsAsync(string executionId, CancellationToken cancellationToken = default)
+        public async Task<WorkflowExecutionStatisticsResponseDto> GetExecutionStatisticsAsync(string executionId, CancellationToken cancellationToken = default)
         {
             var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
             if (execution == null)
@@ -754,10 +758,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 stats.FastestNode = fastestNode?.NodeId;
             }
 
-            return stats;
+            return _mapper.Map<WorkflowExecutionStatisticsResponseDto>(stats);
         }
 
-        public async Task<List<WorkflowExecutionLog>> GetExecutionLogsAsync(string executionId, int skip = 0, int take = 100, CancellationToken cancellationToken = default)
+        public async Task<List<WorkflowExecutionLogResponseDto>> GetExecutionLogsAsync(string executionId, int skip = 0, int take = 100, CancellationToken cancellationToken = default)
         {
             var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
             if (execution == null)
@@ -765,7 +769,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException($"Execution {executionId} not found");
             }
 
-            return execution.Logs.Skip(skip).Take(take).ToList();
+            var logs = execution.Logs.Skip(skip).Take(take).ToList();
+            return _mapper.Map<List<WorkflowExecutionLogResponseDto>>(logs);
         }
 
         public async Task<bool> IsExecutionCompleteAsync(string executionId, CancellationToken cancellationToken = default)

@@ -44,13 +44,19 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine();
 
             // Generate properties for each element
-            if (component.Configuration != null && component.Configuration.Contains("elements"))
+            if (component.Configuration is Dictionary<string, object> config && config.ContainsKey("elements"))
             {
-                var elements = component.Configuration["elements"].AsBsonArray;
-                foreach (var element in elements)
+                var elements = config["elements"] as IEnumerable<object>;
+                if (elements != null)
                 {
-                    var elementDoc = element.AsBsonDocument;
-                    GenerateElementProperty(sb, elementDoc);
+                    foreach (var element in elements)
+                    {
+                        var elementDoc = element as Dictionary<string, object>;
+                        if (elementDoc != null)
+                        {
+                            GenerateElementProperty(sb, elementDoc);
+                        }
+                    }
                 }
             }
 
@@ -65,14 +71,16 @@ namespace TeiasMongoAPI.Services.Helpers
             return sb.ToString();
         }
 
-        private static void GenerateElementProperty(StringBuilder sb, BsonDocument element)
+        private static void GenerateElementProperty(StringBuilder sb, Dictionary<string, object>? element)
         {
-            var elementId = element.GetValue("id", "").AsString;
-            var elementType = element.GetValue("type", "").AsString;
-            var elementName = element.GetValue("name", "").AsString;
-            var elementLabel = element.GetValue("label", "").AsString;
-            var placeholder = element.GetValue("placeholder", "").AsString;
-            var required = element.GetValue("required", false).AsBoolean;
+            if (element == null) return;
+            
+            var elementId = element.TryGetValue("id", out var id) ? id?.ToString() ?? "" : "";
+            var elementType = element.TryGetValue("type", out var type) ? type?.ToString() ?? "" : "";
+            var elementName = element.TryGetValue("name", out var name) ? name?.ToString() ?? "" : "";
+            var elementLabel = element.TryGetValue("label", out var label) ? label?.ToString() ?? "" : "";
+            var placeholder = element.TryGetValue("placeholder", out var ph) ? ph?.ToString() ?? "" : "";
+            var required = element.TryGetValue("required", out var req) && (req is bool b ? b : bool.TryParse(req?.ToString(), out b) && b);
 
             // Handle table elements specifically
             if (elementType == "table")
@@ -109,17 +117,19 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine();
         }
 
-        private static void GenerateTableProperties(StringBuilder sb, BsonDocument element)
+        private static void GenerateTableProperties(StringBuilder sb, Dictionary<string, object>? element)
         {
-            var elementName = element.GetValue("name", "").AsString;
-            var elementLabel = element.GetValue("label", "").AsString;
-            var required = element.GetValue("required", false).AsBoolean;
+            if (element == null) return;
+
+            var elementName = element.TryGetValue("name", out var name) ? name?.ToString() ?? "" : "";
+            var elementLabel = element.TryGetValue("label", out var label) ? label?.ToString() ?? "" : "";
+            var required = element.TryGetValue("required", out var req) && (req is bool b ? b : bool.TryParse(req?.ToString(), out b) && b);
 
             // Get table configuration
-            var tableConfig = element.GetValue("tableConfig", new BsonDocument()).AsBsonDocument;
-            var rows = tableConfig.GetValue("rows", 3).AsInt32;
-            var columns = tableConfig.GetValue("columns", 3).AsInt32;
-            var cells = tableConfig.GetValue("cells", new BsonArray()).AsBsonArray;
+            var tableConfig = element.TryGetValue("tableConfig", out var tableConfigObj) ? tableConfigObj as Dictionary<string, object> : null;
+            var rows = tableConfig?.TryGetValue("rows", out var rowsObj) == true ? (rowsObj is int r ? r : int.TryParse(rowsObj?.ToString(), out r) ? r : 3) : 3;
+            var columns = tableConfig?.TryGetValue("columns", out var colsObj) == true ? (colsObj is int c ? c : int.TryParse(colsObj?.ToString(), out c) ? c : 3) : 3;
+            var cells = tableConfig?.TryGetValue("cells", out var cellsObj) == true ? cellsObj as IEnumerable<object> : null;
 
             // Generate properties for the overall table
             sb.AppendLine($"    @property");
@@ -132,17 +142,23 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine($"        table_data = {{}}");
 
             // Generate individual cell properties
-            foreach (var cell in cells)
+            if (cells != null)
             {
-                var cellDoc = cell.AsBsonDocument;
-                var cellId = cellDoc.GetValue("cellId", "").AsString;
-                var customName = cellDoc.GetValue("customName", "").AsString;
-                var cellType = cellDoc.GetValue("type", "text").AsString;
+                foreach (var cell in cells)
+                {
+                    var cellDoc = cell as Dictionary<string, object>;
+                    if (cellDoc != null)
+                    {
+                        var cellId = cellDoc.TryGetValue("cellId", out var cId) ? cId?.ToString() ?? "" : "";
+                        var customName = cellDoc.TryGetValue("customName", out var cName) ? cName?.ToString() ?? "" : "";
+                        var cellType = cellDoc.TryGetValue("type", out var cType) ? cType?.ToString() ?? "text" : "text";
 
-                // Use custom name if available, otherwise use cellId
-                var propertyName = !string.IsNullOrEmpty(customName) ? customName : cellId;
+                        // Use custom name if available, otherwise use cellId
+                        var propertyName = !string.IsNullOrEmpty(customName) ? customName : cellId;
 
-                sb.AppendLine($"        table_data['{propertyName}'] = self._values.get('{elementName}_{cellId}', '')");
+                        sb.AppendLine($"        table_data['{propertyName}'] = self._values.get('{elementName}_{cellId}', '')");
+                    }
+                }
             }
 
             sb.AppendLine($"        return table_data");
@@ -160,50 +176,62 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine($"            raise ValueError('Table value must be a dictionary')");
 
             // Set individual cell values
-            foreach (var cell in cells)
+            if (cells != null)
             {
-                var cellDoc = cell.AsBsonDocument;
-                var cellId = cellDoc.GetValue("cellId", "").AsString;
-                var customName = cellDoc.GetValue("customName", "").AsString;
-                var propertyName = !string.IsNullOrEmpty(customName) ? customName : cellId;
+                foreach (var cell in cells)
+                {
+                    var cellDoc = cell as Dictionary<string, object>;
+                    if (cellDoc != null)
+                    {
+                        var cellId = cellDoc.TryGetValue("cellId", out var cId) ? cId?.ToString() ?? "" : "";
+                        var customName = cellDoc.TryGetValue("customName", out var cName) ? cName?.ToString() ?? "" : "";
+                        var propertyName = !string.IsNullOrEmpty(customName) ? customName : cellId;
 
-                sb.AppendLine($"        if '{propertyName}' in value:");
-                sb.AppendLine($"            self._values['{elementName}_{cellId}'] = value['{propertyName}']");
+                        sb.AppendLine($"        if '{propertyName}' in value:");
+                        sb.AppendLine($"            self._values['{elementName}_{cellId}'] = value['{propertyName}']");
+                    }
+                }
             }
             sb.AppendLine();
 
             // Generate individual cell property accessors
-            foreach (var cell in cells)
+            if (cells != null)
             {
-                var cellDoc = cell.AsBsonDocument;
-                var cellId = cellDoc.GetValue("cellId", "").AsString;
-                var customName = cellDoc.GetValue("customName", "").AsString;
-                var cellType = cellDoc.GetValue("type", "text").AsString;
-
-                // Use custom name if available, otherwise use cellId
-                var propertyName = !string.IsNullOrEmpty(customName) ? customName : cellId;
-                var cellKey = $"{elementName}_{cellId}";
-
-                // Property getter
-                sb.AppendLine($"    @property");
-                sb.AppendLine($"    def {propertyName}(self) -> {GetPythonTypeForCell(cellType)}:");
-                sb.AppendLine($"        \"\"\"");
-                sb.AppendLine($"        Cell {cellId}");
-                if (!string.IsNullOrEmpty(customName))
+                foreach (var cell in cells)
                 {
-                    sb.AppendLine($"        Custom name: {customName}");
-                }
-                sb.AppendLine($"        Type: {cellType}");
-                sb.AppendLine($"        \"\"\"");
-                sb.AppendLine($"        return self._values.get('{cellKey}', {GetDefaultValueForCell(cellType)})");
-                sb.AppendLine();
+                    var cellDoc = cell as Dictionary<string, object>;
+                    if (cellDoc != null)
+                    {
+                        var cellId = cellDoc.TryGetValue("cellId", out var cId) ? cId?.ToString() ?? "" : "";
+                        var customName = cellDoc.TryGetValue("customName", out var cName) ? cName?.ToString() ?? "" : "";
+                        var cellType = cellDoc.TryGetValue("type", out var cType) ? cType?.ToString() ?? "text" : "text";
 
-                // Property setter
-                sb.AppendLine($"    @{propertyName}.setter");
-                sb.AppendLine($"    def {propertyName}(self, value: {GetPythonTypeForCell(cellType)}):");
-                GenerateValidationForCell(sb, cellType, cellDoc);
-                sb.AppendLine($"        self._values['{cellKey}'] = value");
-                sb.AppendLine();
+                        // Use custom name if available, otherwise use cellId
+                        var propertyName = !string.IsNullOrEmpty(customName) ? customName : cellId;
+                        var cellKey = $"{elementName}_{cellId}";
+
+                        // Property getter
+                        sb.AppendLine($"    @property");
+                        sb.AppendLine($"    def {propertyName}(self) -> {GetPythonTypeForCell(cellType)}:");
+                        sb.AppendLine($"        \"\"\"");
+                        sb.AppendLine($"        Cell {cellId}");
+                        if (!string.IsNullOrEmpty(customName))
+                        {
+                            sb.AppendLine($"        Custom name: {customName}");
+                        }
+                        sb.AppendLine($"        Type: {cellType}");
+                        sb.AppendLine($"        \"\"\"");
+                        sb.AppendLine($"        return self._values.get('{cellKey}', {GetDefaultValueForCell(cellType)})");
+                        sb.AppendLine();
+
+                        // Property setter
+                        sb.AppendLine($"    @{propertyName}.setter");
+                        sb.AppendLine($"    def {propertyName}(self, value: {GetPythonTypeForCell(cellType)}):");
+                        GenerateValidationForCell(sb, cellType, cellDoc);
+                        sb.AppendLine($"        self._values['{cellKey}'] = value");
+                        sb.AppendLine();
+                    }
+                }
             }
         }
 
@@ -231,7 +259,7 @@ namespace TeiasMongoAPI.Services.Helpers
             };
         }
 
-        private static void GenerateValidationForCell(StringBuilder sb, string cellType, BsonDocument cellDoc)
+        private static void GenerateValidationForCell(StringBuilder sb, string cellType, Dictionary<string, object>? cellDoc)
         {
             switch (cellType)
             {
@@ -243,13 +271,16 @@ namespace TeiasMongoAPI.Services.Helpers
                     sb.AppendLine($"                raise ValueError('Value must be a number')");
                     break;
                 case "dropdown":
-                    if (cellDoc.Contains("options"))
+                    if (cellDoc?.TryGetValue("options", out var optionsObj) == true)
                     {
-                        var options = cellDoc["options"].AsBsonArray;
-                        var optionsList = string.Join(", ", options.Select(o => $"'{o.AsString}'"));
-                        sb.AppendLine($"        valid_options = [{optionsList}]");
-                        sb.AppendLine($"        if value is not None and value not in valid_options:");
-                        sb.AppendLine($"            raise ValueError(f'Invalid option: {{value}}. Valid options: {{valid_options}}')");
+                        var options = optionsObj as IEnumerable<object>;
+                        if (options != null)
+                        {
+                            var optionsList = string.Join(", ", options.Select(o => $"'{o?.ToString() ?? ""}'"));
+                            sb.AppendLine($"        valid_options = [{optionsList}]");
+                            sb.AppendLine($"        if value is not None and value not in valid_options:");
+                            sb.AppendLine($"            raise ValueError(f'Invalid option: {{value}}. Valid options: {{valid_options}}')");
+                        }
                     }
                     break;
             }
@@ -319,19 +350,25 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        \"\"\"Check if the given element name corresponds to a table element\"\"\"");
 
             // Generate the table element checks based on actual elements
-            if (component.Configuration != null && component.Configuration.Contains("elements"))
+            if (component.Configuration is Dictionary<string, object> tableConfig && tableConfig.ContainsKey("elements"))
             {
-                var elements = component.Configuration["elements"].AsBsonArray;
-                var tableElements = elements.Where(e => e.AsBsonDocument.GetValue("type", "").AsString == "table").ToList();
+                var elements = tableConfig["elements"] as IEnumerable<object>;
+                var tableElements = elements?.Where(e => {
+                    var elementDict = e as Dictionary<string, object>;
+                    return elementDict?.TryGetValue("type", out var type) == true && type?.ToString() == "table";
+                }).ToList() ?? new List<object>();
 
                 if (tableElements.Any())
                 {
                     sb.AppendLine("        table_elements = {");
                     foreach (var tableElement in tableElements)
                     {
-                        var elementDoc = tableElement.AsBsonDocument;
-                        var elementName = elementDoc.GetValue("name", "").AsString;
-                        sb.AppendLine($"            '{elementName}': True,");
+                        var elementDoc = tableElement as Dictionary<string, object>;
+                        if (elementDoc != null)
+                        {
+                            var elementName = elementDoc.TryGetValue("name", out var nameObj) ? nameObj?.ToString() ?? "" : "";
+                            sb.AppendLine($"            '{elementName}': True,");
+                        }
                     }
                     sb.AppendLine("        }");
                     sb.AppendLine("        return element_name in table_elements");
@@ -352,38 +389,50 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        \"\"\"Find the actual cell ID by custom name or return the name if it's already a cell ID\"\"\"");
 
             // Generate cell mappings for each table element
-            if (component.Configuration != null && component.Configuration.Contains("elements"))
+            if (component.Configuration is Dictionary<string, object> configDict && configDict.ContainsKey("elements"))
             {
-                var elements = component.Configuration["elements"].AsBsonArray;
-                var tableElements = elements.Where(e => e.AsBsonDocument.GetValue("type", "").AsString == "table").ToList();
+                var elements = configDict["elements"] as IEnumerable<object>;
+                var tableElements = elements?.Where(e => {
+                    var elementDict = e as Dictionary<string, object>;
+                    return elementDict?.TryGetValue("type", out var type) == true && type?.ToString() == "table";
+                }).ToList() ?? new List<object>();
 
                 if (tableElements.Any())
                 {
                     sb.AppendLine("        cell_mappings = {");
                     foreach (var tableElement in tableElements)
                     {
-                        var elementDoc = tableElement.AsBsonDocument;
-                        var elementName = elementDoc.GetValue("name", "").AsString;
-                        var tableConfig = elementDoc.GetValue("tableConfig", new BsonDocument()).AsBsonDocument;
-                        var cells = tableConfig.GetValue("cells", new BsonArray()).AsBsonArray;
-
-                        sb.AppendLine($"            '{elementName}': {{");
-
-                        foreach (var cell in cells)
+                        var elementDoc = tableElement as Dictionary<string, object>;
+                        if (elementDoc != null)
                         {
-                            var cellDoc = cell.AsBsonDocument;
-                            var cellId = cellDoc.GetValue("cellId", "").AsString;
-                            var customName = cellDoc.GetValue("customName", "").AsString;
+                            var elementName = elementDoc.TryGetValue("name", out var nameObj) ? nameObj?.ToString() ?? "" : "";
+                            var elementTableConfig = elementDoc.TryGetValue("tableConfig", out var tableConfigObj) ? tableConfigObj as Dictionary<string, object> : null;
+                            var cells = elementTableConfig?.TryGetValue("cells", out var cellsObj) == true ? cellsObj as IEnumerable<object> : null;
 
-                            if (!string.IsNullOrEmpty(customName))
+                            sb.AppendLine($"            '{elementName}': {{");
+
+                            if (cells != null)
                             {
-                                sb.AppendLine($"                '{customName}': '{cellId}',");
-                            }
-                            // Also map the cell ID to itself for direct access
-                            sb.AppendLine($"                '{cellId}': '{cellId}',");
-                        }
+                                foreach (var cell in cells)
+                                {
+                                    var cellDoc = cell as Dictionary<string, object>;
+                                    if (cellDoc != null)
+                                    {
+                                        var cellId = cellDoc.TryGetValue("cellId", out var cellIdObj) ? cellIdObj?.ToString() ?? "" : "";
+                                        var customName = cellDoc.TryGetValue("customName", out var customNameObj) ? customNameObj?.ToString() ?? "" : "";
 
-                        sb.AppendLine("            },");
+                                        if (!string.IsNullOrEmpty(customName))
+                                        {
+                                            sb.AppendLine($"                '{customName}': '{cellId}',");
+                                        }
+                                        // Also map the cell ID to itself for direct access
+                                        sb.AppendLine($"                '{cellId}': '{cellId}',");
+                                    }
+                                }
+                            }
+
+                            sb.AppendLine("            },");
+                        }
                     }
                     sb.AppendLine("        }");
                     sb.AppendLine();
@@ -479,16 +528,20 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        \"\"\"Validate all required fields and return list of errors\"\"\"");
             sb.AppendLine("        errors = []");
 
-            if (component.Configuration != null && component.Configuration.Contains("elements"))
+            if (component.Configuration is Dictionary<string, object> validationConfig && validationConfig.ContainsKey("elements"))
             {
-                var elements = component.Configuration["elements"].AsBsonArray;
-                foreach (var element in elements)
+                var elements = validationConfig["elements"] as IEnumerable<object>;
+                if (elements != null)
                 {
-                    var elementDoc = element.AsBsonDocument;
-                    var elementName = elementDoc.GetValue("name", "").AsString;
-                    var elementLabel = elementDoc.GetValue("label", "").AsString;
-                    var elementType = elementDoc.GetValue("type", "").AsString;
-                    var required = elementDoc.GetValue("required", false).AsBoolean;
+                    foreach (var element in elements)
+                    {
+                        var elementDoc = element as Dictionary<string, object>;
+                        if (elementDoc != null)
+                        {
+                            var elementName = elementDoc.TryGetValue("name", out var name) ? name?.ToString() ?? "" : "";
+                            var elementLabel = elementDoc.TryGetValue("label", out var label) ? label?.ToString() ?? "" : "";
+                            var elementType = elementDoc.TryGetValue("type", out var type) ? type?.ToString() ?? "" : "";
+                            var required = elementDoc.TryGetValue("required", out var req) && (req is bool b ? b : bool.TryParse(req?.ToString(), out b) && b);
 
                     if (required)
                     {
@@ -498,16 +551,22 @@ namespace TeiasMongoAPI.Services.Helpers
                             sb.AppendLine($"        # Check table element: {elementName}");
                             sb.AppendLine($"        table_has_value = False");
 
-                            var tableConfig = elementDoc.GetValue("tableConfig", new BsonDocument()).AsBsonDocument;
-                            var cells = tableConfig.GetValue("cells", new BsonArray()).AsBsonArray;
+                            var validationTableConfig = elementDoc.TryGetValue("tableConfig", out var tableConfigObj) ? tableConfigObj as Dictionary<string, object> : null;
+                            var cells = validationTableConfig?.TryGetValue("cells", out var cellsObj) == true ? cellsObj as IEnumerable<object> : null;
 
-                            foreach (var cell in cells)
+                            if (cells != null)
                             {
-                                var cellDoc = cell.AsBsonDocument;
-                                var cellId = cellDoc.GetValue("cellId", "").AsString;
-                                sb.AppendLine($"        if self._values.get('{elementName}_{cellId}'):");
-                                sb.AppendLine($"            table_has_value = True");
-                                sb.AppendLine($"            break");
+                                foreach (var cell in cells)
+                                {
+                                    var cellDoc = cell as Dictionary<string, object>;
+                                    var cellId = cellDoc?.TryGetValue("cellId", out var cellIdObj) == true ? cellIdObj?.ToString() ?? "" : "";
+                                    if (!string.IsNullOrEmpty(cellId))
+                                    {
+                                        sb.AppendLine($"        if self._values.get('{elementName}_{cellId}'):");
+                                        sb.AppendLine($"            table_has_value = True");
+                                        sb.AppendLine($"            break");
+                                    }
+                                }
                             }
 
                             sb.AppendLine($"        if not table_has_value:");
@@ -517,6 +576,8 @@ namespace TeiasMongoAPI.Services.Helpers
                         {
                             sb.AppendLine($"        if not self._values.get('{elementName}'):");
                             sb.AppendLine($"            errors.append('{elementLabel} is required')");
+                        }
+                    }
                         }
                     }
                 }
@@ -560,9 +621,13 @@ namespace TeiasMongoAPI.Services.Helpers
             };
         }
 
-        private static string GetDefaultValue(string elementType, BsonDocument element)
+        private static string GetDefaultValue(string elementType, Dictionary<string, object>? element)
         {
-            var placeholder = element.GetValue("placeholder", "").AsString;
+            var placeholder = "";
+            if (element?.TryGetValue("placeholder", out var placeholderValue) == true && placeholderValue != null)
+            {
+                placeholder = placeholderValue.ToString() ?? "";
+            }
 
             return elementType switch
             {
@@ -581,18 +646,21 @@ namespace TeiasMongoAPI.Services.Helpers
             };
         }
 
-        private static void GenerateValidation(StringBuilder sb, string elementType, BsonDocument element)
+        private static void GenerateValidation(StringBuilder sb, string elementType, Dictionary<string, object>? element)
         {
             switch (elementType)
             {
                 case "dropdown":
-                    if (element.Contains("options"))
+                    if (element?.TryGetValue("options", out var optionsObj) == true)
                     {
-                        var options = element["options"].AsBsonArray;
-                        var optionsList = string.Join(", ", options.Select(o => $"'{o.AsString}'"));
-                        sb.AppendLine($"        valid_options = [{optionsList}]");
-                        sb.AppendLine($"        if value is not None and value not in valid_options:");
-                        sb.AppendLine($"            raise ValueError(f'Invalid option: {{value}}. Valid options: {{valid_options}}')");
+                        var options = optionsObj as IEnumerable<object>;
+                        if (options != null)
+                        {
+                            var optionsList = string.Join(", ", options.Select(o => $"'{o?.ToString() ?? ""}'"));
+                            sb.AppendLine($"        valid_options = [{optionsList}]");
+                            sb.AppendLine($"        if value is not None and value not in valid_options:");
+                            sb.AppendLine($"            raise ValueError(f'Invalid option: {{value}}. Valid options: {{valid_options}}')");
+                        }
                     }
                     break;
                 case "number_input":

@@ -301,7 +301,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpPost("{id}/execute")]
         [RequirePermission(UserPermissions.ExecuteWorkflows)]
-        public async Task<ActionResult<ApiResponse<WorkflowExecution>>> Execute(
+        public async Task<ActionResult<ApiResponse<WorkflowExecutionResponseDto>>> Execute(
             string id,
             [FromBody] WorkflowExecutionRequest executionRequest,
             CancellationToken cancellationToken = default)
@@ -309,7 +309,7 @@ namespace TeiasMongoAPI.API.Controllers
             return await ExecuteAsync(async () =>
             {
                 executionRequest.WorkflowId = id;
-                return await _workflowExecutionEngine.ExecuteWorkflowAsync(executionRequest, cancellationToken);
+                return await _workflowExecutionEngine.ExecuteWorkflowAsync(executionRequest, CurrentUserId!.Value, cancellationToken);
             }, "Execute workflow");
         }
 
@@ -318,7 +318,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("executions/{executionId}")]
         [RequirePermission(UserPermissions.ViewWorkflows)]
-        public async Task<ActionResult<ApiResponse<WorkflowExecution>>> GetExecutionStatus(
+        public async Task<ActionResult<ApiResponse<WorkflowExecutionResponseDto>>> GetExecutionStatus(
             string executionId,
             CancellationToken cancellationToken = default)
         {
@@ -348,7 +348,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpPost("executions/{executionId}/resume")]
         [RequirePermission(UserPermissions.ExecuteWorkflows)]
-        public async Task<ActionResult<ApiResponse<WorkflowExecution>>> ResumeExecution(
+        public async Task<ActionResult<ApiResponse<WorkflowExecutionResponseDto>>> ResumeExecution(
             string executionId,
             CancellationToken cancellationToken = default)
         {
@@ -378,7 +378,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("executions/{executionId}/outputs")]
         [RequirePermission(UserPermissions.ViewWorkflows)]
-        public async Task<ActionResult<ApiResponse<Dictionary<string, WorkflowDataContract>>>> GetExecutionOutputs(
+        public async Task<ActionResult<ApiResponse<Dictionary<string, WorkflowDataContractDto>>>> GetExecutionOutputs(
             string executionId,
             CancellationToken cancellationToken = default)
         {
@@ -393,7 +393,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("executions/{executionId}/outputs/{nodeId}")]
         [RequirePermission(UserPermissions.ViewWorkflows)]
-        public async Task<ActionResult<ApiResponse<WorkflowDataContract>>> GetNodeOutput(
+        public async Task<ActionResult<ApiResponse<WorkflowDataContractDto>>> GetNodeOutput(
             string executionId,
             string nodeId,
             CancellationToken cancellationToken = default)
@@ -409,7 +409,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("executions/{executionId}/statistics")]
         [RequirePermission(UserPermissions.ViewWorkflows)]
-        public async Task<ActionResult<ApiResponse<WorkflowExecutionStatistics>>> GetExecutionStatistics(
+        public async Task<ActionResult<ApiResponse<WorkflowExecutionStatisticsResponseDto>>> GetExecutionStatistics(
             string executionId,
             CancellationToken cancellationToken = default)
         {
@@ -424,7 +424,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("executions/{executionId}/logs")]
         [RequirePermission(UserPermissions.ViewWorkflows)]
-        public async Task<ActionResult<ApiResponse<List<WorkflowExecutionLog>>>> GetExecutionLogs(
+        public async Task<ActionResult<ApiResponse<List<WorkflowExecutionLogResponseDto>>>> GetExecutionLogs(
             string executionId,
             [FromQuery] int skip = 0,
             [FromQuery] int take = 100,
@@ -494,7 +494,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpPost("executions/{executionId}/nodes/{nodeId}/execute")]
         [RequirePermission(UserPermissions.ExecuteWorkflows)]
-        public async Task<ActionResult<ApiResponse<NodeExecution>>> ExecuteNode(
+        public async Task<ActionResult<ApiResponse<NodeExecutionResponseDto>>> ExecuteNode(
             string executionId,
             string nodeId,
             CancellationToken cancellationToken = default)
@@ -510,7 +510,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpPost("executions/{executionId}/nodes/{nodeId}/retry")]
         [RequirePermission(UserPermissions.ExecuteWorkflows)]
-        public async Task<ActionResult<ApiResponse<NodeExecution>>> RetryNode(
+        public async Task<ActionResult<ApiResponse<NodeExecutionResponseDto>>> RetryNode(
             string executionId,
             string nodeId,
             CancellationToken cancellationToken = default)
@@ -631,7 +631,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("executions/active")]
         [RequirePermission(UserPermissions.ViewWorkflows)]
-        public async Task<ActionResult<ApiResponse<List<WorkflowExecution>>>> GetActiveExecutions(
+        public async Task<ActionResult<ApiResponse<List<WorkflowExecutionResponseDto>>>> GetActiveExecutions(
             CancellationToken cancellationToken = default)
         {
             return await ExecuteAsync(async () =>

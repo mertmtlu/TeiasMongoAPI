@@ -1,4 +1,5 @@
-﻿using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
+﻿using TeiasMongoAPI.Core.Models.Collaboration;
+using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 
 namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
 {
@@ -201,5 +202,89 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public List<string> SecurityWarnings { get; set; } = new();
         public int RiskLevel { get; set; } // 1-5 scale
         public DateTime ScanDate { get; set; }
+    }
+
+    public class WorkflowExecutionResponseDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string WorkflowId { get; set; } = string.Empty;
+        public string WorkflowName { get; set; } = string.Empty;
+        public int WorkflowVersion { get; set; }
+        public string ExecutionName { get; set; } = string.Empty;
+        public string ExecutedBy { get; set; } = string.Empty;
+        public string ExecutedByUsername { get; set; } = string.Empty;
+        public DateTime StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public TimeSpan? Duration { get; set; }
+        public WorkflowExecutionStatus Status { get; set; }
+        public WorkflowExecutionProgress Progress { get; set; } = new();
+        public WorkflowTriggerType TriggerType { get; set; }
+        public bool IsRerun { get; set; }
+        public string? ParentExecutionId { get; set; }
+        public string? ErrorMessage { get; set; }
+        public Dictionary<string, NodeExecutionStatus> NodeStatuses { get; set; } = new();
+        public Dictionary<string, object> Metadata { get; set; } = new();
+        public WorkflowExecutionContextDto ExecutionContext { get; set; } = new();
+    }
+
+    public class NodeExecutionResponseDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string ExecutionId { get; set; } = string.Empty;
+        public string NodeId { get; set; } = string.Empty;
+        public string NodeName { get; set; } = string.Empty;
+        public string ProgramId { get; set; } = string.Empty;
+        public string? VersionId { get; set; }
+        public DateTime StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public TimeSpan? Duration { get; set; }
+        public NodeExecutionStatus Status { get; set; }
+        public int? ExitCode { get; set; }
+        public string? ErrorMessage { get; set; }
+        public Dictionary<string, object> InputData { get; set; } = new();
+        public Dictionary<string, object> OutputData { get; set; } = new();
+        public Dictionary<string, object> Metadata { get; set; } = new();
+        public List<string> RetryHistory { get; set; } = new();
+        public bool IsSkipped { get; set; }
+        public string? SkipReason { get; set; }
+    }
+
+    public class WorkflowExecutionStatisticsResponseDto
+    {
+        public int TotalNodes { get; set; }
+        public int CompletedNodes { get; set; }
+        public int FailedNodes { get; set; }
+        public int SkippedNodes { get; set; }
+        public int PendingNodes { get; set; }
+        public int RunningNodes { get; set; }
+        public double CompletionPercentage { get; set; }
+        public TimeSpan TotalExecutionTime { get; set; }
+        public TimeSpan AverageNodeExecutionTime { get; set; }
+        public Dictionary<string, int> StatusDistribution { get; set; } = new();
+        public Dictionary<string, TimeSpan> NodeExecutionTimes { get; set; } = new();
+    }
+
+    public class WorkflowExecutionLogResponseDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string ExecutionId { get; set; } = string.Empty;
+        public string? NodeId { get; set; }
+        public string Level { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
+        public DateTime Timestamp { get; set; }
+        public Dictionary<string, object> Data { get; set; } = new();
+        public string? Exception { get; set; }
+    }
+
+    public class WorkflowExecutionContextDto
+    {
+        public Dictionary<string, object> UserInputs { get; set; } = new();
+        public Dictionary<string, object> GlobalVariables { get; set; } = new();
+        public Dictionary<string, string> Environment { get; set; } = new();
+        public WorkflowExecutionMode ExecutionMode { get; set; } = WorkflowExecutionMode.Normal;
+        public bool DebugMode { get; set; } = false;
+        public bool SaveIntermediateResults { get; set; } = true;
+        public int MaxConcurrentNodes { get; set; } = 5;
+        public int TimeoutMinutes { get; set; } = 60;
     }
 }

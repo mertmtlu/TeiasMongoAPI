@@ -1,5 +1,4 @@
-﻿using MongoDB.Bson;
-
+﻿
 namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
 {
     public class UiComponentDto
@@ -15,8 +14,8 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public string ProgramId { get; set; } = string.Empty;
         public string VersionId { get; set; } = string.Empty;
 
-        public BsonDocument Configuration { get; set; } = new BsonDocument();
-        public BsonDocument Schema { get; set; } = new BsonDocument();
+        public Dictionary<string, object> Configuration { get; set; } = new();
+        public Dictionary<string, object> Schema { get; set; } = new();
         public string Status { get; set; } = string.Empty;
         public List<string> Tags { get; set; } = new();
     }
@@ -86,7 +85,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
     public class UiComponentConfigDto
     {
         public string ComponentId { get; set; } = string.Empty;
-        public BsonDocument Configuration { get; set; } = new BsonDocument();
+        public Dictionary<string, object> Configuration { get; set; } = new();
         public DateTime LastUpdated { get; set; }
         public string UpdatedBy { get; set; } = string.Empty;
     }
@@ -94,7 +93,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
     public class UiComponentSchemaDto
     {
         public string ComponentId { get; set; } = string.Empty;
-        public BsonDocument Schema { get; set; } = new BsonDocument();
+        public Dictionary<string, object> Schema { get; set; } = new();
         public DateTime LastUpdated { get; set; }
         public string UpdatedBy { get; set; } = string.Empty;
         public bool IsValid { get; set; }
@@ -120,7 +119,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public string ComponentId { get; set; } = string.Empty;
         public string ComponentName { get; set; } = string.Empty;
         public string MappingName { get; set; } = string.Empty;
-        public BsonDocument MappingConfiguration { get; set; } = new BsonDocument();
+        public Dictionary<string, object> MappingConfiguration { get; set; } = new();
         public int DisplayOrder { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }

@@ -757,7 +757,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new UiComponentConfigDto
             {
                 ComponentId = id,
-                Configuration = component.Configuration,
+                Configuration = component.Configuration as Dictionary<string, object> ?? new Dictionary<string, object>(),
                 LastUpdated = component.CreatedAt,
                 UpdatedBy = component.Creator
             };
@@ -802,7 +802,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new UiComponentSchemaDto
             {
                 ComponentId = id,
-                Schema = component.Schema,
+                Schema = component.Schema as Dictionary<string, object> ?? new Dictionary<string, object>(),
                 LastUpdated = component.CreatedAt,
                 UpdatedBy = component.Creator,
                 IsValid = true // Would need proper schema validation

@@ -10,7 +10,7 @@ namespace TeiasMongoAPI.Services.Mappings
     {
         public WorkflowMappingProfile()
         {
-            // CRITICAL: Add type converters FIRST to handle Dictionary<string, object> <-> BsonDocument conversion
+            // Initialize type converters for AutoMapper
             CreateTypeConverters();
 
             CreateWorkflowMappings();
@@ -19,30 +19,13 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateWorkflowExecutionMappings();
             CreateWorkflowPermissionMappings();
             CreateWorkflowSettingsMappings();
+            CreateWorkflowDataContractMappings();
         }
 
         private void CreateTypeConverters()
         {
-            // Handle Dictionary<string, object> to BsonDocument conversion
-            CreateMap<Dictionary<string, object>, BsonDocument>()
-                .ConvertUsing(dict => dict != null ? new BsonDocument(dict) : null);
-
-            CreateMap<BsonDocument, Dictionary<string, object>>()
-                .ConvertUsing(doc => doc != null ? doc.ToDictionary() : null);
-
-            // Handle nullable versions
-            CreateMap<Dictionary<string, object>?, BsonDocument?>()
-                .ConvertUsing(dict => dict != null ? new BsonDocument(dict) : null);
-
-            CreateMap<BsonDocument?, Dictionary<string, object>?>()
-                .ConvertUsing(doc => doc != null ? doc.ToDictionary() : null);
-
-            // Handle collections of dictionaries/documents
-            //    CreateMap<List<Dictionary<string, object>>, List<BsonDocument>>()
-            //        .ConvertUsing(dicts => dicts?.Select(d => d != null ? new BsonDocument(d) : null).Where(b => b != null).ToList() ?? new List<BsonDocument>());
-
-            //    CreateMap<List<BsonDocument>, List<Dictionary<string, object>>>()
-            //        .ConvertUsing(docs => docs?.Select(d => d?.ToDictionary()).Where(d => d != null).ToList() ?? new List<Dictionary<string, object>>());
+            // Type converters are no longer needed since both DTOs and domain models now use Dictionary<string, object>
+            // Direct mapping will work for Dictionary<string, object> properties
         }
 
         private void CreateWorkflowMappings()
@@ -153,7 +136,7 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Duration, opt => opt.MapFrom(src => src.CompletedAt.HasValue ? src.CompletedAt.Value - src.StartedAt : (TimeSpan?)null))
                 .ForMember(dest => dest.ErrorMessage, opt => opt.MapFrom(src => src.Error != null ? src.Error.Message : null))
                 .ForMember(dest => dest.NodeStatuses, opt => opt.MapFrom(src => src.NodeExecutions != null ? src.NodeExecutions.ToDictionary(ne => ne.NodeId, ne => ne.Status) : new Dictionary<string, NodeExecutionStatus>()))
-                .ForMember(dest => dest.Metadata, opt => opt.MapFrom(src => src.Metadata)); // Type converter will handle BsonDocument -> Dictionary
+                .ForMember(dest => dest.Metadata, opt => opt.MapFrom(src => src.Metadata)); // Direct mapping since both are Dictionary<string, object>
 
             CreateMap<NodeExecution, NodeExecutionDto>()
                 .ForMember(dest => dest.ProgramExecutionId, opt => opt.MapFrom(src => src.ProgramExecutionId != null ? src.ProgramExecutionId.ToString() : null))
@@ -163,20 +146,28 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<WorkflowExecutionProgress, WorkflowExecutionProgressDto>().ReverseMap();
 
             CreateMap<WorkflowExecutionResults, WorkflowExecutionResultsDto>()
-                .ForMember(dest => dest.FinalOutputs, opt => opt.MapFrom(src => src.FinalOutputs)) // Type converter handles this
-                .ForMember(dest => dest.IntermediateResults, opt => opt.MapFrom(src => src.IntermediateResults)) // Type converter handles this
+                .ForMember(dest => dest.FinalOutputs, opt => opt.MapFrom(src => ConvertBsonDocumentToDictionary(src.FinalOutputs)))
+                .ForMember(dest => dest.IntermediateResults, opt => opt.MapFrom(src => src.IntermediateResults.ToDictionary(kvp => kvp.Key, kvp => ConvertBsonDocumentToDictionary(kvp.Value))))
                 .ReverseMap();
 
             CreateMap<WorkflowExecutionError, WorkflowExecutionErrorDto>().ReverseMap();
             CreateMap<NodeExecutionError, NodeExecutionErrorDto>().ReverseMap();
 
             CreateMap<WorkflowResourceUsage, WorkflowResourceUsageDto>()
-                .ForMember(dest => dest.NodeResourceUsage, opt => opt.MapFrom(src => src.NodeResourceUsage)) // Type converter handles this
+                .ForMember(dest => dest.NodeResourceUsage, opt => opt.MapFrom(src => src.NodeResourceUsage)) // Direct mapping
                 .ReverseMap();
 
             CreateMap<WorkflowExecutionLog, WorkflowExecutionLogDto>()
-                .ForMember(dest => dest.Metadata, opt => opt.MapFrom(src => src.Metadata)) // Type converter handles this
+                .ForMember(dest => dest.Metadata, opt => opt.MapFrom(src => src.Metadata)) // Direct mapping
                 .ReverseMap();
+
+            CreateMap<WorkflowExecutionContext, WorkflowExecutionContextDto>()
+                .ForMember(dest => dest.UserInputs, opt => opt.MapFrom(src => ConvertBsonDocumentToDictionary(src.UserInputs)))
+                .ForMember(dest => dest.GlobalVariables, opt => opt.MapFrom(src => ConvertBsonDocumentToDictionary(src.GlobalVariables)));
+
+            CreateMap<WorkflowExecutionContextDto, WorkflowExecutionContext>()
+                .ForMember(dest => dest.UserInputs, opt => opt.MapFrom(src => ConvertDictionaryToBsonDocument(src.UserInputs)))
+                .ForMember(dest => dest.GlobalVariables, opt => opt.MapFrom(src => ConvertDictionaryToBsonDocument(src.GlobalVariables)));
 
             CreateMap<WorkflowExecutionStatistics, WorkflowExecutionStatisticsDto>().ReverseMap();
         }
@@ -199,6 +190,91 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<WorkflowSettingsDto, WorkflowSettings>().ReverseMap();
             CreateMap<WorkflowRetryPolicyDto, WorkflowRetryPolicy>().ReverseMap();
             CreateMap<WorkflowNotificationSettingsDto, WorkflowNotificationSettings>().ReverseMap();
+        }
+
+        private void CreateWorkflowDataContractMappings()
+        {
+            // WorkflowDataContract to DTO mappings
+            CreateMap<WorkflowDataContract, WorkflowDataContractDto>()
+                .ForMember(dest => dest.Data, opt => opt.MapFrom(src => ConvertBsonDocumentToDictionary(src.Data)))
+                .ForMember(dest => dest.Schema, opt => opt.MapFrom(src => src.Schema != null ? ConvertBsonDocumentToDictionary(src.Schema) : null));
+
+            CreateMap<DataContractMetadata, DataContractMetadataDto>()
+                .ForMember(dest => dest.CustomMetadata, opt => opt.MapFrom(src => ConvertBsonDocumentToDictionary(src.CustomMetadata)));
+
+            CreateMap<DataTransformation, DataTransformationDto>()
+                .ForMember(dest => dest.InputSchema, opt => opt.MapFrom(src => src.InputSchema != null ? ConvertBsonDocumentToDictionary(src.InputSchema) : null))
+                .ForMember(dest => dest.OutputSchema, opt => opt.MapFrom(src => src.OutputSchema != null ? ConvertBsonDocumentToDictionary(src.OutputSchema) : null));
+
+            CreateMap<DataValidationResult, DataValidationResultDto>()
+                .ForMember(dest => dest.SchemaUsed, opt => opt.MapFrom(src => src.SchemaUsed != null ? ConvertBsonDocumentToDictionary(src.SchemaUsed) : null));
+
+            CreateMap<DataQualityMetrics, DataQualityMetricsDto>().ReverseMap();
+            CreateMap<DataQualityIssue, DataQualityIssueDto>().ReverseMap();
+            CreateMap<DataLineage, DataLineageDto>().ReverseMap();
+            CreateMap<DataDependency, DataDependencyDto>().ReverseMap();
+            CreateMap<DataSource, DataSourceDto>().ReverseMap();
+            CreateMap<EncryptionInfo, EncryptionInfoDto>().ReverseMap();
+            CreateMap<DataAttachment, DataAttachmentDto>().ReverseMap();
+        }
+
+        private static Dictionary<string, object> ConvertBsonDocumentToDictionary(BsonDocument bsonDoc)
+        {
+            if (bsonDoc == null) return new Dictionary<string, object>();
+            
+            var result = new Dictionary<string, object>();
+            foreach (var element in bsonDoc)
+            {
+                result[element.Name] = ConvertBsonValueToObject(element.Value);
+            }
+            return result;
+        }
+
+        private static object ConvertBsonValueToObject(BsonValue bsonValue)
+        {
+            return bsonValue.BsonType switch
+            {
+                BsonType.Document => ConvertBsonDocumentToDictionary(bsonValue.AsBsonDocument),
+                BsonType.Array => bsonValue.AsBsonArray.Select(ConvertBsonValueToObject).ToList(),
+                BsonType.String => bsonValue.AsString,
+                BsonType.Int32 => bsonValue.AsInt32,
+                BsonType.Int64 => bsonValue.AsInt64,
+                BsonType.Double => bsonValue.AsDouble,
+                BsonType.Boolean => bsonValue.AsBoolean,
+                BsonType.DateTime => bsonValue.ToUniversalTime(),
+                BsonType.Null => null,
+                BsonType.ObjectId => bsonValue.AsObjectId.ToString(),
+                _ => bsonValue.ToString()
+            };
+        }
+
+        private static BsonDocument ConvertDictionaryToBsonDocument(Dictionary<string, object> dictionary)
+        {
+            if (dictionary == null) return new BsonDocument();
+            
+            var bsonDoc = new BsonDocument();
+            foreach (var kvp in dictionary)
+            {
+                bsonDoc[kvp.Key] = ConvertObjectToBsonValue(kvp.Value);
+            }
+            return bsonDoc;
+        }
+
+        private static BsonValue ConvertObjectToBsonValue(object obj)
+        {
+            return obj switch
+            {
+                null => BsonNull.Value,
+                string s => new BsonString(s),
+                int i => new BsonInt32(i),
+                long l => new BsonInt64(l),
+                double d => new BsonDouble(d),
+                bool b => new BsonBoolean(b),
+                DateTime dt => new BsonDateTime(dt),
+                Dictionary<string, object> dict => ConvertDictionaryToBsonDocument(dict),
+                IEnumerable<object> list => new BsonArray(list.Select(ConvertObjectToBsonValue)),
+                _ => new BsonString(obj.ToString() ?? string.Empty)
+            };
         }
     }
 

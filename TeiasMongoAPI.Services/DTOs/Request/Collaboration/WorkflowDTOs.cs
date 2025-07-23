@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using MongoDB.Bson;
 using TeiasMongoAPI.Core.Models.Collaboration;
 
 namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
@@ -25,7 +24,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public List<string> Tags { get; set; } = new();
 
-        public BsonDocument Metadata { get; set; } = new();
+        public Dictionary<string, object> Metadata { get; set; } = new();
 
         public bool IsTemplate { get; set; } = false;
 
@@ -52,7 +51,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public List<string>? Tags { get; set; }
 
-        public BsonDocument? Metadata { get; set; }
+        public Dictionary<string, object>? Metadata { get; set; }
 
         public bool? IsTemplate { get; set; }
     }
@@ -104,7 +103,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public NodeUIConfigurationDto UIConfiguration { get; set; } = new();
 
-        public BsonDocument Metadata { get; set; } = new();
+        public Dictionary<string, object> Metadata { get; set; } = new();
 
         public bool IsDisabled { get; set; } = false;
     }
@@ -135,7 +134,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public NodeUIConfigurationDto? UIConfiguration { get; set; }
 
-        public BsonDocument? Metadata { get; set; }
+        public Dictionary<string, object>? Metadata { get; set; }
 
         public bool? IsDisabled { get; set; }
     }
@@ -163,7 +162,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public EdgeUIConfigurationDto UIConfiguration { get; set; } = new();
 
-        public BsonDocument Metadata { get; set; } = new();
+        public Dictionary<string, object> Metadata { get; set; } = new();
 
         public bool IsDisabled { get; set; } = false;
     }
@@ -186,7 +185,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public EdgeUIConfigurationDto? UIConfiguration { get; set; }
 
-        public BsonDocument? Metadata { get; set; }
+        public Dictionary<string, object>? Metadata { get; set; }
 
         public bool? IsDisabled { get; set; }
     }
@@ -277,7 +276,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
     {
         public List<NodeInputMappingDto> InputMappings { get; set; } = new();
 
-        public BsonDocument StaticInputs { get; set; } = new();
+        public Dictionary<string, object> StaticInputs { get; set; } = new();
 
         public List<NodeUserInputDto> UserInputs { get; set; } = new();
 
@@ -299,7 +298,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public bool IsOptional { get; set; } = false;
 
-        public BsonValue? DefaultValue { get; set; }
+        public object? DefaultValue { get; set; }
     }
 
     public class NodeUserInputDto
@@ -317,9 +316,9 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public List<string> Options { get; set; } = new();
 
-        public BsonValue? DefaultValue { get; set; }
+        public object? DefaultValue { get; set; }
 
-        public BsonDocument Validation { get; set; } = new();
+        public Dictionary<string, object> Validation { get; set; } = new();
     }
 
     public class NodeValidationRuleDto
@@ -330,7 +329,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [Required]
         public required string Rule { get; set; }
 
-        public BsonValue Value { get; set; } = BsonNull.Value;
+        public object? Value { get; set; }
 
         public string Message { get; set; } = string.Empty;
     }
@@ -339,7 +338,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
     {
         public List<NodeOutputMappingDto> OutputMappings { get; set; } = new();
 
-        public BsonDocument OutputSchema { get; set; } = new();
+        public Dictionary<string, object> OutputSchema { get; set; } = new();
 
         public bool CacheResults { get; set; } = true;
 
@@ -425,7 +424,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public bool EvaluateOnSourceOutput { get; set; } = true;
 
-        public BsonValue? DefaultValue { get; set; }
+        public object? DefaultValue { get; set; }
 
         public EdgeFailureAction FailureAction { get; set; } = EdgeFailureAction.Skip;
     }
@@ -437,13 +436,13 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [Required]
         public required string Expression { get; set; }
 
-        public BsonDocument? InputSchema { get; set; }
+        public Dictionary<string, object>? InputSchema { get; set; }
 
-        public BsonDocument? OutputSchema { get; set; }
+        public Dictionary<string, object>? OutputSchema { get; set; }
 
         public string? CustomFunction { get; set; }
 
-        public BsonDocument Parameters { get; set; } = new();
+        public Dictionary<string, object> Parameters { get; set; } = new();
 
         public bool ValidateSchema { get; set; } = true;
     }
