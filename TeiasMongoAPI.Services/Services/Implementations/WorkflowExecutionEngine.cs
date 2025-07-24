@@ -551,14 +551,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Prepare input data
                 var inputData = await PrepareNodeInputDataAsync(session, nodeId, cancellationToken);
 
-                // Generate WorkflowInputs helper file for easy access to dependency outputs
+                // Generate and write WorkflowInputs.py file for easy access to dependency outputs
                 var workflowInputsHelper = WorkflowInputsGenerator.GenerateWorkflowInputsFromBsonDocument(inputData.Data);
                 
-                // Add the helper file to the environment (this approach may need adjustment based on how files are provided to programs)
-                var enhancedEnvironment = new Dictionary<string, string>(node.ExecutionSettings.Environment);
-                enhancedEnvironment["WORKFLOW_INPUTS_HELPER"] = workflowInputsHelper;
+                // Write WorkflowInputs.py to the program's working directory
+                var workflowInputsFilePath = await WriteWorkflowInputsFileAsync(workflowInputsHelper, nodeId, session, cancellationToken);
                 
-                _logger.LogInformation($"Generated WorkflowInputs helper for node {nodeId} with {inputData.Data.ElementCount} dependencies");
+                // Add file path to environment for reference (no JSON data needed since it's embedded)
+                var enhancedEnvironment = new Dictionary<string, string>(node.ExecutionSettings.Environment);
+                enhancedEnvironment["WORKFLOW_INPUTS_FILE"] = workflowInputsFilePath;
+                
+                _logger.LogInformation($"Generated WorkflowInputs.py file at {workflowInputsFilePath} for node {nodeId} with {inputData.Data.ElementCount} dependencies");
 
                 // Create program execution request
                 var programRequest = new ProjectExecutionRequest
@@ -1114,6 +1117,42 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // This would involve cleaning up storage, temporary files, etc.
             
             return true;
+        }
+
+        private async Task<string> WriteWorkflowInputsFileAsync(string workflowInputsContent, string nodeId, WorkflowExecutionSession session, CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Get the program info to determine the working directory
+                var node = session.Workflow.Nodes.First(n => n.Id == nodeId);
+                var program = await _unitOfWork.Programs.GetByIdAsync(node.ProgramId, cancellationToken);
+                
+                // Create a temporary directory for this execution if it doesn't exist
+                var executionTempDir = Path.Combine(Path.GetTempPath(), "WorkflowExecutions", session.ExecutionId.ToString(), nodeId);
+                Directory.CreateDirectory(executionTempDir);
+                
+                // Write the WorkflowInputs.py file
+                var workflowInputsFilePath = Path.Combine(executionTempDir, "WorkflowInputs.py");
+                await File.WriteAllTextAsync(workflowInputsFilePath, workflowInputsContent, cancellationToken);
+                
+                // Also write the raw JSON data for debugging purposes
+                var jsonDataPath = Path.Combine(executionTempDir, "workflow_inputs_data.json");
+                var inputData = await PrepareNodeInputDataAsync(session, nodeId, cancellationToken);
+                await File.WriteAllTextAsync(jsonDataPath, inputData.Data.ToJson(), cancellationToken);
+                
+                _logger.LogInformation($"WorkflowInputs.py written to {workflowInputsFilePath} for node {nodeId}");
+                
+                return workflowInputsFilePath;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to write WorkflowInputs.py file for node {nodeId}");
+                
+                // Return a temporary file path as fallback
+                var fallbackPath = Path.Combine(Path.GetTempPath(), $"WorkflowInputs_{nodeId}_{DateTime.UtcNow.Ticks}.py");
+                await File.WriteAllTextAsync(fallbackPath, workflowInputsContent, cancellationToken);
+                return fallbackPath;
+            }
         }
 
         private List<string> GetDependencyNodeIds(Workflow workflow, string nodeId)
