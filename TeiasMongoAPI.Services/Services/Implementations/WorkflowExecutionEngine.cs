@@ -1,4 +1,5 @@
 using AutoMapper;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System.Collections.Concurrent;
@@ -19,6 +20,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IProjectExecutionEngine _projectExecutionEngine;
         private readonly IFileStorageService _fileStorageService;
         private readonly IWorkflowSessionManager _sessionManager;
+        private readonly IBackgroundTaskQueue _backgroundTaskQueue;
         private readonly SemaphoreSlim _executionSemaphore = new(10, 10); // Limit concurrent workflows
 
         public WorkflowExecutionEngine(
@@ -28,13 +30,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IWorkflowValidationService validationService,
             IProjectExecutionEngine projectExecutionEngine,
             IFileStorageService fileStorageService,
-            IWorkflowSessionManager sessionManager)
+            IWorkflowSessionManager sessionManager,
+            IBackgroundTaskQueue backgroundTaskQueue)
             : base(unitOfWork, mapper, logger)
         {
             _validationService = validationService;
             _projectExecutionEngine = projectExecutionEngine;
             _fileStorageService = fileStorageService;
             _sessionManager = sessionManager;
+            _backgroundTaskQueue = backgroundTaskQueue;
             _logger.LogInformation($"WorkflowExecutionEngine instance created: {GetHashCode()}");
         }
 
@@ -126,8 +130,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
                 _sessionManager.AddSession(executionId.ToString(), session);
 
-                // Start execution in background
-                _ = Task.Run(async () => await ExecuteWorkflowInternalAsync(session, cancellationToken), cancellationToken);
+                // Queue background task execution
+                await _backgroundTaskQueue.QueueBackgroundWorkItemAsync(async (serviceProvider, ct) =>
+                {
+                    // Resolve a new scoped instance of IWorkflowExecutionEngine
+                    var scopedWorkflowEngine = serviceProvider.GetRequiredService<IWorkflowExecutionEngine>();
+                    
+                    // Since we need access to the internal method, we'll cast to the concrete type
+                    if (scopedWorkflowEngine is WorkflowExecutionEngine engine)
+                    {
+                        await engine.ExecuteWorkflowInternalAsync(session, ct);
+                    }
+                });
 
                 _logger.LogInformation($"Workflow execution {executionId} started successfully");
                 return _mapper.Map<WorkflowExecutionResponseDto>(execution);
@@ -139,7 +153,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        private async Task ExecuteWorkflowInternalAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
+        public async Task ExecuteWorkflowInternalAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
         {
             var combinedCancellationToken = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken, session.CancellationTokenSource.Token).Token;
