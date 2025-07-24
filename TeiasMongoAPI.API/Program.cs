@@ -217,10 +217,14 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IWorkflowValidationService, WorkflowValidationService>();
             
             // Register Session Manager as Singleton
-            builder.Services.AddScoped<IWorkflowSessionManager, WorkflowSessionManager>();
+            builder.Services.AddSingleton<IWorkflowSessionManager, WorkflowSessionManager>();
+
+            // Register Background Task Queue (Singleton for shared queue)
+            builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
 
             // Register Background Services
             builder.Services.AddHostedService<TokenCleanupService>();
+            builder.Services.AddHostedService<QueuedHostedService>();
 
             // Configure CORS
             //builder.Services.AddCors(options =>

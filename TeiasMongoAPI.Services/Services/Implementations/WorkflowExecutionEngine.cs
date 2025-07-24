@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System.Collections.Concurrent;
+using System.Text;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
@@ -11,6 +12,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Helpers;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -549,6 +551,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Prepare input data
                 var inputData = await PrepareNodeInputDataAsync(session, nodeId, cancellationToken);
 
+                // Generate WorkflowInputs helper file for easy access to dependency outputs
+                var workflowInputsHelper = WorkflowInputsGenerator.GenerateWorkflowInputsFromBsonDocument(inputData.Data);
+                
+                // Add the helper file to the environment (this approach may need adjustment based on how files are provided to programs)
+                var enhancedEnvironment = new Dictionary<string, string>(node.ExecutionSettings.Environment);
+                enhancedEnvironment["WORKFLOW_INPUTS_HELPER"] = workflowInputsHelper;
+                
+                _logger.LogInformation($"Generated WorkflowInputs helper for node {nodeId} with {inputData.Data.ElementCount} dependencies");
+
                 // Create program execution request
                 var programRequest = new ProjectExecutionRequest
                 {
@@ -556,7 +567,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     VersionId = node.VersionId?.ToString(),
                     UserId = session.Execution.ExecutedBy,
                     Parameters = inputData.Data,
-                    Environment = node.ExecutionSettings.Environment,
+                    Environment = enhancedEnvironment,
                     TimeoutMinutes = node.ExecutionSettings.TimeoutMinutes,
                     ResourceLimits = new ProjectResourceLimits
                     {
@@ -618,6 +629,30 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var node = session.Workflow.Nodes.First(n => n.Id == nodeId);
             var inputData = new BsonDocument();
 
+            // NEW APPROACH: Get all dependency outputs by program name
+            var dependencyNodeIds = GetDependencyNodeIds(session.Workflow, nodeId);
+            
+            _logger.LogInformation($"Node {nodeId} has {dependencyNodeIds.Count} dependencies: [{string.Join(", ", dependencyNodeIds)}]");
+
+            foreach (var depNodeId in dependencyNodeIds)
+            {
+                if (session.NodeOutputs.TryGetValue(depNodeId, out var depOutput))
+                {
+                    // Get program name for this dependency node
+                    var programName = await GetProgramNameForNode(session.Workflow, depNodeId);
+                    
+                    // Add complete output under program name
+                    inputData[programName] = depOutput.Data;
+                    
+                    _logger.LogInformation($"Added dependency '{programName}' output for node {nodeId}");
+                }
+                else
+                {
+                    _logger.LogWarning($"Dependency node {depNodeId} output not found for node {nodeId}");
+                }
+            }
+
+            // LEGACY SUPPORT: Keep existing static inputs and user inputs for backward compatibility
             // Add static inputs
             foreach (var staticInput in node.InputConfiguration.StaticInputs)
             {
@@ -638,7 +673,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
             }
 
-            // Add inputs from other nodes
+            // LEGACY SUPPORT: Keep existing input mappings for backward compatibility
+            // Add inputs from other nodes (old way - for nodes that still use input mappings)
             foreach (var inputMapping in node.InputConfiguration.InputMappings)
             {
                 if (session.NodeOutputs.TryGetValue(inputMapping.SourceNodeId, out var sourceOutput))
@@ -659,7 +695,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
                 else if (!inputMapping.IsOptional)
                 {
-                    throw new InvalidOperationException($"Required input '{inputMapping.InputName}' not available for node '{nodeId}'");
+                    _logger.LogWarning($"Required input mapping '{inputMapping.InputName}' not available for node '{nodeId}' - but dependencies are available via program names");
                 }
             }
 
@@ -1078,6 +1114,78 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // This would involve cleaning up storage, temporary files, etc.
             
             return true;
+        }
+
+        private List<string> GetDependencyNodeIds(Workflow workflow, string nodeId)
+        {
+            // Get all edges that point to this node (incoming edges)
+            var incomingEdges = workflow.Edges.Where(e => e.TargetNodeId == nodeId && !e.IsDisabled);
+            
+            // Return the source node IDs (dependencies)
+            return incomingEdges.Select(e => e.SourceNodeId).Distinct().ToList();
+        }
+
+        private async Task<string> GetProgramNameForNode(Workflow workflow, string nodeId)
+        {
+            var node = workflow.Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node == null)
+            {
+                return $"UnknownNode_{nodeId}";
+            }
+
+            try
+            {
+                // Get the program associated with this node
+                var program = await _unitOfWork.Programs.GetByIdAsync(node.ProgramId, CancellationToken.None);
+                if (program != null && !string.IsNullOrEmpty(program.Name))
+                {
+                    // Clean the program name to be a valid identifier
+                    return CleanProgramName(program.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"Failed to get program name for node {nodeId}");
+            }
+
+            // Fallback to node name or ID
+            if (!string.IsNullOrEmpty(node.Name))
+            {
+                return CleanProgramName(node.Name);
+            }
+
+            return $"Node_{nodeId}";
+        }
+
+        private static string CleanProgramName(string programName)
+        {
+            // Convert program name to a valid identifier
+            // Remove special characters and spaces, use PascalCase
+            var cleaned = new StringBuilder();
+            bool capitalizeNext = true;
+
+            foreach (char c in programName)
+            {
+                if (char.IsLetterOrDigit(c))
+                {
+                    cleaned.Append(capitalizeNext ? char.ToUpper(c) : c);
+                    capitalizeNext = false;
+                }
+                else if (c == ' ' || c == '_' || c == '-')
+                {
+                    capitalizeNext = true;
+                }
+            }
+
+            var result = cleaned.ToString();
+            
+            // Ensure it starts with a letter
+            if (result.Length > 0 && char.IsDigit(result[0]))
+            {
+                result = "Program" + result;
+            }
+
+            return string.IsNullOrEmpty(result) ? "UnknownProgram" : result;
         }
 
         private async Task<ExecutionStatusInfo> GetExecutionStatusFromDatabaseAsync(string executionId, CancellationToken cancellationToken)
