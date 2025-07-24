@@ -103,7 +103,7 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public ObjectId ProgramId { get; set; }
 
         [BsonElement("programExecutionId")]
-        public ObjectId? ProgramExecutionId { get; set; }
+        public string ProgramExecutionId { get; set; } = string.Empty;
 
         [BsonElement("startedAt")]
         public DateTime? StartedAt { get; set; }

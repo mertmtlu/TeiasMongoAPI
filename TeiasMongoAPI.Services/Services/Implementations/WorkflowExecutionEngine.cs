@@ -494,7 +494,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         return new NodeExecutionResponseDto 
                         { 
                             Status = NodeExecutionStatus.Skipped,
-                            Message = "Workflow already completed - node execution skipped to prevent race condition",
+                            ErrorMessage = "Workflow already completed - node execution skipped to prevent race condition",
                             CompletedAt = DateTime.UtcNow
                         };
                     }
@@ -561,7 +561,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Update node execution
                 nodeExecution.CompletedAt = DateTime.UtcNow;
                 nodeExecution.Duration = nodeExecution.CompletedAt - nodeExecution.StartedAt;
-                nodeExecution.ProgramExecutionId = ObjectId.Parse(programResult.ExecutionId);
+                nodeExecution.ProgramExecutionId = programResult.ExecutionId;
                 nodeExecution.InputData = inputData.Data;
                 nodeExecution.OutputData = outputData.Data;
 

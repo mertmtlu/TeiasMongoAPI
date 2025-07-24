@@ -1,5 +1,6 @@
 using MongoDB.Bson;
 using MongoDB.Driver;
+using MongoDB.Driver.Linq;
 using System.Linq.Expressions;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
@@ -40,7 +41,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
 
         public async Task<IEnumerable<WorkflowExecution>> GetRunningExecutionsAsync(CancellationToken cancellationToken = default)
         {
-            var filter = Builders<WorkflowExecution>.Filter.In(e => e.Status, 
+            var filter = Builders<WorkflowExecution>.Filter.In(e => e.Status,
                 new[] { WorkflowExecutionStatus.Running, WorkflowExecutionStatus.Pending });
             return await _collection.Find(filter).ToListAsync(cancellationToken);
         }
@@ -48,7 +49,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         public async Task<IEnumerable<WorkflowExecution>> GetExecutionsWithPaginationAsync(int skip, int take, Expression<Func<WorkflowExecution, bool>>? filter = null, CancellationToken cancellationToken = default)
         {
             var mongoFilter = filter != null ? Builders<WorkflowExecution>.Filter.Where(filter) : Builders<WorkflowExecution>.Filter.Empty;
-            
+
             return await _collection.Find(mongoFilter)
                 .Skip(skip)
                 .Limit(take)
@@ -113,9 +114,10 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 Builders<WorkflowExecution>.Filter.ElemMatch(e => e.NodeExecutions, n => n.NodeId == nodeId)
             );
 
-            var update = Builders<WorkflowExecution>.Update.Set(e => e.NodeExecutions[-1], nodeExecution);
+            var update = Builders<WorkflowExecution>.Update.Set("NodeExecutions.$", nodeExecution);
 
             var result = await _collection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+
             return result.ModifiedCount > 0;
         }
 
@@ -229,7 +231,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
             };
 
             var result = await _collection.Aggregate<BsonDocument>(pipeline).ToListAsync(cancellationToken);
-            
+
             var statistics = new Dictionary<string, int>();
             foreach (var doc in result)
             {
@@ -256,7 +258,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         {
             var filter = Builders<WorkflowExecution>.Filter.And(
                 Builders<WorkflowExecution>.Filter.Lt(e => e.StartedAt, cutoffDate),
-                Builders<WorkflowExecution>.Filter.In(e => e.Status, 
+                Builders<WorkflowExecution>.Filter.In(e => e.Status,
                     new[] { WorkflowExecutionStatus.Completed, WorkflowExecutionStatus.Failed, WorkflowExecutionStatus.Cancelled })
             );
 

@@ -41,6 +41,10 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.ExecutionCount, opt => opt.Ignore())
                 .ForMember(dest => dest.AverageExecutionTime, opt => opt.Ignore());
 
+            CreateMap<NodeExecution, NodeExecutionResponseDto>()
+                .ForMember(dest => dest.ProgramId, opt => opt.MapFrom(src => src.ProgramId.ToString()))
+                .ForMember(dest => dest.Duration, opt => opt.MapFrom(src => src.CompletedAt.HasValue && src.StartedAt.HasValue ? src.CompletedAt.Value - src.StartedAt.Value : (TimeSpan?)null));
+
             CreateMap<WorkflowUpdateDto, Workflow>()
                 .ForMember(dest => dest._ID, opt => opt.Ignore())
                 .ForMember(dest => dest.Creator, opt => opt.Ignore())
