@@ -627,7 +627,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                             }
 
                             File.Copy(file, targetPath, true);
-                            outputFiles.Add(relativePath);
+                            outputFiles.Add(Path.GetFullPath(targetPath));
                         }
                     }
                 }
@@ -650,7 +650,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         }
 
                         File.Copy(file, targetPath, true);
-                        outputFiles.Add(relativePath);
+                        outputFiles.Add(Path.GetFullPath(targetPath));
                     }
                 }
             }

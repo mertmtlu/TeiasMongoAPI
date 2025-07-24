@@ -732,8 +732,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     outputFiles.Add(new BsonDocument
                     {
-                        ["fileName"] = file,
-                        ["path"] = file // Relative path
+                        ["fileName"] = Path.GetFileName(file),
+                        ["path"] = file // Now absolute path
                     });
                 }
                 outputData["outputFiles"] = outputFiles;
