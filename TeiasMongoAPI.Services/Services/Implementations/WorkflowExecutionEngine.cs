@@ -137,7 +137,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     // Resolve a new scoped instance of IWorkflowExecutionEngine
                     var scopedWorkflowEngine = serviceProvider.GetRequiredService<IWorkflowExecutionEngine>();
-                    
+
                     // Since we need access to the internal method, we'll cast to the concrete type
                     if (scopedWorkflowEngine is WorkflowExecutionEngine engine)
                     {
@@ -199,24 +199,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private async Task<bool> AreDependenciesSatisfiedAsync(WorkflowExecutionSession session, string nodeId, CancellationToken cancellationToken)
         {
             var incomingEdges = session.Workflow.Edges.Where(e => e.TargetNodeId == nodeId && !e.IsDisabled);
-            
+
             foreach (var edge in incomingEdges)
             {
                 var sourceNodeExecution = session.Execution.NodeExecutions.First(ne => ne.NodeId == edge.SourceNodeId);
-                
+
                 // Check if source node is completed or if this is an optional dependency
-                if (sourceNodeExecution.Status != NodeExecutionStatus.Completed && 
+                if (sourceNodeExecution.Status != NodeExecutionStatus.Completed &&
                     sourceNodeExecution.Status != NodeExecutionStatus.Skipped)
                 {
                     // Check if this is an optional dependency
                     var targetNode = session.Workflow.Nodes.First(n => n.Id == nodeId);
                     var inputMapping = targetNode.InputConfiguration.InputMappings.FirstOrDefault(im => im.SourceNodeId == edge.SourceNodeId);
-                    
+
                     if (inputMapping?.IsOptional == true)
                     {
                         continue; // Optional dependency, can proceed
                     }
-                    
+
                     return false; // Required dependency not satisfied
                 }
             }
@@ -228,7 +228,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             var nodeSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes, session.Options.MaxConcurrentNodes);
             var processedNodes = new HashSet<string>();
-            
+
             try
             {
                 // Continue until all nodes are processed or workflow should stop
@@ -236,7 +236,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     // Find nodes that are eligible for execution
                     var eligibleNodes = await GetEligibleNodesAsync(session, processedNodes, cancellationToken);
-                    
+
                     if (!eligibleNodes.Any())
                     {
                         // No more eligible nodes - wait for running nodes to complete or break if none are running
@@ -245,7 +245,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                             _logger.LogWarning($"No eligible nodes found and no nodes running in execution {session.ExecutionId}. Breaking execution loop.");
                             break;
                         }
-                        
+
                         // Wait for at least one running node to complete
                         var runningTasks = session.RunningNodes.Values.ToArray();
                         if (runningTasks.Any())
@@ -254,31 +254,31 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         }
                         continue;
                     }
-                    
+
                     // Start execution for eligible nodes (up to semaphore limit)
                     var availableSlots = session.Options.MaxConcurrentNodes - session.RunningNodes.Count;
                     var nodesToStart = eligibleNodes.Take(availableSlots).ToList();
-                    
+
                     foreach (var nodeId in nodesToStart)
                     {
                         processedNodes.Add(nodeId);
                         var nodeTask = ExecuteNodeWithTrackingAsync(session, nodeId, nodeSemaphore, cancellationToken);
                         session.RunningNodes[nodeId] = nodeTask;
-                        
+
                         // Set up continuation to remove from running nodes when complete
                         _ = nodeTask.ContinueWith(async (task) =>
                         {
                             session.RunningNodes.TryRemove(nodeId, out _);
-                            
+
                             // Check if any dependent nodes became eligible
                             await CheckAndProcessDependentNodesAsync(session, nodeId, processedNodes, nodeSemaphore, cancellationToken);
                         }, TaskScheduler.Current);
                     }
-                    
+
                     // Small delay to prevent tight loop
                     await Task.Delay(10, cancellationToken);
                 }
-                
+
                 // Wait for all remaining running nodes to complete
                 await WaitForAllRunningNodesToComplete(session);
             }
@@ -287,62 +287,62 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 nodeSemaphore.Dispose();
             }
         }
-        
+
         private async Task<List<string>> GetEligibleNodesAsync(WorkflowExecutionSession session, HashSet<string> processedNodes, CancellationToken cancellationToken)
         {
             var eligibleNodes = new List<string>();
-            
+
             foreach (var node in session.Workflow.Nodes.Where(n => !n.IsDisabled))
             {
                 // Skip if already processed, completed, failed, or currently running
-                if (processedNodes.Contains(node.Id) || 
+                if (processedNodes.Contains(node.Id) ||
                     session.CompletedNodes.Contains(node.Id) ||
                     session.FailedNodes.Contains(node.Id) ||
                     session.RunningNodes.ContainsKey(node.Id))
                 {
                     continue;
                 }
-                
+
                 // Check if dependencies are satisfied
                 if (await AreDependenciesSatisfiedAsync(session, node.Id, cancellationToken))
                 {
                     eligibleNodes.Add(node.Id);
                 }
             }
-            
+
             return eligibleNodes;
         }
-        
+
         private bool IsWorkflowComplete(WorkflowExecutionSession session)
         {
             var enabledNodes = session.Workflow.Nodes.Where(n => !n.IsDisabled).ToList();
             var totalEnabledNodes = enabledNodes.Count;
             var finishedNodes = session.CompletedNodes.Count + session.FailedNodes.Count;
-            
+
             // Check if all enabled nodes are finished
             if (finishedNodes >= totalEnabledNodes)
             {
                 return true;
             }
-            
+
             // Check if workflow should stop due to failed nodes and ContinueOnError = false
             if (session.FailedNodes.Any() && !session.Options.ContinueOnError)
             {
                 return true;
             }
-            
+
             return false;
         }
-        
+
         private async Task<NodeExecution> ExecuteNodeWithTrackingAsync(WorkflowExecutionSession session, string nodeId, SemaphoreSlim semaphore, CancellationToken cancellationToken)
         {
             await semaphore.WaitAsync(cancellationToken);
             try
             {
                 _logger.LogInformation($"Starting execution of node {nodeId} in workflow {session.ExecutionId}");
-                
+
                 var nodeExecution = await ExecuteNodeInternalAsync(session.ExecutionId, nodeId, isExternalCall: false, cancellationToken);
-                
+
                 // Update session state based on execution result
                 switch (nodeExecution.Status)
                 {
@@ -350,28 +350,28 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         session.CompletedNodes.Add(nodeId);
                         _logger.LogInformation($"Node {nodeId} completed successfully in execution {session.ExecutionId}");
                         break;
-                        
+
                     case NodeExecutionStatus.Failed:
                         session.FailedNodes.Add(nodeId);
                         _logger.LogError($"Node {nodeId} failed in execution {session.ExecutionId}");
-                        
+
                         if (!session.Options.ContinueOnError)
                         {
                             _logger.LogWarning($"Cancelling workflow execution {session.ExecutionId} due to failed node {nodeId}");
                             session.CancellationTokenSource.Cancel();
                         }
                         break;
-                        
+
                     case NodeExecutionStatus.Skipped:
                         // Treat skipped nodes as completed for dependency purposes
                         session.CompletedNodes.Add(nodeId);
                         _logger.LogInformation($"Node {nodeId} was skipped in execution {session.ExecutionId}");
                         break;
                 }
-                
+
                 // Update execution progress
                 await UpdateExecutionProgressAsync(session, cancellationToken);
-                
+
                 // Return the node execution for tracking
                 return session.Execution.NodeExecutions.First(ne => ne.NodeId == nodeId);
             }
@@ -380,7 +380,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 semaphore.Release();
             }
         }
-        
+
         private async Task CheckAndProcessDependentNodesAsync(WorkflowExecutionSession session, string completedNodeId, HashSet<string> processedNodes, SemaphoreSlim semaphore, CancellationToken cancellationToken)
         {
             try
@@ -391,24 +391,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     .Select(e => e.TargetNodeId)
                     .Distinct()
                     .ToList();
-                
+
                 foreach (var dependentNodeId in dependentNodeIds)
                 {
                     // Skip if already processed or running
-                    if (processedNodes.Contains(dependentNodeId) || 
+                    if (processedNodes.Contains(dependentNodeId) ||
                         session.RunningNodes.ContainsKey(dependentNodeId) ||
                         session.CompletedNodes.Contains(dependentNodeId) ||
                         session.FailedNodes.Contains(dependentNodeId))
                     {
                         continue;
                     }
-                    
+
                     var dependentNode = session.Workflow.Nodes.FirstOrDefault(n => n.Id == dependentNodeId);
                     if (dependentNode?.IsDisabled == true)
                     {
                         continue;
                     }
-                    
+
                     // Check if all dependencies are now satisfied
                     if (await AreDependenciesSatisfiedAsync(session, dependentNodeId, cancellationToken))
                     {
@@ -418,14 +418,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                             processedNodes.Add(dependentNodeId);
                             var nodeTask = ExecuteNodeWithTrackingAsync(session, dependentNodeId, semaphore, cancellationToken);
                             session.RunningNodes[dependentNodeId] = nodeTask;
-                            
+
                             // Set up continuation for this new node
                             _ = nodeTask.ContinueWith(async (task) =>
                             {
                                 session.RunningNodes.TryRemove(dependentNodeId, out _);
                                 await CheckAndProcessDependentNodesAsync(session, dependentNodeId, processedNodes, semaphore, cancellationToken);
                             }, TaskScheduler.Current);
-                            
+
                             _logger.LogInformation($"Started dependent node {dependentNodeId} after completion of {completedNodeId} in execution {session.ExecutionId}");
                         }
                     }
@@ -436,7 +436,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 _logger.LogError(ex, $"Error checking dependent nodes for {completedNodeId} in execution {session.ExecutionId}");
             }
         }
-        
+
         private async Task WaitForAllRunningNodesToComplete(WorkflowExecutionSession session)
         {
             try
@@ -454,7 +454,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 _logger.LogError(ex, $"Error waiting for running nodes to complete in execution {session.ExecutionId}");
             }
         }
-        
+
         private async Task<Task> ExecuteNodeWithSemaphoreAsync(WorkflowExecutionSession session, string nodeId, SemaphoreSlim semaphore, CancellationToken cancellationToken)
         {
             return Task.Run(async () =>
@@ -463,7 +463,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 try
                 {
                     var nodeExecution = await ExecuteNodeInternalAsync(session.ExecutionId, nodeId, isExternalCall: false, cancellationToken);
-                    
+
                     if (nodeExecution.Status == NodeExecutionStatus.Completed)
                     {
                         session.CompletedNodes.Add(nodeId);
@@ -472,7 +472,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     else if (nodeExecution.Status == NodeExecutionStatus.Failed)
                     {
                         session.FailedNodes.Add(nodeId);
-                        
+
                         if (!session.Options.ContinueOnError)
                         {
                             session.CancellationTokenSource.Cancel();
@@ -502,19 +502,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     // Enhanced validation: Check database for execution status
                     var executionStatus = await GetExecutionStatusFromDatabaseAsync(executionId, cancellationToken);
-                    
+
                     // If execution is completed and this is not an external call, just return gracefully
                     if (!isExternalCall && executionStatus.Status == WorkflowExecutionStatus.Completed)
                     {
                         _logger.LogWarning($"Attempted to execute node {nodeId} on completed workflow {executionId}. Ignoring request to prevent race condition.");
-                        return new NodeExecutionResponseDto 
-                        { 
+                        return new NodeExecutionResponseDto
+                        {
                             Status = NodeExecutionStatus.Skipped,
                             ErrorMessage = "Workflow already completed - node execution skipped to prevent race condition",
                             CompletedAt = DateTime.UtcNow
                         };
                     }
-                    
+
                     throw new InvalidOperationException(executionStatus.ErrorMessage);
                 }
 
@@ -551,17 +551,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Prepare input data
                 var inputData = await PrepareNodeInputDataAsync(session, nodeId, cancellationToken);
 
-                // Generate and write WorkflowInputs.py file for easy access to dependency outputs
+                // Generate WorkflowInputs.py content for easy access to dependency outputs
                 var workflowInputsHelper = WorkflowInputsGenerator.GenerateWorkflowInputsFromBsonDocument(inputData.Data);
-                
-                // Write WorkflowInputs.py to the program's working directory
-                var workflowInputsFilePath = await WriteWorkflowInputsFileAsync(workflowInputsHelper, nodeId, session, cancellationToken);
-                
-                // Add file path to environment for reference (no JSON data needed since it's embedded)
+
+                // Pass WorkflowInputs.py content via environment variable for PythonProjectRunner to write to project directory
                 var enhancedEnvironment = new Dictionary<string, string>(node.ExecutionSettings.Environment);
-                enhancedEnvironment["WORKFLOW_INPUTS_FILE"] = workflowInputsFilePath;
-                
-                _logger.LogInformation($"Generated WorkflowInputs.py file at {workflowInputsFilePath} for node {nodeId} with {inputData.Data.ElementCount} dependencies");
+                enhancedEnvironment["WORKFLOW_INPUTS_CONTENT"] = workflowInputsHelper;
+
+                _logger.LogInformation($"Generated WorkflowInputs.py content for node {nodeId} with {inputData.Data.ElementCount} dependencies");
 
                 // Create program execution request
                 var programRequest = new ProjectExecutionRequest
@@ -597,7 +594,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     nodeExecution.Status = NodeExecutionStatus.Completed;
                     session.NodeOutputs[nodeId] = outputData;
-                    
+
                     _logger.LogInformation($"Node {nodeId} completed successfully in execution {executionId}");
                 }
                 else
@@ -611,7 +608,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         Timestamp = DateTime.UtcNow,
                         CanRetry = nodeExecution.RetryCount < nodeExecution.MaxRetries
                     };
-                    
+
                     _logger.LogError($"Node {nodeId} failed in execution {executionId}: {programResult.ErrorMessage}");
                 }
 
@@ -634,7 +631,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             // NEW APPROACH: Get all dependency outputs by program name
             var dependencyNodeIds = GetDependencyNodeIds(session.Workflow, nodeId);
-            
+
             _logger.LogInformation($"Node {nodeId} has {dependencyNodeIds.Count} dependencies: [{string.Join(", ", dependencyNodeIds)}]");
 
             foreach (var depNodeId in dependencyNodeIds)
@@ -643,10 +640,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     // Get program name for this dependency node
                     var programName = await GetProgramNameForNode(session.Workflow, depNodeId);
-                    
+
                     // Add complete output under program name
                     inputData[programName] = depOutput.Data;
-                    
+
                     _logger.LogInformation($"Added dependency '{programName}' output for node {nodeId}");
                 }
                 else
@@ -683,13 +680,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 if (session.NodeOutputs.TryGetValue(inputMapping.SourceNodeId, out var sourceOutput))
                 {
                     var sourceValue = ExtractValueFromOutput(sourceOutput, inputMapping.SourceOutputName);
-                    
+
                     // Apply transformation if specified
                     if (!string.IsNullOrEmpty(inputMapping.Transformation))
                     {
                         sourceValue = await ApplyTransformationAsync(sourceValue, inputMapping.Transformation, cancellationToken);
                     }
-                    
+
                     inputData[inputMapping.InputName] = sourceValue;
                 }
                 else if (inputMapping.DefaultValue != null)
@@ -743,13 +740,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             foreach (var outputMapping in node.OutputConfiguration.OutputMappings)
             {
                 var sourceValue = ExtractValueFromProgramOutput(programResult, outputMapping.SourceField);
-                
+
                 // Apply transformation if specified
                 if (!string.IsNullOrEmpty(outputMapping.Transformation))
                 {
                     sourceValue = await ApplyTransformationAsync(sourceValue, outputMapping.Transformation, cancellationToken);
                 }
-                
+
                 outputData[outputMapping.OutputName] = sourceValue;
             }
 
@@ -811,7 +808,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private async Task UpdateExecutionStatusAsync(string executionId, WorkflowExecutionStatus status, string currentPhase, CancellationToken cancellationToken)
         {
             await _unitOfWork.WorkflowExecutions.UpdateExecutionStatusAsync(ObjectId.Parse(executionId), status, cancellationToken);
-            
+
             var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
             if (execution != null)
             {
@@ -834,7 +831,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private async Task FinalizeExecutionAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
         {
             var execution = session.Execution;
-            
+
             if (session.FailedNodes.Any() && !session.Options.ContinueOnError)
             {
                 execution.Status = WorkflowExecutionStatus.Failed;
@@ -848,19 +845,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             else
             {
                 execution.Status = WorkflowExecutionStatus.Completed;
-                
+
                 // Collect final outputs
                 var finalOutputs = new BsonDocument();
                 foreach (var nodeOutput in session.NodeOutputs)
                 {
                     finalOutputs[nodeOutput.Key] = nodeOutput.Value.Data;
                 }
-                
+
                 execution.Results = new WorkflowExecutionResults
                 {
                     FinalOutputs = finalOutputs,
                     IntermediateResults = session.NodeOutputs.ToDictionary(
-                        kvp => kvp.Key, 
+                        kvp => kvp.Key,
                         kvp => kvp.Value.Data),
                     Summary = $"Workflow completed with {session.CompletedNodes.Count} successful nodes and {session.FailedNodes.Count} failed nodes"
                 };
@@ -868,7 +865,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             execution.CompletedAt = DateTime.UtcNow;
             await _unitOfWork.WorkflowExecutions.UpdateAsync(ObjectId.Parse(session.ExecutionId), execution, cancellationToken);
-            
+
             _logger.LogInformation($"Workflow execution {session.ExecutionId} finalized with status {execution.Status}");
         }
 
@@ -1072,10 +1069,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 stats.AverageNodeExecutionTime = TimeSpan.FromMilliseconds(
                     completedNodes.Average(ne => ne.Duration?.TotalMilliseconds ?? 0));
-                
+
                 var slowestNode = completedNodes.OrderByDescending(ne => ne.Duration).FirstOrDefault();
                 stats.SlowestNode = slowestNode?.NodeId;
-                
+
                 var fastestNode = completedNodes.OrderBy(ne => ne.Duration).FirstOrDefault();
                 stats.FastestNode = fastestNode?.NodeId;
             }
@@ -1115,51 +1112,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             // Clean up temporary files and resources
             // This would involve cleaning up storage, temporary files, etc.
-            
+
             return true;
         }
 
-        private async Task<string> WriteWorkflowInputsFileAsync(string workflowInputsContent, string nodeId, WorkflowExecutionSession session, CancellationToken cancellationToken)
-        {
-            try
-            {
-                // Get the program info to determine the working directory
-                var node = session.Workflow.Nodes.First(n => n.Id == nodeId);
-                var program = await _unitOfWork.Programs.GetByIdAsync(node.ProgramId, cancellationToken);
-                
-                // Create a temporary directory for this execution if it doesn't exist
-                var executionTempDir = Path.Combine(Path.GetTempPath(), "WorkflowExecutions", session.ExecutionId.ToString(), nodeId);
-                Directory.CreateDirectory(executionTempDir);
-                
-                // Write the WorkflowInputs.py file
-                var workflowInputsFilePath = Path.Combine(executionTempDir, "WorkflowInputs.py");
-                await File.WriteAllTextAsync(workflowInputsFilePath, workflowInputsContent, cancellationToken);
-                
-                // Also write the raw JSON data for debugging purposes
-                var jsonDataPath = Path.Combine(executionTempDir, "workflow_inputs_data.json");
-                var inputData = await PrepareNodeInputDataAsync(session, nodeId, cancellationToken);
-                await File.WriteAllTextAsync(jsonDataPath, inputData.Data.ToJson(), cancellationToken);
-                
-                _logger.LogInformation($"WorkflowInputs.py written to {workflowInputsFilePath} for node {nodeId}");
-                
-                return workflowInputsFilePath;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Failed to write WorkflowInputs.py file for node {nodeId}");
-                
-                // Return a temporary file path as fallback
-                var fallbackPath = Path.Combine(Path.GetTempPath(), $"WorkflowInputs_{nodeId}_{DateTime.UtcNow.Ticks}.py");
-                await File.WriteAllTextAsync(fallbackPath, workflowInputsContent, cancellationToken);
-                return fallbackPath;
-            }
-        }
 
         private List<string> GetDependencyNodeIds(Workflow workflow, string nodeId)
         {
             // Get all edges that point to this node (incoming edges)
             var incomingEdges = workflow.Edges.Where(e => e.TargetNodeId == nodeId && !e.IsDisabled);
-            
+
             // Return the source node IDs (dependencies)
             return incomingEdges.Select(e => e.SourceNodeId).Distinct().ToList();
         }
@@ -1217,7 +1179,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             var result = cleaned.ToString();
-            
+
             // Ensure it starts with a letter
             if (result.Length > 0 && char.IsDigit(result[0]))
             {
@@ -1232,7 +1194,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             try
             {
                 var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
-                
+
                 if (execution == null)
                 {
                     return new ExecutionStatusInfo

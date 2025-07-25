@@ -12,11 +12,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
     public class PythonProjectRunner : BaseProjectLanguageRunner
     {
         private readonly IUnitOfWork _unitOfWork;
-        
+
         public override string Language => "Python";
         public override int Priority => 20;
 
-        public PythonProjectRunner(ILogger<PythonProjectRunner> logger, IUnitOfWork unitOfWork) : base(logger) 
+        public PythonProjectRunner(ILogger<PythonProjectRunner> logger, IUnitOfWork unitOfWork) : base(logger)
         {
             _unitOfWork = unitOfWork;
         }
@@ -168,7 +168,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 _logger.LogInformation("Generating UIComponent.py for program {ProgramId} in {ProjectDirectory}", programId, projectDirectory);
 
                 var latestComponent = await _unitOfWork.UiComponents.GetLatestActiveByProgramAsync(programId, cancellationToken);
-                
+
                 if (latestComponent == null)
                 {
                     _logger.LogInformation("No active UI component found for program {ProgramId}, skipping UIComponent.py generation", programId);
@@ -177,15 +177,41 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
                 var pythonCode = UIComponentPythonGenerator.GenerateUIComponentPython(latestComponent);
                 var uiComponentPath = Path.Combine(projectDirectory, "UIComponent.py");
-                
+
                 await File.WriteAllTextAsync(uiComponentPath, pythonCode, cancellationToken);
-                
-                _logger.LogInformation("Successfully generated UIComponent.py for component '{ComponentName}' ({ComponentId})", 
+
+                _logger.LogInformation("Successfully generated UIComponent.py for component '{ComponentName}' ({ComponentId})",
                     latestComponent.Name, latestComponent._ID);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to generate UIComponent.py for program {ProgramId} in {ProjectDirectory}", programId, projectDirectory);
+                // Don't fail the execution, just log the error
+            }
+        }
+
+        public async Task GenerateWorkflowInputsFileAsync(string projectDirectory, Dictionary<string, string> environment, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // Check if WorkflowInputs content is provided via environment variable
+                if (environment.TryGetValue("WORKFLOW_INPUTS_CONTENT", out var workflowInputsContent) && !string.IsNullOrEmpty(workflowInputsContent))
+                {
+                    _logger.LogInformation("Generating WorkflowInputs.py for project in {ProjectDirectory}", projectDirectory);
+
+                    var workflowInputsPath = Path.Combine(projectDirectory, "WorkflowInputs.py");
+                    await File.WriteAllTextAsync(workflowInputsPath, workflowInputsContent, cancellationToken);
+
+                    _logger.LogInformation("Successfully generated WorkflowInputs.py in {ProjectDirectory}", projectDirectory);
+                }
+                else
+                {
+                    _logger.LogDebug("No WorkflowInputs content found in environment variables, skipping WorkflowInputs.py generation");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to generate WorkflowInputs.py in {ProjectDirectory}", projectDirectory);
                 // Don't fail the execution, just log the error
             }
         }
@@ -214,6 +240,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     await GenerateUIComponentFileAsync(context.ProjectDirectory, programId, cancellationToken);
                 }
 
+                // Generate WorkflowInputs.py file if content is provided via environment variables
+                await GenerateWorkflowInputsFileAsync(context.ProjectDirectory, context.Environment, cancellationToken);
+
                 var entryPoint = context.ProjectStructure.MainEntryPoint ?? "main.py";
                 if (!File.Exists(Path.Combine(context.ProjectDirectory, entryPoint)))
                 {
@@ -233,8 +262,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 if (context.Parameters != null && context.Parameters.ToString() != "{}")
                 {
                     var processedParams = ProcessParametersForExecution(context.Parameters, context.ProjectDirectory);
-                    var paramJson = JsonSerializer.Serialize(processedParams);
-                    arguments += $" '{paramJson}'";
+                    //var paramJson = JsonSerializer.Serialize(processedParams);
+                    arguments += $" '{context.Parameters.ToString()}'";
                 }
 
                 var processResult = await RunProcessAsync(
@@ -406,7 +435,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 // Path format: ./storage/{programId}/{versionId}/execution/{executionId}/project
                 var projectPath = context.ProjectDirectory.Replace("\\", "/");
                 var pathParts = projectPath.Split('/');
-                
+
                 // Find the storage directory index
                 var storageIndex = Array.FindIndex(pathParts, p => p.Equals("storage", StringComparison.OrdinalIgnoreCase));
                 if (storageIndex >= 0 && storageIndex + 1 < pathParts.Length)
@@ -417,7 +446,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         return programId;
                     }
                 }
-                
+
                 _logger.LogWarning("Could not extract program ID from project directory path: {ProjectDirectory}", context.ProjectDirectory);
                 return ObjectId.Empty;
             }

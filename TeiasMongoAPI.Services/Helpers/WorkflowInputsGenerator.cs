@@ -359,14 +359,13 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("    @property");
             sb.AppendLine("    def path(self) -> str:");
             sb.AppendLine("        \"\"\"Get the full file path\"\"\"");
-            sb.AppendLine("        return self._path");
+            sb.AppendLine("        return self._path['path']");
             sb.AppendLine();
 
             sb.AppendLine("    @property");
             sb.AppendLine("    def name(self) -> str:");
             sb.AppendLine("        \"\"\"Get just the filename\"\"\"");
-            sb.AppendLine("        import os");
-            sb.AppendLine("        return os.path.basename(self._path)");
+            sb.AppendLine("        return self._path['fileName']");
             sb.AppendLine();
 
             sb.AppendLine("    @property");
@@ -549,7 +548,6 @@ namespace TeiasMongoAPI.Services.Helpers
                 BsonType.Double => value.AsDouble.ToString(),
                 BsonType.Boolean => value.AsBoolean ? "True" : "False",
                 BsonType.Null => "None",
-                BsonType.DateTime => $"'{value.AsDateTime.ToString("yyyy-MM-dd HH:mm:ss")}'",
                 BsonType.ObjectId => $"'{value.AsObjectId.ToString()}'",
                 _ => $"'{EscapePythonString(value.ToString())}'"
             };
