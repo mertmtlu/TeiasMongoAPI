@@ -16,17 +16,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
     {
         private readonly IWorkflowValidationService _validationService;
         private readonly IProgramService _programService;
+        private readonly IUserService _userService;
 
         public WorkflowService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ILogger<WorkflowService> logger,
             IWorkflowValidationService validationService,
-            IProgramService programService)
+            IProgramService programService,
+            IUserService userService)
             : base(unitOfWork, mapper, logger)
         {
             _validationService = validationService;
             _programService = programService;
+            _userService = userService;
         }
 
         public async Task<PagedResponse<WorkflowListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
@@ -345,7 +348,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<List<WorkflowExecutionSummaryDto>> GetWorkflowExecutionHistoryAsync(string workflowId, int limit = 10, CancellationToken cancellationToken = default)
         {
             var executions = await _unitOfWork.WorkflowExecutions.GetExecutionHistoryAsync(ObjectId.Parse(workflowId), limit, cancellationToken);
-            return executions.Select(e => _mapper.Map<WorkflowExecutionSummaryDto>(e)).ToList();
+
+            var tasks = executions.Select(async e =>
+            {
+                var dto = _mapper.Map<WorkflowExecutionSummaryDto>(e);
+                dto.ExecutedByUserName = (await _userService.GetByIdAsync(dto.ExecutedBy)).FullName;
+                return dto;
+            });
+
+            return (await Task.WhenAll(tasks)).ToList();
         }
 
         public async Task<WorkflowComplexityMetrics> GetWorkflowComplexityAsync(string workflowId, CancellationToken cancellationToken = default)

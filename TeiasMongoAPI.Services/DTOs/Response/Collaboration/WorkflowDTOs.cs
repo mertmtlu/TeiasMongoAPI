@@ -122,6 +122,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public string Id { get; set; } = string.Empty;
         public string ExecutionName { get; set; } = string.Empty;
         public string ExecutedBy { get; set; } = string.Empty;
+        public string ExecutedByUserName { get; set; } = string.Empty;
         public DateTime StartedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
         public TimeSpan? Duration { get; set; }

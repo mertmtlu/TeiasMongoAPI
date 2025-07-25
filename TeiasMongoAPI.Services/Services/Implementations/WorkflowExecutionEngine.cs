@@ -23,6 +23,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IFileStorageService _fileStorageService;
         private readonly IWorkflowSessionManager _sessionManager;
         private readonly IBackgroundTaskQueue _backgroundTaskQueue;
+        private readonly IUserService _userService;
         private readonly SemaphoreSlim _executionSemaphore = new(10, 10); // Limit concurrent workflows
 
         public WorkflowExecutionEngine(
@@ -33,7 +34,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IProjectExecutionEngine projectExecutionEngine,
             IFileStorageService fileStorageService,
             IWorkflowSessionManager sessionManager,
-            IBackgroundTaskQueue backgroundTaskQueue)
+            IBackgroundTaskQueue backgroundTaskQueue,
+            IUserService userService)
             : base(unitOfWork, mapper, logger)
         {
             _validationService = validationService;
@@ -42,6 +44,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _sessionManager = sessionManager;
             _backgroundTaskQueue = backgroundTaskQueue;
             _logger.LogInformation($"WorkflowExecutionEngine instance created: {GetHashCode()}");
+            _userService = userService;
         }
 
         public async Task<WorkflowExecutionResponseDto> ExecuteWorkflowAsync(WorkflowExecutionRequest request, ObjectId currentUserId, CancellationToken cancellationToken = default)
@@ -926,7 +929,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<WorkflowExecutionResponseDto> GetExecutionStatusAsync(string executionId, CancellationToken cancellationToken = default)
         {
             var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
-            return _mapper.Map<WorkflowExecutionResponseDto>(execution);
+            var dto = _mapper.Map<WorkflowExecutionResponseDto>(execution);
+
+            var user = await _userService.GetByIdAsync(dto.ExecutedBy, cancellationToken);
+
+            dto.ExecutedByUsername = user.FullName;
+
+            return dto;
         }
 
         public async Task<List<WorkflowExecutionResponseDto>> GetActiveExecutionsAsync(CancellationToken cancellationToken = default)
