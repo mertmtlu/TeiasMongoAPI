@@ -87,7 +87,26 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             // Map updates to workflow
             _mapper.Map(updateDto, workflow);
-            workflow.UpdatedAt = DateTime.UtcNow;
+            
+            var currentTime = DateTime.UtcNow;
+            workflow.UpdatedAt = currentTime;
+
+            // Set UpdatedAt timestamps for nodes and edges if they were updated
+            if (updateDto.Nodes != null && workflow.Nodes != null)
+            {
+                foreach (var node in workflow.Nodes)
+                {
+                    node.UpdatedAt = currentTime;
+                }
+            }
+
+            if (updateDto.Edges != null && workflow.Edges != null)
+            {
+                foreach (var edge in workflow.Edges)
+                {
+                    edge.UpdatedAt = currentTime;
+                }
+            }
 
             // Validate updated workflow
             var validationResult = await _validationService.ValidateWorkflowAsync(workflow, cancellationToken);

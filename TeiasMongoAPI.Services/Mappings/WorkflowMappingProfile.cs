@@ -89,6 +89,13 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.UpdatedAt, opt => opt.Ignore()) // Will be set by service
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
 
+            CreateMap<WorkflowNodeBulkUpdateDto, WorkflowNode>()
+                .ForMember(dest => dest.ProgramId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.ProgramId) ? ObjectId.Parse(src.ProgramId) : ObjectId.Empty))
+                .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => !string.IsNullOrEmpty(src.VersionId) ? ObjectId.Parse(src.VersionId) : (ObjectId?)null))
+                .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
+                .ForMember(dest => dest.UpdatedAt, opt => opt.Ignore()) // Will be set by service
+                .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
+
             CreateMap<WorkflowNode, WorkflowNodeDto>()
                 .ForMember(dest => dest.ProgramId, opt => opt.MapFrom(src => src.ProgramId.ToString()))
                 .ForMember(dest => dest.VersionId, opt => opt.MapFrom(src => src.VersionId != null ? src.VersionId.ToString() : null))
@@ -118,6 +125,11 @@ namespace TeiasMongoAPI.Services.Mappings
 
             CreateMap<WorkflowEdgeUpdateDto, WorkflowEdge>()
                 .ForMember(dest => dest.Id, opt => opt.Ignore())
+                .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
+                .ForMember(dest => dest.UpdatedAt, opt => opt.Ignore()) // Will be set by service
+                .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
+
+            CreateMap<WorkflowEdgeBulkUpdateDto, WorkflowEdge>()
                 .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
                 .ForMember(dest => dest.UpdatedAt, opt => opt.Ignore()) // Will be set by service
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));

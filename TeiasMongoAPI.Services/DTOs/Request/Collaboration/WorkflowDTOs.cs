@@ -41,9 +41,9 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public WorkflowStatus? Status { get; set; }
 
-        public List<WorkflowNodeUpdateDto>? Nodes { get; set; }
+        public List<WorkflowNodeBulkUpdateDto>? Nodes { get; set; }
 
-        public List<WorkflowEdgeUpdateDto>? Edges { get; set; }
+        public List<WorkflowEdgeBulkUpdateDto>? Edges { get; set; }
 
         public WorkflowSettingsDto? Settings { get; set; }
 
@@ -139,6 +139,39 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public bool? IsDisabled { get; set; }
     }
 
+    public class WorkflowNodeBulkUpdateDto
+    {
+        public string? Id { get; set; }
+
+        [StringLength(200)]
+        public string? Name { get; set; }
+
+        [StringLength(1000)]
+        public string? Description { get; set; }
+
+        public string? ProgramId { get; set; }
+
+        public string? VersionId { get; set; }
+
+        public WorkflowNodeType? NodeType { get; set; }
+
+        public NodePositionDto? Position { get; set; }
+
+        public NodeInputConfigurationDto? InputConfiguration { get; set; }
+
+        public NodeOutputConfigurationDto? OutputConfiguration { get; set; }
+
+        public NodeExecutionSettingsDto? ExecutionSettings { get; set; }
+
+        public NodeConditionalExecutionDto? ConditionalExecution { get; set; }
+
+        public NodeUIConfigurationDto? UIConfiguration { get; set; }
+
+        public Dictionary<string, object>? Metadata { get; set; }
+
+        public bool? IsDisabled { get; set; }
+    }
+
     public class WorkflowEdgeCreateDto
     {
         [Required]
@@ -169,6 +202,31 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
     public class WorkflowEdgeUpdateDto
     {
+        public string? SourceNodeId { get; set; }
+
+        public string? TargetNodeId { get; set; }
+
+        public string? SourceOutputName { get; set; }
+
+        public string? TargetInputName { get; set; }
+
+        public WorkflowEdgeType? EdgeType { get; set; }
+
+        public EdgeConditionDto? Condition { get; set; }
+
+        public EdgeTransformationDto? Transformation { get; set; }
+
+        public EdgeUIConfigurationDto? UIConfiguration { get; set; }
+
+        public Dictionary<string, object>? Metadata { get; set; }
+
+        public bool? IsDisabled { get; set; }
+    }
+
+    public class WorkflowEdgeBulkUpdateDto
+    {
+        public string? Id { get; set; }
+
         public string? SourceNodeId { get; set; }
 
         public string? TargetNodeId { get; set; }
