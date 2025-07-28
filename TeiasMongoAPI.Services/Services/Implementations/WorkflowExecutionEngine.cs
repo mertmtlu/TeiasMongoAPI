@@ -7,6 +7,7 @@ using System.Text;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
+using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
@@ -1261,6 +1262,225 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     Exists = false,
                     ErrorMessage = $"Error checking execution status: {ex.Message}"
                 };
+            }
+        }
+
+        public async Task<VersionFileDetailDto> DownloadExecutionFileAsync(string executionId, string filePath, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
+                if (execution == null)
+                {
+                    throw new InvalidOperationException($"Workflow execution {executionId} not found");
+                }
+
+                // Find the output file in the execution results
+                var outputFile = execution.Results?.OutputFiles?.FirstOrDefault(f => f.FilePath == filePath);
+                if (outputFile == null)
+                {
+                    throw new FileNotFoundException($"Output file {filePath} not found in execution {executionId}");
+                }
+
+                // Find the node that generated this file and get its program info
+                var nodeExecution = execution.NodeExecutions?.FirstOrDefault(ne => ne.NodeId == outputFile.NodeId);
+                if (nodeExecution == null)
+                {
+                    throw new InvalidOperationException($"Node execution for NodeId {outputFile.NodeId} not found");
+                }
+
+                var fileContent = await _fileStorageService.GetFileContentAsync(
+                    nodeExecution.ProgramId.ToString(),
+                    "latest",
+                    filePath,
+                    cancellationToken);
+
+                return new VersionFileDetailDto
+                {
+                    Path = outputFile.FilePath,
+                    Content = fileContent,
+                    Size = outputFile.Size,
+                    ContentType = outputFile.ContentType,
+                    LastModified = outputFile.CreatedAt,
+                    FileType = Path.GetExtension(outputFile.FileName).TrimStart('.'),
+                    Hash = string.Empty // Hash calculation can be added if needed
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error downloading execution file {FilePath} for execution {ExecutionId}", filePath, executionId);
+                throw;
+            }
+        }
+
+        public async Task<BulkDownloadResult> DownloadAllExecutionFilesAsync(string executionId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
+                if (execution == null)
+                {
+                    throw new InvalidOperationException($"Workflow execution {executionId} not found");
+                }
+
+                if (execution.Results?.OutputFiles == null || !execution.Results.OutputFiles.Any())
+                {
+                    return new BulkDownloadResult
+                    {
+                        ZipContent = Array.Empty<byte>(),
+                        FileName = $"workflow-execution-{executionId}-files.zip",
+                        FileCount = 0,
+                        TotalSize = 0
+                    };
+                }
+
+                // Group files by their associated program to enable bulk download per program
+                var filesByProgram = execution.Results.OutputFiles
+                    .Where(f => !string.IsNullOrEmpty(f.NodeId))
+                    .Join(execution.NodeExecutions ?? new List<NodeExecution>(),
+                          file => file.NodeId,
+                          node => node.NodeId,
+                          (file, node) => new { File = file, ProgramId = node.ProgramId })
+                    .GroupBy(x => x.ProgramId)
+                    .ToList();
+
+                if (!filesByProgram.Any())
+                {
+                    return new BulkDownloadResult
+                    {
+                        ZipContent = new byte[0],
+                        FileCount = 0,
+                        TotalSize = 0
+                    };
+                }
+
+                // For now, use the first program's files (this may need refinement based on requirements)
+                var firstProgramGroup = filesByProgram.First();
+                var filePaths = firstProgramGroup.Select(x => x.File.FilePath).ToList();
+
+                var result = await _fileStorageService.BulkDownloadFilesAsync(
+                    firstProgramGroup.Key.ToString(),
+                    "latest",
+                    filePaths,
+                    false,
+                    "optimal",
+                    cancellationToken);
+
+                return new BulkDownloadResult
+                {
+                    ZipContent = result.ZipContent,
+                    FileName = $"workflow-execution-{executionId}-files.zip",
+                    FileCount = result.FileCount,
+                    TotalSize = result.TotalSize,
+                    IncludedFiles = result.IncludedFiles,
+                    SkippedFiles = result.SkippedFiles,
+                    Errors = result.Errors
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error downloading all execution files for execution {ExecutionId}", executionId);
+                throw;
+            }
+        }
+
+        public async Task<BulkDownloadResult> BulkDownloadExecutionFilesAsync(string executionId, WorkflowExecutionFileBulkDownloadRequest request, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var execution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
+                if (execution == null)
+                {
+                    throw new InvalidOperationException($"Workflow execution {executionId} not found");
+                }
+
+                if (execution.Results?.OutputFiles == null || !execution.Results.OutputFiles.Any())
+                {
+                    return new BulkDownloadResult
+                    {
+                        ZipContent = Array.Empty<byte>(),
+                        FileName = $"workflow-execution-{executionId}-selected-files.zip",
+                        FileCount = 0,
+                        TotalSize = 0
+                    };
+                }
+
+                // Filter files based on request criteria
+                var filteredFiles = execution.Results.OutputFiles.AsEnumerable();
+
+                // Filter by specific file paths if provided
+                if (request.FilePaths.Any())
+                {
+                    filteredFiles = filteredFiles.Where(f => request.FilePaths.Contains(f.FilePath));
+                }
+
+                // Filter by node IDs if provided
+                if (request.NodeIds != null && request.NodeIds.Any())
+                {
+                    filteredFiles = filteredFiles.Where(f => request.NodeIds.Contains(f.NodeId));
+                }
+
+                var filesToDownload = filteredFiles.ToList();
+
+                if (!filesToDownload.Any())
+                {
+                    return new BulkDownloadResult
+                    {
+                        ZipContent = Array.Empty<byte>(),
+                        FileName = $"workflow-execution-{executionId}-selected-files.zip",
+                        FileCount = 0,
+                        TotalSize = 0
+                    };
+                }
+
+                // Group files by their associated program
+                var filesByProgram = filesToDownload
+                    .Where(f => !string.IsNullOrEmpty(f.NodeId))
+                    .Join(execution.NodeExecutions ?? new List<NodeExecution>(),
+                          file => file.NodeId,
+                          node => node.NodeId,
+                          (file, node) => new { File = file, ProgramId = node.ProgramId })
+                    .GroupBy(x => x.ProgramId)
+                    .ToList();
+
+                if (!filesByProgram.Any())
+                {
+                    return new BulkDownloadResult
+                    {
+                        ZipContent = Array.Empty<byte>(),
+                        FileName = $"workflow-execution-{executionId}-selected-files.zip",
+                        FileCount = 0,
+                        TotalSize = 0
+                    };
+                }
+
+                // For now, use the first program's files (this may need refinement based on requirements)
+                var firstProgramGroup = filesByProgram.First();
+                var filePaths = firstProgramGroup.Select(x => x.File.FilePath).ToList();
+
+                var result = await _fileStorageService.BulkDownloadFilesAsync(
+                    firstProgramGroup.Key.ToString(),
+                    "latest",
+                    filePaths,
+                    request.IncludeMetadata,
+                    request.CompressionLevel ?? "optimal",
+                    cancellationToken);
+
+                return new BulkDownloadResult
+                {
+                    ZipContent = result.ZipContent,
+                    FileName = $"workflow-execution-{executionId}-selected-files.zip",
+                    FileCount = result.FileCount,
+                    TotalSize = result.TotalSize,
+                    IncludedFiles = result.IncludedFiles,
+                    SkippedFiles = result.SkippedFiles,
+                    Errors = result.Errors
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error bulk downloading execution files for execution {ExecutionId}", executionId);
+                throw;
             }
         }
     }

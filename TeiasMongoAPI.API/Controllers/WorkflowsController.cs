@@ -436,6 +436,83 @@ namespace TeiasMongoAPI.API.Controllers
             }, "Get execution logs");
         }
 
+        /// <summary>
+        /// Download a specific output file from a workflow execution
+        /// </summary>
+        [HttpGet("executions/{executionId}/download-file/{*filePath}")]
+        [RequirePermission(UserPermissions.ViewWorkflows)]
+        public async Task<ActionResult<ApiResponse<VersionFileDetailDto>>> DownloadExecutionFile(
+            string executionId,
+            string filePath,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _workflowExecutionEngine.DownloadExecutionFileAsync(executionId, filePath, cancellationToken);
+            }, "Download workflow execution file");
+        }
+
+        /// <summary>
+        /// Download all output files from a workflow execution as a ZIP archive
+        /// </summary>
+        [HttpGet("executions/{executionId}/files/download-all")]
+        [RequirePermission(UserPermissions.ViewWorkflows)]
+        public async Task<IActionResult> DownloadAllExecutionFiles(
+            string executionId,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var result = await _workflowExecutionEngine.DownloadAllExecutionFilesAsync(executionId, cancellationToken);
+                
+                return File(
+                    result.ZipContent,
+                    "application/zip",
+                    $"workflow-execution-{executionId}-files.zip");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error downloading all execution files for execution {ExecutionId}", executionId);
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Data = null
+                });
+            }
+        }
+
+        /// <summary>
+        /// Download selected output files from a workflow execution as a ZIP archive
+        /// </summary>
+        [HttpPost("executions/{executionId}/files/bulk-download")]
+        [RequirePermission(UserPermissions.ViewWorkflows)]
+        public async Task<IActionResult> BulkDownloadExecutionFiles(
+            string executionId,
+            [FromBody] WorkflowExecutionFileBulkDownloadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var result = await _workflowExecutionEngine.BulkDownloadExecutionFilesAsync(executionId, request, cancellationToken);
+                
+                return File(
+                    result.ZipContent,
+                    "application/zip",
+                    $"workflow-execution-{executionId}-selected-files.zip");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error bulk downloading execution files for execution {ExecutionId}", executionId);
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Data = null
+                });
+            }
+        }
+
         #endregion
 
         #region Node Management

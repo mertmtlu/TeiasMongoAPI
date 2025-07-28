@@ -25,4 +25,12 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public bool IncludeMetadata { get; set; } = false;
         public string? CompressionLevel { get; set; } = "optimal";
     }
+
+    public class WorkflowExecutionFileBulkDownloadRequest
+    {
+        public List<string> FilePaths { get; set; } = new();
+        public List<string>? NodeIds { get; set; }
+        public bool IncludeMetadata { get; set; } = false;
+        public string? CompressionLevel { get; set; } = "optimal";
+    }
 }

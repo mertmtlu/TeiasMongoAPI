@@ -1,5 +1,6 @@
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
+using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using MongoDB.Bson;
 
 namespace TeiasMongoAPI.Services.Interfaces
@@ -21,6 +22,9 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<List<WorkflowExecutionLogResponseDto>> GetExecutionLogsAsync(string executionId, int skip = 0, int take = 100, CancellationToken cancellationToken = default);
         Task<bool> IsExecutionCompleteAsync(string executionId, CancellationToken cancellationToken = default);
         Task<bool> CleanupExecutionAsync(string executionId, CancellationToken cancellationToken = default);
+        Task<VersionFileDetailDto> DownloadExecutionFileAsync(string executionId, string filePath, CancellationToken cancellationToken = default);
+        Task<BulkDownloadResult> DownloadAllExecutionFilesAsync(string executionId, CancellationToken cancellationToken = default);
+        Task<BulkDownloadResult> BulkDownloadExecutionFilesAsync(string executionId, WorkflowExecutionFileBulkDownloadRequest request, CancellationToken cancellationToken = default);
     }
 
     public class WorkflowExecutionRequest
