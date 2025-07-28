@@ -62,7 +62,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     ["workflowId"] = request.WorkflowId,
                     ["userId"] = currentUserId.ToString(),
-                    ["requestOptions"] = request.Options
+                    ["requestOptions"] = request.Options.ToBsonDocument()
                 }, cancellationToken: cancellationToken);
                 // Get workflow
                 var workflow = await _unitOfWork.Workflows.GetByIdAsync(ObjectId.Parse(request.WorkflowId), cancellationToken);

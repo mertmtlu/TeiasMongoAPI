@@ -181,6 +181,13 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Metadata, opt => opt.MapFrom(src => src.Metadata)) // Direct mapping
                 .ReverseMap();
 
+            CreateMap<WorkflowExecutionLog, WorkflowExecutionLogResponseDto>()
+                .ForMember(dest => dest.Id, opt => opt.Ignore()) // Set by service
+                .ForMember(dest => dest.ExecutionId, opt => opt.Ignore()) // Set by service 
+                .ForMember(dest => dest.Level, opt => opt.MapFrom(src => src.Level.ToString()))
+                .ForMember(dest => dest.Data, opt => opt.MapFrom(src => ConvertBsonDocumentToDictionary(src.Metadata)))
+                .ForMember(dest => dest.Exception, opt => opt.Ignore()); // Set by service if needed
+
             CreateMap<WorkflowExecutionContext, WorkflowExecutionContextDto>()
                 .ForMember(dest => dest.UserInputs, opt => opt.MapFrom(src => ConvertBsonDocumentToDictionary(src.UserInputs)))
                 .ForMember(dest => dest.GlobalVariables, opt => opt.MapFrom(src => ConvertBsonDocumentToDictionary(src.GlobalVariables)));
