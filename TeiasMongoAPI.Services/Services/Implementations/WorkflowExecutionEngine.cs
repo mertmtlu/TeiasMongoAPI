@@ -1019,7 +1019,26 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Update final phase based on execution status
             execution.Progress.CurrentPhase = execution.Status == WorkflowExecutionStatus.Completed ? "Completed" : "Failed";
             
-            await _unitOfWork.WorkflowExecutions.UpdateAsync(ObjectId.Parse(session.ExecutionId), execution, cancellationToken);
+            // Update specific fields to preserve logs and other data
+            var executionId = ObjectId.Parse(session.ExecutionId);
+            
+            // Update status (this also sets CompletedAt if status is final)
+            await _unitOfWork.WorkflowExecutions.UpdateExecutionStatusAsync(executionId, execution.Status, cancellationToken);
+            
+            // Update progress
+            await _unitOfWork.WorkflowExecutions.UpdateExecutionProgressAsync(executionId, execution.Progress, cancellationToken);
+            
+            // Set error if exists
+            if (execution.Error != null)
+            {
+                await _unitOfWork.WorkflowExecutions.SetExecutionErrorAsync(executionId, execution.Error, cancellationToken);
+            }
+            
+            // Set results if exists
+            if (execution.Results != null)
+            {
+                await _unitOfWork.WorkflowExecutions.SetExecutionResultsAsync(executionId, execution.Results, cancellationToken);
+            }
 
             _logger.LogInformation($"Workflow execution {session.ExecutionId} finalized with status {execution.Status}");
         }
