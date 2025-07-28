@@ -857,12 +857,41 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     finalOutputs[nodeOutput.Key] = nodeOutput.Value.Data;
                 }
 
+                // Collect output files from all nodes
+                var allOutputFiles = new List<WorkflowOutputFile>();
+                foreach (var nodeOutput in session.NodeOutputs)
+                {
+                    if (nodeOutput.Value.Data.Contains("outputFiles") && 
+                        nodeOutput.Value.Data["outputFiles"] is BsonArray outputFilesArray)
+                    {
+                        foreach (var fileDoc in outputFilesArray.OfType<BsonDocument>())
+                        {
+                            var fileName = fileDoc.GetValue("fileName", "").AsString;
+                            var filePath = fileDoc.GetValue("path", "").AsString;
+                            
+                            if (!string.IsNullOrEmpty(fileName) && !string.IsNullOrEmpty(filePath))
+                            {
+                                allOutputFiles.Add(new WorkflowOutputFile
+                                {
+                                    FileName = fileName,
+                                    FilePath = filePath,
+                                    NodeId = nodeOutput.Key,
+                                    CreatedAt = DateTime.UtcNow,
+                                    Size = fileDoc.GetValue("size", 0).ToInt64(),
+                                    ContentType = fileDoc.GetValue("contentType", "application/octet-stream").AsString
+                                });
+                            }
+                        }
+                    }
+                }
+
                 execution.Results = new WorkflowExecutionResults
                 {
                     FinalOutputs = finalOutputs,
                     IntermediateResults = session.NodeOutputs.ToDictionary(
                         kvp => kvp.Key,
                         kvp => kvp.Value.Data),
+                    OutputFiles = allOutputFiles,
                     Summary = $"Workflow completed with {session.CompletedNodes.Count} successful nodes and {session.FailedNodes.Count} failed nodes"
                 };
             }
