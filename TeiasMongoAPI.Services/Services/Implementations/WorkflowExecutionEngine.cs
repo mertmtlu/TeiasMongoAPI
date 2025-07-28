@@ -233,6 +233,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var nodeSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes, session.Options.MaxConcurrentNodes);
             var processedNodes = new HashSet<string>();
 
+            // Update phase to indicate we're starting node execution
+            await UpdateExecutionStatusAsync(session.ExecutionId, WorkflowExecutionStatus.Running, "Executing nodes", cancellationToken);
+
             try
             {
                 // Continue until all nodes are processed or workflow should stop
@@ -828,6 +831,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             progress.FailedNodes = session.FailedNodes.Count;
             progress.RunningNodes = session.RunningNodes.Count;
             progress.PercentComplete = (double)progress.CompletedNodes / progress.TotalNodes * 100;
+            
+            // Update phase to show execution progress
+            progress.CurrentPhase = $"Executing nodes ({progress.CompletedNodes}/{progress.TotalNodes} completed)";
 
             await _unitOfWork.WorkflowExecutions.UpdateExecutionProgressAsync(ObjectId.Parse(session.ExecutionId), progress, cancellationToken);
         }
@@ -835,6 +841,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private async Task FinalizeExecutionAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
         {
             var execution = session.Execution;
+
+            // Update phase to indicate finalization is starting
+            execution.Progress.CurrentPhase = "Completing workflow";
+            await _unitOfWork.WorkflowExecutions.UpdateExecutionProgressAsync(ObjectId.Parse(session.ExecutionId), execution.Progress, cancellationToken);
 
             if (session.FailedNodes.Any() && !session.Options.ContinueOnError)
             {
@@ -897,6 +907,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             execution.CompletedAt = DateTime.UtcNow;
+            
+            // Update final phase based on execution status
+            execution.Progress.CurrentPhase = execution.Status == WorkflowExecutionStatus.Completed ? "Completed" : "Failed";
+            
             await _unitOfWork.WorkflowExecutions.UpdateAsync(ObjectId.Parse(session.ExecutionId), execution, cancellationToken);
 
             _logger.LogInformation($"Workflow execution {session.ExecutionId} finalized with status {execution.Status}");
