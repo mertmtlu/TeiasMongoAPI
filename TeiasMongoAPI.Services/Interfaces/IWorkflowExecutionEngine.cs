@@ -2,6 +2,7 @@ using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace TeiasMongoAPI.Services.Interfaces
 {
@@ -39,15 +40,34 @@ namespace TeiasMongoAPI.Services.Interfaces
 
     public class WorkflowExecutionOptions
     {
+        [BsonElement("dryRun")]
         public bool DryRun { get; set; } = false;
+        
+        [BsonElement("debugMode")]
         public bool DebugMode { get; set; } = false;
+        
+        [BsonElement("saveIntermediateResults")]
         public bool SaveIntermediateResults { get; set; } = true;
+        
+        [BsonElement("continueOnError")]
         public bool ContinueOnError { get; set; } = false;
+        
+        [BsonElement("maxConcurrentNodes")]
         public int MaxConcurrentNodes { get; set; } = 5;
+        
+        [BsonElement("timeoutMinutes")]
         public int TimeoutMinutes { get; set; } = 60;
+        
+        [BsonElement("enableNotifications")]
         public bool EnableNotifications { get; set; } = true;
+        
+        [BsonElement("notificationRecipients")]
         public List<string> NotificationRecipients { get; set; } = new();
+        
+        [BsonElement("priority")]
         public ExecutionPriority Priority { get; set; } = ExecutionPriority.Normal;
+        
+        [BsonElement("customOptions")]
         public Dictionary<string, object> CustomOptions { get; set; } = new();
     }
 
