@@ -91,6 +91,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             {
                 if (e.Data != null)
                 {
+                    if (e.Data.Contains("if"))
+                    {
+                        var a = 1;
+                    }
                     output.AppendLine(e.Data);
                 }
             };

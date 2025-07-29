@@ -28,6 +28,32 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IBackgroundTaskQueue _backgroundTaskQueue;
         private readonly IUserService _userService;
         private readonly SemaphoreSlim _executionSemaphore = new(10, 10); // Limit concurrent workflows
+        private static readonly object _workflowExecutionLock = new object();
+
+        private async Task UpdateNodeExecutionAndSyncSessionAsync(string executionId, string nodeId, NodeExecution nodeExecution, CancellationToken cancellationToken)
+        {
+            // Update database
+            await _unitOfWork.WorkflowExecutions.UpdateNodeExecutionAsync(ObjectId.Parse(executionId), nodeId, nodeExecution, cancellationToken);
+
+            // Update session state to keep it in sync with database
+            if (_sessionManager.TryGetSession(executionId, out var session))
+            {
+                var sessionNodeExecution = session.Execution.NodeExecutions.FirstOrDefault(ne => ne.NodeId == nodeId);
+                if (sessionNodeExecution != null)
+                {
+                    // Sync the session state with the updated database record
+                    sessionNodeExecution.Status = nodeExecution.Status;
+                    sessionNodeExecution.StartedAt = nodeExecution.StartedAt;
+                    sessionNodeExecution.CompletedAt = nodeExecution.CompletedAt;
+                    sessionNodeExecution.RetryCount = nodeExecution.RetryCount;
+                    sessionNodeExecution.OutputData = nodeExecution.OutputData;
+                    sessionNodeExecution.WasSkipped = nodeExecution.WasSkipped;
+                    sessionNodeExecution.SkipReason = nodeExecution.SkipReason;
+
+                    _logger.LogDebug($"Synchronized session state for node {nodeId} in execution {executionId} - Status: {nodeExecution.Status}");
+                }
+            }
+        }
 
         public WorkflowExecutionEngine(
             IUnitOfWork unitOfWork,
@@ -154,7 +180,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     CancellationTokenSource = new CancellationTokenSource()
                 };
 
-                _sessionManager.AddSession(executionId.ToString(), session);
+                // Try to add session atomically - this will fail if workflow is already running
+                if (!_sessionManager.TryAddSessionIfNotRunning(executionId.ToString(), session, request.WorkflowId))
+                {
+                    var runningExecutionId = _sessionManager.GetRunningExecutionId(request.WorkflowId);
+                    _logger.LogWarning($"Workflow {request.WorkflowId} is already running with execution ID {runningExecutionId}");
+                    throw new InvalidOperationException($"Workflow {request.WorkflowId} is already running. Execution ID: {runningExecutionId}");
+                }
 
                 // Queue background task execution
                 await _backgroundTaskQueue.QueueBackgroundWorkItemAsync(async (serviceProvider, ct) =>
@@ -295,7 +327,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     if (nodesToStart.Any())
                     {
                         // Add resource allocation log
-                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Starting execution of {nodesToStart.Count} nodes", 
+                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Starting execution of {nodesToStart.Count} nodes",
                             metadata: new Dictionary<string, object>
                             {
                                 ["startingNodes"] = nodesToStart.ToArray(),
@@ -385,10 +417,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                _logger.LogInformation($"Starting execution of node {nodeId} in workflow {session.ExecutionId}");
-                
                 // Add node execution start log
                 var node = session.Workflow.Nodes.FirstOrDefault(n => n.Id == nodeId);
+                _logger.LogInformation($"Starting execution of node '{node?.Name ?? nodeId}'");
+
                 await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Starting execution of node '{node?.Name ?? nodeId}'", nodeId: nodeId, metadata: new Dictionary<string, object>
                 {
                     ["nodeType"] = node?.NodeType.ToString() ?? "Unknown",
@@ -403,16 +435,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     case NodeExecutionStatus.Completed:
                         session.CompletedNodes.Add(nodeId);
                         _logger.LogInformation($"Node {nodeId} completed successfully in execution {session.ExecutionId}");
-                        
+
                         // Add completion log with output information
-                        var outputFileCount = nodeExecution.OutputData?.ContainsKey("outputFiles") == true && 
+                        var outputFileCount = nodeExecution.OutputData?.ContainsKey("outputFiles") == true &&
                                             nodeExecution.OutputData["outputFiles"] is BsonArray outputFiles ? outputFiles.Count : 0;
-                        
-                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Node '{node?.Name ?? nodeId}' completed successfully", 
+
+                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Node '{node?.Name ?? nodeId}' completed successfully",
                             nodeId: nodeId, metadata: new Dictionary<string, object>
                             {
-                                ["executionTime"] = nodeExecution.CompletedAt.HasValue 
-                                    ? nodeExecution.CompletedAt.Value.Subtract(nodeExecution.StartedAt).TotalSeconds 
+                                ["executionTime"] = nodeExecution.CompletedAt.HasValue
+                                    ? nodeExecution.CompletedAt.Value.Subtract(nodeExecution.StartedAt).TotalSeconds
                                     : 0,
                                 ["outputFileCount"] = outputFileCount,
                                 ["status"] = "Completed"
@@ -422,9 +454,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     case NodeExecutionStatus.Failed:
                         session.FailedNodes.Add(nodeId);
                         _logger.LogError($"Node {nodeId} failed in execution {session.ExecutionId}");
-                        
+
                         // Add failure log with error details
-                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Error, $"Node '{node?.Name ?? nodeId}' execution failed", 
+                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Error, $"Node '{node?.Name ?? nodeId}' execution failed",
                             nodeId: nodeId, metadata: new Dictionary<string, object>
                             {
                                 ["status"] = "Failed",
@@ -434,7 +466,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         if (!session.Options.ContinueOnError)
                         {
                             _logger.LogWarning($"Cancelling workflow execution {session.ExecutionId} due to failed node {nodeId}");
-                            await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Warning, $"Workflow execution cancelled due to failed node '{node?.Name ?? nodeId}'", 
+                            await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Warning, $"Workflow execution cancelled due to failed node '{node?.Name ?? nodeId}'",
                                 nodeId: nodeId, cancellationToken: cancellationToken);
                             session.CancellationTokenSource.Cancel();
                         }
@@ -444,8 +476,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         // Treat skipped nodes as completed for dependency purposes
                         session.CompletedNodes.Add(nodeId);
                         _logger.LogInformation($"Node {nodeId} was skipped in execution {session.ExecutionId}");
-                        
-                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Node '{node?.Name ?? nodeId}' was skipped", 
+
+                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Node '{node?.Name ?? nodeId}' was skipped",
                             nodeId: nodeId, metadata: new Dictionary<string, object>
                             {
                                 ["status"] = "Skipped"
@@ -630,7 +662,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Update node status
                 nodeExecution.Status = NodeExecutionStatus.Running;
                 nodeExecution.StartedAt = DateTime.UtcNow;
-                await _unitOfWork.WorkflowExecutions.UpdateNodeExecutionAsync(ObjectId.Parse(executionId), nodeId, nodeExecution, cancellationToken);
+                await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
 
                 // Prepare input data
                 var inputData = await PrepareNodeInputDataAsync(session, nodeId, cancellationToken);
@@ -696,8 +728,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     _logger.LogError($"Node {nodeId} failed in execution {executionId}: {programResult.ErrorMessage}");
                 }
 
-                // Update node execution in database
-                await _unitOfWork.WorkflowExecutions.UpdateNodeExecutionAsync(ObjectId.Parse(executionId), nodeId, nodeExecution, cancellationToken);
+                // Update node execution in database and session state
+                await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
 
                 return _mapper.Map<NodeExecutionResponseDto>(nodeExecution);
             }
@@ -908,7 +940,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             progress.FailedNodes = session.FailedNodes.Count;
             progress.RunningNodes = session.RunningNodes.Count;
             progress.PercentComplete = (double)progress.CompletedNodes / progress.TotalNodes * 100;
-            
+
             // Update phase to show execution progress
             progress.CurrentPhase = $"Executing nodes ({progress.CompletedNodes}/{progress.TotalNodes} completed)";
 
@@ -932,9 +964,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     Message = $"Workflow failed due to {session.FailedNodes.Count} failed nodes",
                     Timestamp = DateTime.UtcNow
                 };
-                
+
                 // Add failure log
-                await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Error, $"Workflow execution failed due to {session.FailedNodes.Count} failed nodes", 
+                await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Error, $"Workflow execution failed due to {session.FailedNodes.Count} failed nodes",
                     metadata: new Dictionary<string, object>
                     {
                         ["failedNodes"] = session.FailedNodes.ToArray(),
@@ -945,9 +977,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             else
             {
                 execution.Status = WorkflowExecutionStatus.Completed;
-                
+
                 // Add success log
-                await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Workflow execution completed successfully", 
+                await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Workflow execution completed successfully",
                     metadata: new Dictionary<string, object>
                     {
                         ["completedNodes"] = session.CompletedNodes.Count,
@@ -967,7 +999,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 var allOutputFiles = new List<WorkflowOutputFile>();
                 foreach (var nodeOutput in session.NodeOutputs)
                 {
-                    if (nodeOutput.Value.Data.Contains("outputFiles") && 
+                    if (nodeOutput.Value.Data.Contains("outputFiles") &&
                         nodeOutput.Value.Data["outputFiles"] is BsonArray)
                     {
                         var outputFilesArray = nodeOutput.Value.Data["outputFiles"] as BsonArray;
@@ -975,21 +1007,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         {
                             foreach (var fileDoc in outputFilesArray.OfType<BsonDocument>())
                             {
-                            var fileName = fileDoc.GetValue("fileName", "").AsString;
-                            var filePath = fileDoc.GetValue("path", "").AsString;
-                            
-                            if (!string.IsNullOrEmpty(fileName) && !string.IsNullOrEmpty(filePath))
-                            {
-                                allOutputFiles.Add(new WorkflowOutputFile
+                                var fileName = fileDoc.GetValue("fileName", "").AsString;
+                                var filePath = fileDoc.GetValue("path", "").AsString;
+
+                                if (!string.IsNullOrEmpty(fileName) && !string.IsNullOrEmpty(filePath))
                                 {
-                                    FileName = fileName,
-                                    FilePath = filePath,
-                                    NodeId = nodeOutput.Key,
-                                    CreatedAt = DateTime.UtcNow,
-                                    Size = fileDoc.GetValue("size", 0).ToInt64(),
-                                    ContentType = fileDoc.GetValue("contentType", "application/octet-stream").AsString
-                                });
-                            }
+                                    allOutputFiles.Add(new WorkflowOutputFile
+                                    {
+                                        FileName = fileName,
+                                        FilePath = filePath,
+                                        NodeId = nodeOutput.Key,
+                                        CreatedAt = DateTime.UtcNow,
+                                        Size = fileDoc.GetValue("size", 0).ToInt64(),
+                                        ContentType = fileDoc.GetValue("contentType", "application/octet-stream").AsString
+                                    });
+                                }
                             }
                         }
                     }
@@ -1004,9 +1036,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     OutputFiles = allOutputFiles,
                     Summary = $"Workflow completed with {session.CompletedNodes.Count} successful nodes and {session.FailedNodes.Count} failed nodes"
                 };
-                
+
                 // Update success log with final file count
-                await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Workflow results collected: {allOutputFiles.Count} output files generated", 
+                await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Workflow results collected: {allOutputFiles.Count} output files generated",
                     metadata: new Dictionary<string, object>
                     {
                         ["totalOutputFiles"] = allOutputFiles.Count,
@@ -1015,25 +1047,25 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             execution.CompletedAt = DateTime.UtcNow;
-            
+
             // Update final phase based on execution status
             execution.Progress.CurrentPhase = execution.Status == WorkflowExecutionStatus.Completed ? "Completed" : "Failed";
-            
+
             // Update specific fields to preserve logs and other data
             var executionId = ObjectId.Parse(session.ExecutionId);
-            
+
             // Update status (this also sets CompletedAt if status is final)
             await _unitOfWork.WorkflowExecutions.UpdateExecutionStatusAsync(executionId, execution.Status, cancellationToken);
-            
+
             // Update progress
             await _unitOfWork.WorkflowExecutions.UpdateExecutionProgressAsync(executionId, execution.Progress, cancellationToken);
-            
+
             // Set error if exists
             if (execution.Error != null)
             {
                 await _unitOfWork.WorkflowExecutions.SetExecutionErrorAsync(executionId, execution.Error, cancellationToken);
             }
-            
+
             // Set results if exists
             if (execution.Results != null)
             {
@@ -1077,9 +1109,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Timestamp = DateTime.UtcNow,
                 CanRetry = true
             };
-            
+
             // Add system error log
-            await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Critical, $"System error occurred during workflow execution: {ex.Message}", 
+            await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Critical, $"System error occurred during workflow execution: {ex.Message}",
                 metadata: new Dictionary<string, object>
                 {
                     ["errorType"] = "SystemError",
@@ -1185,7 +1217,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             nodeExecution.RetryCount++;
             nodeExecution.Status = NodeExecutionStatus.Retrying;
-            await _unitOfWork.WorkflowExecutions.UpdateNodeExecutionAsync(ObjectId.Parse(executionId), nodeId, nodeExecution, cancellationToken);
+            await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
 
             return await ExecuteNodeInternalAsync(executionId, nodeId, isExternalCall: false, cancellationToken);
         }
@@ -1209,7 +1241,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             nodeExecution.SkipReason = reason;
             nodeExecution.CompletedAt = DateTime.UtcNow;
 
-            return await _unitOfWork.WorkflowExecutions.UpdateNodeExecutionAsync(ObjectId.Parse(executionId), nodeId, nodeExecution, cancellationToken);
+            await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
+            return true;
         }
 
         public async Task<WorkflowDataContractDto> GetNodeOutputAsync(string executionId, string nodeId, CancellationToken cancellationToken = default)

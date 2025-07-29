@@ -1,6 +1,8 @@
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Serializers;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 using TeiasMongoAPI.Core.Models.Collaboration;
 
 namespace TeiasMongoAPI.Services.Helpers
@@ -143,10 +145,12 @@ namespace TeiasMongoAPI.Services.Helpers
             var required = element.TryGetValue("required", out var req) && (req is bool b ? b : bool.TryParse(req?.ToString(), out b) && b);
 
             // Get table configuration
-            var tableConfig = element.TryGetValue("tableConfig", out var tableConfigObj) ? tableConfigObj as Dictionary<string, object> : null;
+
+            _ = element.TryGetValue("tableConfig", out var tableConfigObj);
+            var tableConfig = JsonSerializer.Deserialize<Dictionary<string, object>>(tableConfigObj.ToString());
             var rows = tableConfig?.TryGetValue("rows", out var rowsObj) == true ? (rowsObj is int r ? r : int.TryParse(rowsObj?.ToString(), out r) ? r : 3) : 3;
             var columns = tableConfig?.TryGetValue("columns", out var colsObj) == true ? (colsObj is int c ? c : int.TryParse(colsObj?.ToString(), out c) ? c : 3) : 3;
-            var cells = tableConfig?.TryGetValue("cells", out var cellsObj) == true ? cellsObj as IEnumerable<object> : null;
+            var cells =  JsonSerializer.Deserialize<IEnumerable<object>>(tableConfig?["cells"].ToString());
 
             // Generate properties for the overall table
             sb.AppendLine($"    @property");
@@ -163,7 +167,7 @@ namespace TeiasMongoAPI.Services.Helpers
             {
                 foreach (var cell in cells)
                 {
-                    var cellDoc = cell as Dictionary<string, object>;
+                    var cellDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(cell.ToString());
                     if (cellDoc != null)
                     {
                         var cellId = cellDoc.TryGetValue("cellId", out var cId) ? cId?.ToString() ?? "" : "";
@@ -197,7 +201,7 @@ namespace TeiasMongoAPI.Services.Helpers
             {
                 foreach (var cell in cells)
                 {
-                    var cellDoc = cell as Dictionary<string, object>;
+                    var cellDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(cell.ToString());
                     if (cellDoc != null)
                     {
                         var cellId = cellDoc.TryGetValue("cellId", out var cId) ? cId?.ToString() ?? "" : "";
@@ -216,7 +220,7 @@ namespace TeiasMongoAPI.Services.Helpers
             {
                 foreach (var cell in cells)
                 {
-                    var cellDoc = cell as Dictionary<string, object>;
+                    var cellDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(cell.ToString());
                     if (cellDoc != null)
                     {
                         var cellId = cellDoc.TryGetValue("cellId", out var cId) ? cId?.ToString() ?? "" : "";
@@ -290,7 +294,7 @@ namespace TeiasMongoAPI.Services.Helpers
                 case "dropdown":
                     if (cellDoc?.TryGetValue("options", out var optionsObj) == true)
                     {
-                        var options = optionsObj as IEnumerable<object>;
+                        var options = JsonSerializer.Deserialize<IEnumerable<object>>(optionsObj.ToString());
                         if (options != null)
                         {
                             var optionsList = string.Join(", ", options.Select(o => $"'{o?.ToString() ?? ""}'"));
@@ -347,6 +351,7 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        \"\"\"Load values from dictionary, handling table elements specially\"\"\"");
             sb.AppendLine("        for key, value in data.items():");
             sb.AppendLine("            # Check if this is a table element");
+            sb.AppendLine("            value = self.parse_js_object_params(value)");
             sb.AppendLine("            if self._is_table_element(key) and isinstance(value, dict):");
             sb.AppendLine("                # Expand table data into individual cell keys");
             sb.AppendLine("                for cell_key, cell_value in value.items():");
@@ -367,11 +372,12 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        \"\"\"Check if the given element name corresponds to a table element\"\"\"");
 
             // Generate the table element checks based on actual elements
-            if (component.Configuration is Dictionary<string, object> tableConfig && tableConfig.ContainsKey("elements"))
+            var tableConfig = JsonSerializer.Deserialize<Dictionary<string, object>>(component.Configuration.ToString());
+            if (tableConfig.ContainsKey("elements"))
             {
-                var elements = tableConfig["elements"] as IEnumerable<object>;
+                var elements = JsonSerializer.Deserialize<IEnumerable<object>>(tableConfig["elements"].ToString());
                 var tableElements = elements?.Where(e => {
-                    var elementDict = e as Dictionary<string, object>;
+                    var elementDict = JsonSerializer.Deserialize<Dictionary<string, object>>(e.ToString());
                     return elementDict?.TryGetValue("type", out var type) == true && type?.ToString() == "table";
                 }).ToList() ?? new List<object>();
 
@@ -380,7 +386,7 @@ namespace TeiasMongoAPI.Services.Helpers
                     sb.AppendLine("        table_elements = {");
                     foreach (var tableElement in tableElements)
                     {
-                        var elementDoc = tableElement as Dictionary<string, object>;
+                        var elementDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(tableElement.ToString());
                         if (elementDoc != null)
                         {
                             var elementName = elementDoc.TryGetValue("name", out var nameObj) ? nameObj?.ToString() ?? "" : "";
@@ -406,11 +412,12 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        \"\"\"Find the actual cell ID by custom name or return the name if it's already a cell ID\"\"\"");
 
             // Generate cell mappings for each table element
-            if (component.Configuration is Dictionary<string, object> configDict && configDict.ContainsKey("elements"))
+            var configDict = JsonSerializer.Deserialize<Dictionary<string, object>>(component.Configuration.ToString());
+            if (configDict.ContainsKey("elements"))
             {
-                var elements = configDict["elements"] as IEnumerable<object>;
+                var elements = JsonSerializer.Deserialize<IEnumerable<object>>(configDict["elements"].ToString());
                 var tableElements = elements?.Where(e => {
-                    var elementDict = e as Dictionary<string, object>;
+                    var elementDict = JsonSerializer.Deserialize<Dictionary<string, object>>(e.ToString());
                     return elementDict?.TryGetValue("type", out var type) == true && type?.ToString() == "table";
                 }).ToList() ?? new List<object>();
 
@@ -419,12 +426,12 @@ namespace TeiasMongoAPI.Services.Helpers
                     sb.AppendLine("        cell_mappings = {");
                     foreach (var tableElement in tableElements)
                     {
-                        var elementDoc = tableElement as Dictionary<string, object>;
+                        var elementDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(tableElement.ToString());
                         if (elementDoc != null)
                         {
                             var elementName = elementDoc.TryGetValue("name", out var nameObj) ? nameObj?.ToString() ?? "" : "";
-                            var elementTableConfig = elementDoc.TryGetValue("tableConfig", out var tableConfigObj) ? tableConfigObj as Dictionary<string, object> : null;
-                            var cells = elementTableConfig?.TryGetValue("cells", out var cellsObj) == true ? cellsObj as IEnumerable<object> : null;
+                            var elementTableConfig = elementDoc.TryGetValue("tableConfig", out var tableConfigObj) ? JsonSerializer.Deserialize<Dictionary<string, object>>(tableConfigObj.ToString()) : null;
+                            var cells = elementTableConfig?.TryGetValue("cells", out var cellsObj) == true ? JsonSerializer.Deserialize<IEnumerable<object>>(cellsObj.ToString()) : null;
 
                             sb.AppendLine($"            '{elementName}': {{");
 
@@ -432,7 +439,7 @@ namespace TeiasMongoAPI.Services.Helpers
                             {
                                 foreach (var cell in cells)
                                 {
-                                    var cellDoc = cell as Dictionary<string, object>;
+                                    var cellDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(cell.ToString());
                                     if (cellDoc != null)
                                     {
                                         var cellId = cellDoc.TryGetValue("cellId", out var cellIdObj) ? cellIdObj?.ToString() ?? "" : "";
@@ -497,7 +504,7 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine();
             sb.AppendLine("        # Fallback to custom parsing");
             sb.AppendLine("        # Remove outer quotes and braces");
-            sb.AppendLine("        clean_string = param_string.strip().strip(\"'\\\"\").strip('{ }')");
+            sb.AppendLine("        clean_string = param_string.strip().strip(\"'\\\"\").removeprefix('{').removesuffix('}')");
             sb.AppendLine("        params = {}");
             sb.AppendLine();
             sb.AppendLine("        # Simple key-value parsing (this is a simplified version)");
@@ -547,12 +554,12 @@ namespace TeiasMongoAPI.Services.Helpers
 
             if (component.Configuration is Dictionary<string, object> validationConfig && validationConfig.ContainsKey("elements"))
             {
-                var elements = validationConfig["elements"] as IEnumerable<object>;
+                var elements = JsonSerializer.Deserialize<IEnumerable<object>>(validationConfig["elements"].ToString());
                 if (elements != null)
                 {
                     foreach (var element in elements)
                     {
-                        var elementDoc = element as Dictionary<string, object>;
+                        var elementDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(element.ToString());
                         if (elementDoc != null)
                         {
                             var elementName = elementDoc.TryGetValue("name", out var name) ? name?.ToString() ?? "" : "";
@@ -568,14 +575,14 @@ namespace TeiasMongoAPI.Services.Helpers
                             sb.AppendLine($"        # Check table element: {elementName}");
                             sb.AppendLine($"        table_has_value = False");
 
-                            var validationTableConfig = elementDoc.TryGetValue("tableConfig", out var tableConfigObj) ? tableConfigObj as Dictionary<string, object> : null;
-                            var cells = validationTableConfig?.TryGetValue("cells", out var cellsObj) == true ? cellsObj as IEnumerable<object> : null;
+                            var validationTableConfig = elementDoc.TryGetValue("tableConfig", out var tableConfigObj) ? JsonSerializer.Deserialize<Dictionary<string, object>>(tableConfigObj.ToString()) : null;
+                            var cells = validationTableConfig?.TryGetValue("cells", out var cellsObj) == true ? JsonSerializer.Deserialize<IEnumerable<object>>(cellsObj.ToString()): null;
 
                             if (cells != null)
                             {
                                 foreach (var cell in cells)
                                 {
-                                    var cellDoc = cell as Dictionary<string, object>;
+                                    var cellDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(cell.ToString());
                                     var cellId = cellDoc?.TryGetValue("cellId", out var cellIdObj) == true ? cellIdObj?.ToString() ?? "" : "";
                                     if (!string.IsNullOrEmpty(cellId))
                                     {
@@ -670,7 +677,7 @@ namespace TeiasMongoAPI.Services.Helpers
                 case "dropdown":
                     if (element?.TryGetValue("options", out var optionsObj) == true)
                     {
-                        var options = optionsObj as IEnumerable<object>;
+                        var options = JsonSerializer.Deserialize<IEnumerable<object>>(optionsObj.ToString());
                         if (options != null)
                         {
                             var optionsList = string.Join(", ", options.Select(o => $"'{o?.ToString() ?? ""}'"));
