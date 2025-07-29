@@ -3,6 +3,7 @@ using AutoMapper;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
+using System.Linq;
 using System.Text.Json;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
@@ -109,6 +110,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     }
                 }
 
+                // Step 8.1: Capture initial file snapshot before build/execution
+                var initialFiles = new HashSet<string>(Directory.GetFiles(projectDirectory, "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(projectDirectory, f)));
+
+                session.InitialFiles = initialFiles;
+
                 // Step 9: Execute project
                 var executionContext = CreateExecutionContext(executionId, projectDirectory, request, projectStructure, timeoutCts.Token);
                 var result = await runner.ExecuteAsync(executionContext, timeoutCts.Token);
@@ -116,7 +123,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 // Step 10: Collect and store output files
                 if (request.SaveResults)
                 {
-                    result.OutputFiles = await CollectAndStoreOutputFilesAsync(projectDirectory, executionDirectory, timeoutCts.Token);
+                    result.OutputFiles = await CollectAndStoreOutputFilesAsync(projectDirectory, executionDirectory, session.InitialFiles, timeoutCts.Token);
                 }
 
                 // Step 11: Update result with session info
@@ -598,49 +605,67 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         /// <summary>
         /// Collects output files and stores them in the execution directory
         /// </summary>
-        private async Task<List<string>> CollectAndStoreOutputFilesAsync(string projectDirectory, string executionDirectory, CancellationToken cancellationToken)
+        private async Task<List<string>> CollectAndStoreOutputFilesAsync(
+    string projectDirectory,
+    string executionDirectory,
+    HashSet<string>? initialFiles,
+    CancellationToken cancellationToken)
         {
-            var outputFiles = new List<string>();
+            // --- 1. Setup: Prepare constants and lookups for high performance ---
+
+            // Using HashSet provides O(1) "Contains" checks, which is much faster than a List.
+            var outputSubDirs = new HashSet<string> { "bin", "dist", "build", "target", "out", "output" };
+            var excludedFileNames = new HashSet<string> { "WorkflowInputs", "UIComponent" };
+            var excludedSubDirs = new HashSet<string> { "__pycache__", ".git", "node_modules" };
+
             var outputsDirectory = Path.Combine(executionDirectory, "outputs");
+            var collectedOutputPaths = new List<string>();
 
             try
             {
-                // Look for common output directories
-                var outputDirs = new[] { "bin", "dist", "build", "target", "out", "output" };
+                // --- 2. Identify all files to be copied in a single, efficient query ---
 
-                foreach (var dir in outputDirs)
+                var allProjectFiles = Directory.EnumerateFiles(projectDirectory, "*", SearchOption.AllDirectories);
+
+                var filesToCopy = allProjectFiles.Where(filePath =>
                 {
-                    var outputDir = Path.Combine(projectDirectory, dir);
-                    if (Directory.Exists(outputDir))
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var relativePath = Path.GetRelativePath(projectDirectory, filePath);
+
+                    var pathSegments = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (pathSegments.Any(segment => excludedSubDirs.Contains(segment)))
                     {
-                        var files = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories);
-
-                        foreach (var file in files)
-                        {
-                            var relativePath = Path.GetRelativePath(projectDirectory, file);
-                            var targetPath = Path.Combine(outputsDirectory, relativePath);
-                            var targetDir = Path.GetDirectoryName(targetPath);
-
-                            if (!string.IsNullOrEmpty(targetDir))
-                            {
-                                Directory.CreateDirectory(targetDir);
-                            }
-
-                            File.Copy(file, targetPath, true);
-                            outputFiles.Add(Path.GetFullPath(targetPath));
-                        }
+                        return false;
                     }
-                }
 
-                // Also collect any files that were modified during execution
-                var allFiles = Directory.GetFiles(projectDirectory, "*", SearchOption.AllDirectories);
-                var modifiedFiles = allFiles.Where(f => File.GetLastWriteTime(f) > DateTime.Now.AddMinutes(-5)).ToList();
-
-                foreach (var file in modifiedFiles)
-                {
-                    var relativePath = Path.GetRelativePath(projectDirectory, file);
-                    if (!outputFiles.Contains(relativePath))
+                    // Rule: Ignore files with specifically excluded names.
+                    if (excludedFileNames.Contains(Path.GetFileNameWithoutExtension(filePath)))
                     {
+                        return false;
+                    }
+
+                    // Condition 1: Is the file new? (i.e., not in the initial snapshot).
+                    bool isNewFile = initialFiles == null || !initialFiles.Contains(relativePath);
+
+                    // Condition 2: Is the file part of a standard output directory?
+                    var firstDir = pathSegments.FirstOrDefault();
+                    bool isInStandardOutputDir = firstDir != null && outputSubDirs.Contains(firstDir);
+
+                    // We copy the file if it's new OR if it resides in a known output folder.
+                    return isNewFile || isInStandardOutputDir;
+                })
+                .Distinct();
+
+
+                // --- 3. Copy the filtered files to the outputs directory ---
+
+                foreach (var sourcePath in filesToCopy)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        var relativePath = Path.GetRelativePath(projectDirectory, sourcePath);
                         var targetPath = Path.Combine(outputsDirectory, relativePath);
                         var targetDir = Path.GetDirectoryName(targetPath);
 
@@ -649,17 +674,26 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                             Directory.CreateDirectory(targetDir);
                         }
 
-                        File.Copy(file, targetPath, true);
-                        outputFiles.Add(Path.GetFullPath(targetPath));
+                        File.Copy(sourcePath, targetPath, true);
+                        collectedOutputPaths.Add(Path.GetFullPath(targetPath));
+                    }
+                    catch (IOException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to copy output file {SourceFile}", sourcePath);
                     }
                 }
             }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Output file collection was canceled.");
+                throw;
+            }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to collect output files from {ProjectDirectory}", projectDirectory);
+                _logger.LogError(ex, "A critical error occurred while collecting output files from {ProjectDirectory}", projectDirectory);
             }
 
-            return outputFiles;
+            return collectedOutputPaths;
         }
 
         /// <summary>
@@ -921,6 +955,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             public string VersionId { get; set; } = string.Empty;
             public string ExecutionDirectory { get; set; } = string.Empty;
             public string ProjectDirectory { get; set; } = string.Empty;
+            public HashSet<string>? InitialFiles { get; set; }
             public ProjectStructureAnalysis? ProjectStructure { get; set; }
             public IProjectLanguageRunner? LanguageRunner { get; set; }
         }
