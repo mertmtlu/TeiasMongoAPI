@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System.Collections.Concurrent;
 using System.Text;
+using System.Threading;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
@@ -289,80 +290,52 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private async Task ExecuteWorkflowDynamicallyAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
         {
             var nodeSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes, session.Options.MaxConcurrentNodes);
-            var processedNodes = new HashSet<string>();
+            var nodeLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
+            var completionSource = new TaskCompletionSource<object>();
 
             // Update phase to indicate we're starting node execution
             await UpdateExecutionStatusAsync(session.ExecutionId, WorkflowExecutionStatus.Running, "Executing nodes", cancellationToken);
 
             try
             {
-                // Continue until all nodes are processed or workflow should stop
-                while (!IsWorkflowComplete(session) && !cancellationToken.IsCancellationRequested)
+                // Start with nodes that have no dependencies
+                var initialNodes = await GetNodesWithNoDependenciesAsync(session, cancellationToken);
+
+                if (!initialNodes.Any())
                 {
-                    // Find nodes that are eligible for execution
-                    var eligibleNodes = await GetEligibleNodesAsync(session, processedNodes, cancellationToken);
-
-                    if (!eligibleNodes.Any())
-                    {
-                        // No more eligible nodes - wait for running nodes to complete or break if none are running
-                        if (!session.RunningNodes.Any())
-                        {
-                            _logger.LogWarning($"No eligible nodes found and no nodes running in execution {session.ExecutionId}. Breaking execution loop.");
-                            break;
-                        }
-
-                        // Wait for at least one running node to complete
-                        var runningTasks = session.RunningNodes.Values.ToArray();
-                        if (runningTasks.Any())
-                        {
-                            await Task.WhenAny(runningTasks);
-                        }
-                        continue;
-                    }
-
-                    // Start execution for eligible nodes (up to semaphore limit)
-                    var availableSlots = session.Options.MaxConcurrentNodes - session.RunningNodes.Count;
-                    var nodesToStart = eligibleNodes.Take(availableSlots).ToList();
-
-                    if (nodesToStart.Any())
-                    {
-                        // Add resource allocation log
-                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Starting execution of {nodesToStart.Count} nodes",
-                            metadata: new Dictionary<string, object>
-                            {
-                                ["startingNodes"] = nodesToStart.ToArray(),
-                                ["availableSlots"] = availableSlots,
-                                ["maxConcurrentNodes"] = session.Options.MaxConcurrentNodes,
-                                ["currentlyRunning"] = session.RunningNodes.Count
-                            }, cancellationToken: cancellationToken);
-                    }
-
-                    foreach (var nodeId in nodesToStart)
-                    {
-                        processedNodes.Add(nodeId);
-                        var nodeTask = ExecuteNodeWithTrackingAsync(session, nodeId, nodeSemaphore, cancellationToken);
-                        session.RunningNodes[nodeId] = nodeTask;
-
-                        // Set up continuation to remove from running nodes when complete
-                        _ = nodeTask.ContinueWith(async (task) =>
-                        {
-                            session.RunningNodes.TryRemove(nodeId, out _);
-
-                            // Check if any dependent nodes became eligible
-                            await CheckAndProcessDependentNodesAsync(session, nodeId, processedNodes, nodeSemaphore, cancellationToken);
-                        }, TaskScheduler.Current);
-                    }
-
-                    // Small delay to prevent tight loop
-                    await Task.Delay(10, cancellationToken);
+                    _logger.LogWarning($"No nodes without dependencies found in execution {session.ExecutionId}");
+                    return;
                 }
 
-                // Wait for all remaining running nodes to complete
-                await WaitForAllRunningNodesToComplete(session);
+                // Track workflow completion
+                var totalEnabledNodes = session.Workflow.Nodes.Count(n => !n.IsDisabled);
+                var completedNodesCount = 0;
+
+                // Start initial nodes
+                foreach (var nodeId in initialNodes)
+                {
+                    await TryStartNodeExecutionAsync(session, nodeId, nodeSemaphore, nodeLocks,
+                        () =>
+                        {
+                            var completed = Interlocked.Increment(ref completedNodesCount);
+                            if (completed >= totalEnabledNodes)
+                            {
+                                completionSource.TrySetResult(null);
+                            }
+                        },
+                        cancellationToken);
+                }
+
+                // Wait for all nodes to complete
+                await completionSource.Task;
             }
             finally
             {
                 nodeSemaphore.Dispose();
+                foreach (var lockPair in nodeLocks)
+                {
+                    lockPair.Value.Dispose();
+                }
             }
         }
 
@@ -389,6 +362,116 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             return eligibleNodes;
+        }
+
+        private async Task<List<string>> GetNodesWithNoDependenciesAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
+        {
+            var nodesWithDependencies = new HashSet<string>(
+                session.Workflow.Edges
+                    .Where(e => !e.IsDisabled)
+                    .Select(e => e.TargetNodeId)
+            );
+
+            return session.Workflow.Nodes
+                .Where(n => !n.IsDisabled && !nodesWithDependencies.Contains(n.Id))
+                .Select(n => n.Id)
+                .ToList();
+        }
+
+        private async Task TryStartNodeExecutionAsync(WorkflowExecutionSession session, string nodeId,
+            SemaphoreSlim globalSemaphore, ConcurrentDictionary<string, SemaphoreSlim> nodeLocks,
+            Action onNodeCompleted, CancellationToken cancellationToken)
+        {
+            // Get or create a lock for this specific node to prevent duplicate execution
+            var nodeLock = nodeLocks.GetOrAdd(nodeId, _ => new SemaphoreSlim(1, 1));
+
+            // Try to acquire the node-specific lock
+            if (!await nodeLock.WaitAsync(0, cancellationToken))
+            {
+                // Node is already being processed
+                return;
+            }
+
+            try
+            {
+                // Double-check that the node isn't already processed or running
+                if (session.CompletedNodes.Contains(nodeId) ||
+                    session.FailedNodes.Contains(nodeId) ||
+                    session.RunningNodes.ContainsKey(nodeId))
+                {
+                    return;
+                }
+
+                // Check if dependencies are satisfied
+                if (!await AreDependenciesSatisfiedAsync(session, nodeId, cancellationToken))
+                {
+                    return;
+                }
+
+                // Start the node execution
+                var nodeTask = ExecuteNodeWithTrackingAsync(session, nodeId, globalSemaphore, cancellationToken);
+                session.RunningNodes[nodeId] = nodeTask;
+
+                // Log node start
+                await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info,
+                    $"Starting execution of {1} nodes",
+                    metadata: new Dictionary<string, object>
+                    {
+                        ["startingNodes"] = new[] { nodeId },
+                        ["availableSlots"] = session.Options.MaxConcurrentNodes - session.RunningNodes.Count + 1,
+                        ["maxConcurrentNodes"] = session.Options.MaxConcurrentNodes,
+                        ["currentlyRunning"] = session.RunningNodes.Count
+                    }, cancellationToken: cancellationToken);
+
+                // Set up continuation to handle completion and trigger dependent nodes
+                _ = nodeTask.ContinueWith(async (task) =>
+                {
+                    try
+                    {
+                        session.RunningNodes.TryRemove(nodeId, out _);
+
+                        // Notify completion for workflow tracking
+                        onNodeCompleted();
+
+                        // Process dependent nodes
+                        await ProcessDependentNodesAsync(session, nodeId, globalSemaphore, nodeLocks, onNodeCompleted, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"Error in node completion continuation for {nodeId} in execution {session.ExecutionId}");
+                    }
+                }, TaskScheduler.Current);
+            }
+            finally
+            {
+                nodeLock.Release();
+            }
+        }
+
+        private async Task ProcessDependentNodesAsync(WorkflowExecutionSession session, string completedNodeId,
+            SemaphoreSlim globalSemaphore, ConcurrentDictionary<string, SemaphoreSlim> nodeLocks,
+            Action onNodeCompleted, CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Find nodes that depend on the completed node
+                var dependentNodeIds = session.Workflow.Edges
+                    .Where(e => e.SourceNodeId == completedNodeId && !e.IsDisabled)
+                    .Select(e => e.TargetNodeId)
+                    .Distinct()
+                    .ToList();
+
+                // Process each dependent node
+                var dependentTasks = dependentNodeIds.Select(dependentNodeId =>
+                    TryStartNodeExecutionAsync(session, dependentNodeId, globalSemaphore, nodeLocks, onNodeCompleted, cancellationToken)
+                );
+
+                await Task.WhenAll(dependentTasks);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error processing dependent nodes for {completedNodeId} in execution {session.ExecutionId}");
+            }
         }
 
         private bool IsWorkflowComplete(WorkflowExecutionSession session)
@@ -497,61 +580,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        private async Task CheckAndProcessDependentNodesAsync(WorkflowExecutionSession session, string completedNodeId, HashSet<string> processedNodes, SemaphoreSlim semaphore, CancellationToken cancellationToken)
-        {
-            try
-            {
-                // Find nodes that depend on the completed node
-                var dependentNodeIds = session.Workflow.Edges
-                    .Where(e => e.SourceNodeId == completedNodeId && !e.IsDisabled)
-                    .Select(e => e.TargetNodeId)
-                    .Distinct()
-                    .ToList();
-
-                foreach (var dependentNodeId in dependentNodeIds)
-                {
-                    // Skip if already processed or running
-                    if (processedNodes.Contains(dependentNodeId) ||
-                        session.RunningNodes.ContainsKey(dependentNodeId) ||
-                        session.CompletedNodes.Contains(dependentNodeId) ||
-                        session.FailedNodes.Contains(dependentNodeId))
-                    {
-                        continue;
-                    }
-
-                    var dependentNode = session.Workflow.Nodes.FirstOrDefault(n => n.Id == dependentNodeId);
-                    if (dependentNode?.IsDisabled == true)
-                    {
-                        continue;
-                    }
-
-                    // Check if all dependencies are now satisfied
-                    if (await AreDependenciesSatisfiedAsync(session, dependentNodeId, cancellationToken))
-                    {
-                        // Only start if we have capacity
-                        if (session.RunningNodes.Count < session.Options.MaxConcurrentNodes)
-                        {
-                            processedNodes.Add(dependentNodeId);
-                            var nodeTask = ExecuteNodeWithTrackingAsync(session, dependentNodeId, semaphore, cancellationToken);
-                            session.RunningNodes[dependentNodeId] = nodeTask;
-
-                            // Set up continuation for this new node
-                            _ = nodeTask.ContinueWith(async (task) =>
-                            {
-                                session.RunningNodes.TryRemove(dependentNodeId, out _);
-                                await CheckAndProcessDependentNodesAsync(session, dependentNodeId, processedNodes, semaphore, cancellationToken);
-                            }, TaskScheduler.Current);
-
-                            _logger.LogInformation($"Started dependent node {dependentNodeId} after completion of {completedNodeId} in execution {session.ExecutionId}");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error checking dependent nodes for {completedNodeId} in execution {session.ExecutionId}");
-            }
-        }
 
         private async Task WaitForAllRunningNodesToComplete(WorkflowExecutionSession session)
         {
