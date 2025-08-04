@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using TeiasMongoAPI.Core.Models.KeyModels;
+using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Data.Configuration;
 
 namespace TeiasMongoAPI.Data.Context
@@ -24,6 +25,7 @@ namespace TeiasMongoAPI.Data.Context
         public IMongoCollection<TM> TMs => _database.GetCollection<TM>("tms");
         public IMongoCollection<Building> Buildings => _database.GetCollection<Building>("buildings");
         public IMongoCollection<AlternativeTM> AlternativeTMs => _database.GetCollection<AlternativeTM>("alternativeTms");
+        public IMongoCollection<UIInteraction> UIInteractions => _database.GetCollection<UIInteraction>("uiinteractions");
         // Removed ConcreteBlocks and MasonryBlocks collections
     }
 }

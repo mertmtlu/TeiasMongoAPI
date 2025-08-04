@@ -24,6 +24,7 @@ namespace TeiasMongoAPI.Data.Repositories
         private IExecutionRepository? _executions;
         private IWorkflowRepository? _workflows;
         private IWorkflowExecutionRepository? _workflowExecutions;
+        private IUIInteractionRepository? _uiInteractions;
 
         public UnitOfWork(MongoDbContext context)
         {
@@ -43,6 +44,7 @@ namespace TeiasMongoAPI.Data.Repositories
         public IExecutionRepository Executions => _executions ??= new ExecutionRepository(_context);
         public IWorkflowRepository Workflows => _workflows ??= new WorkflowRepository(_context);
         public IWorkflowExecutionRepository WorkflowExecutions => _workflowExecutions ??= new WorkflowExecutionRepository(_context);
+        public IUIInteractionRepository UIInteractions => _uiInteractions ??= new UIInteractionRepository(_context);
 
         public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {

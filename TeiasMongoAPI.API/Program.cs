@@ -218,6 +218,7 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IWorkflowExecutionEngine, WorkflowExecutionEngine>();
             builder.Services.AddScoped<IWorkflowValidationService, WorkflowValidationService>();
             builder.Services.AddScoped<IWorkflowNotificationService, SignalRWorkflowNotificationService>();
+            builder.Services.AddScoped<IUIInteractionService, UIInteractionService>();
             
             // Register Session Manager as Singleton
             builder.Services.AddSingleton<IWorkflowSessionManager, WorkflowSessionManager>();
