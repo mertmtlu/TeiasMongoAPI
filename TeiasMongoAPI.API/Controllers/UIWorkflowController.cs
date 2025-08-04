@@ -204,7 +204,7 @@ namespace TeiasMongoAPI.API.Controllers
 
                 // TODO: Validate user has access to this interaction
 
-                var responseData = request.ResponseData.ToBsonDocument();
+                var responseData = request.ResponseData;
                 if (!string.IsNullOrEmpty(request.Comments))
                 {
                     responseData["comments"] = request.Comments;

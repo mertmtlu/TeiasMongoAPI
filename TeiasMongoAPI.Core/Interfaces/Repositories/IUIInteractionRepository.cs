@@ -8,7 +8,7 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         Task<List<UIInteraction>> GetPendingForUserAsync(string userId, CancellationToken cancellationToken = default);
         Task<List<UIInteraction>> GetByWorkflowExecutionAsync(ObjectId workflowExecutionId, CancellationToken cancellationToken = default);
         Task<UIInteraction?> GetByIdAsync(string interactionId, CancellationToken cancellationToken = default);
-        Task<bool> UpdateStatusAsync(ObjectId interactionId, UIInteractionStatus status, BsonDocument? outputData = null, CancellationToken cancellationToken = default);
+        Task<bool> UpdateStatusAsync(ObjectId interactionId, UIInteractionStatus status, Dictionary<string, object>? outputData = null, CancellationToken cancellationToken = default);
         Task<List<UIInteraction>> GetActiveInteractionsAsync(CancellationToken cancellationToken = default);
         Task<List<UIInteraction>> GetTimedOutInteractionsAsync(CancellationToken cancellationToken = default);
     }

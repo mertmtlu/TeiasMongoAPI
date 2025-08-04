@@ -105,7 +105,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        private async Task EmitUIInteractionStatusChangedAsync(string workflowId, string interactionId, UIInteractionStatus status, BsonDocument outputData = null, CancellationToken cancellationToken = default)
+        private async Task EmitUIInteractionStatusChangedAsync(string workflowId, string interactionId, UIInteractionStatus status, Dictionary<string, object> outputData = null, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -198,12 +198,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         Status = UIInteractionStatus.Pending,
                         Title = "User Input Required",
                         Description = "Please provide input for the workflow execution",
-                        InputSchema = new BsonDocument
+                        InputSchema = new Dictionary<string, object>
                         {
                             ["type"] = "object",
-                            ["properties"] = new BsonDocument
+                            ["properties"] = new Dictionary<string, object>
                             {
-                                ["userChoice"] = new BsonDocument
+                                ["userChoice"] = new Dictionary<string, object>
                                 {
                                     ["type"] = "string",
                                     ["description"] = "User selection"

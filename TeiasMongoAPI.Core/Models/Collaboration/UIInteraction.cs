@@ -28,13 +28,13 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public string Description { get; set; } = string.Empty;
 
         [BsonElement("inputSchema")]
-        public BsonDocument InputSchema { get; set; } = new();
+        public Dictionary<string, object> InputSchema { get; set; } = new();
 
         [BsonElement("inputData")]
-        public BsonDocument InputData { get; set; } = new();
+        public Dictionary<string, object> InputData { get; set; } = new();
 
         [BsonElement("outputData")]
-        public BsonDocument OutputData { get; set; } = new();
+        public Dictionary<string, object> OutputData { get; set; } = new();
 
         [BsonElement("createdAt")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

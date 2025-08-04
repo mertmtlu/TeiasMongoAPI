@@ -1,5 +1,3 @@
-using MongoDB.Bson;
-
 namespace TeiasMongoAPI.Services.DTOs.Response.UIWorkflow
 {
     public class UIInteractionSessionApiResponse
@@ -12,9 +10,9 @@ namespace TeiasMongoAPI.Services.DTOs.Response.UIWorkflow
         public required string InteractionType { get; set; }
         public required string Title { get; set; }
         public required string Description { get; set; }
-        public required BsonDocument InputSchema { get; set; }
-        public BsonDocument? InputData { get; set; }
-        public BsonDocument? OutputData { get; set; }
+        public required Dictionary<string, object> InputSchema { get; set; }
+        public Dictionary<string, object>? InputData { get; set; }
+        public Dictionary<string, object>? OutputData { get; set; }
         public Dictionary<string, object> ContextData { get; set; } = new();
         public DateTime? TimeoutAt { get; set; }
         public required DateTime CreatedAt { get; set; }
@@ -54,9 +52,9 @@ namespace TeiasMongoAPI.Services.DTOs.Response.UIWorkflow
         public required string InteractionType { get; set; }
         public required string Title { get; set; }
         public required string Description { get; set; }
-        public required BsonDocument InputSchema { get; set; }
-        public BsonDocument? InputData { get; set; }
-        public BsonDocument? OutputData { get; set; }
+        public required Dictionary<string, object> InputSchema { get; set; }
+        public Dictionary<string, object>? InputData { get; set; }
+        public Dictionary<string, object>? OutputData { get; set; }
         public Dictionary<string, object> ContextData { get; set; } = new();
         public DateTime? TimeoutAt { get; set; }
         public required DateTime CreatedAt { get; set; }

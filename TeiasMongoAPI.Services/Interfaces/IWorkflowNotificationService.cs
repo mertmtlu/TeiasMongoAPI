@@ -18,7 +18,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         public required string Status { get; set; }
         public required string Title { get; set; }
         public required string Description { get; set; }
-        public required BsonDocument InputSchema { get; set; }
+        public required Dictionary<string, object> InputSchema { get; set; }
         public required DateTime CreatedAt { get; set; }
         public TimeSpan? Timeout { get; set; }
     }
@@ -27,7 +27,7 @@ namespace TeiasMongoAPI.Services.Interfaces
     {
         public required string InteractionId { get; set; }
         public required string Status { get; set; }
-        public BsonDocument? OutputData { get; set; }
+        public Dictionary<string, object>? OutputData { get; set; }
         public DateTime? CompletedAt { get; set; }
     }
 

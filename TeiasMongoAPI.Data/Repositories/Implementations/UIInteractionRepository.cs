@@ -87,7 +87,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
             }
         }
 
-        public async Task<bool> UpdateStatusAsync(ObjectId interactionId, UIInteractionStatus status, BsonDocument? outputData = null, CancellationToken cancellationToken = default)
+        public async Task<bool> UpdateStatusAsync(ObjectId interactionId, UIInteractionStatus status, Dictionary<string, object>? outputData = null, CancellationToken cancellationToken = default)
         {
             try
             {

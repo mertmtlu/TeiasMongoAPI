@@ -7,8 +7,8 @@ namespace TeiasMongoAPI.Services.DTOs.Request.UIWorkflow
         public required string Title { get; set; }
         public required string Description { get; set; }
         public required string InteractionType { get; set; } // "UserInput", "Confirmation", "Selection", etc.
-        public required BsonDocument InputSchema { get; set; }
-        public BsonDocument? InitialData { get; set; }
+        public required Dictionary<string, object> InputSchema { get; set; }
+        public Dictionary<string, object>? InitialData { get; set; }
         public TimeSpan? Timeout { get; set; }
         public Dictionary<string, object> Metadata { get; set; } = new();
     }

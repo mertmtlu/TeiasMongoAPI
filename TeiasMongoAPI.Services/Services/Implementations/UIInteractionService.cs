@@ -98,7 +98,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        public async Task<bool> SubmitUIInteractionAsync(string interactionId, BsonDocument responseData, string userId, CancellationToken cancellationToken = default)
+        public async Task<bool> SubmitUIInteractionAsync(string interactionId, Dictionary<string, object> responseData, string userId, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -184,7 +184,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     return false;
                 }
 
-                var cancellationData = new BsonDocument();
+                var cancellationData = new Dictionary<string, object>();
                 if (!string.IsNullOrEmpty(reason))
                 {
                     cancellationData["cancellationReason"] = reason;
@@ -248,7 +248,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     Title = request.Title,
                     Description = request.Description,
                     InputSchema = request.InputSchema,
-                    InputData = request.InitialData ?? new BsonDocument(),
+                    InputData = request.InitialData ?? new(),
                     Timeout = request.Timeout,
                     CreatedAt = DateTime.UtcNow,
                     Metadata = request.Metadata.ToBsonDocument()

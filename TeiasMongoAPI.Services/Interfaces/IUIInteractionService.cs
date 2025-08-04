@@ -10,7 +10,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<List<UIInteractionSession>> GetPendingUIInteractionsForUserAsync(string userId, CancellationToken cancellationToken = default);
         Task<List<UIInteractionSession>> GetUIInteractionsForWorkflowExecutionAsync(string workflowId, string executionId, CancellationToken cancellationToken = default);
         Task<UIInteractionSession?> GetUIInteractionAsync(string interactionId, CancellationToken cancellationToken = default);
-        Task<bool> SubmitUIInteractionAsync(string interactionId, BsonDocument responseData, string userId, CancellationToken cancellationToken = default);
+        Task<bool> SubmitUIInteractionAsync(string interactionId, Dictionary<string, object> responseData, string userId, CancellationToken cancellationToken = default);
         Task<bool> CancelUIInteractionAsync(string interactionId, string userId, string? reason = null, CancellationToken cancellationToken = default);
         Task<UIInteractionSession> CreateUIInteractionAsync(string workflowId, string executionId, string nodeId, UIInteractionRequest request, CancellationToken cancellationToken = default);
         Task<List<UIInteractionSession>> GetActiveInteractionsAsync(CancellationToken cancellationToken = default);
