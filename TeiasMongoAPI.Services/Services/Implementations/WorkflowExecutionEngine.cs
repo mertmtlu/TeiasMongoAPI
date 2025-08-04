@@ -16,7 +16,6 @@ using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Services.Services.Base;
 using TeiasMongoAPI.Services.Helpers;
 using MSLogLevel = Microsoft.Extensions.Logging.LogLevel;
-using TeiasMongoAPI.Core.Models.Collaboration;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -28,6 +27,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IWorkflowSessionManager _sessionManager;
         private readonly IBackgroundTaskQueue _backgroundTaskQueue;
         private readonly IUserService _userService;
+        private readonly IWorkflowNotificationService _notificationService;
         private readonly SemaphoreSlim _executionSemaphore = new(10, 10); // Limit concurrent workflows
         private static readonly object _workflowExecutionLock = new object();
 
@@ -65,7 +65,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IFileStorageService fileStorageService,
             IWorkflowSessionManager sessionManager,
             IBackgroundTaskQueue backgroundTaskQueue,
-            IUserService userService)
+            IUserService userService,
+            IWorkflowNotificationService notificationService)
             : base(unitOfWork, mapper, logger)
         {
             _validationService = validationService;
@@ -75,6 +76,74 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _backgroundTaskQueue = backgroundTaskQueue;
             _logger.LogInformation($"WorkflowExecutionEngine instance created: {GetHashCode()}");
             _userService = userService;
+            _notificationService = notificationService;
+        }
+
+        private async Task EmitUIInteractionCreatedAsync(string workflowId, UIInteraction interaction, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var eventArgs = new UIInteractionCreatedEventArgs
+                {
+                    InteractionId = interaction._ID.ToString(),
+                    NodeId = interaction.NodeId,
+                    InteractionType = interaction.InteractionType.ToString(),
+                    Status = interaction.Status.ToString(),
+                    Title = interaction.Title,
+                    Description = interaction.Description,
+                    InputSchema = interaction.InputSchema,
+                    CreatedAt = interaction.CreatedAt,
+                    Timeout = interaction.Timeout
+                };
+
+                await _notificationService.NotifyUIInteractionCreatedAsync(workflowId, eventArgs, cancellationToken);
+                _logger.LogDebug($"Emitted UIInteractionCreated event for workflow {workflowId}, interaction {interaction._ID}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to emit UIInteractionCreated event for workflow {workflowId}");
+            }
+        }
+
+        private async Task EmitUIInteractionStatusChangedAsync(string workflowId, string interactionId, UIInteractionStatus status, BsonDocument outputData = null, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var eventArgs = new UIInteractionStatusChangedEventArgs
+                {
+                    InteractionId = interactionId,
+                    Status = status.ToString(),
+                    OutputData = outputData,
+                    CompletedAt = status == UIInteractionStatus.Completed || status == UIInteractionStatus.Cancelled || status == UIInteractionStatus.Timeout ? DateTime.UtcNow : (DateTime?)null
+                };
+
+                await _notificationService.NotifyUIInteractionStatusChangedAsync(workflowId, eventArgs, cancellationToken);
+                _logger.LogDebug($"Emitted UIInteractionStatusChanged event for workflow {workflowId}, interaction {interactionId}, status {status}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to emit UIInteractionStatusChanged event for workflow {workflowId}");
+            }
+        }
+
+        private async Task EmitUIInteractionAvailableAsync(string workflowId, string nodeId, string interactionId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var eventArgs = new UIInteractionAvailableEventArgs
+                {
+                    NodeId = nodeId,
+                    InteractionId = interactionId,
+                    Timestamp = DateTime.UtcNow
+                };
+
+                await _notificationService.NotifyUIInteractionAvailableAsync(workflowId, eventArgs, cancellationToken);
+                _logger.LogDebug($"Emitted UIInteractionAvailable event for workflow {workflowId}, node {nodeId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to emit UIInteractionAvailable event for workflow {workflowId}");
+            }
         }
 
         public async Task<WorkflowExecutionResponseDto> ExecuteWorkflowAsync(WorkflowExecutionRequest request, ObjectId currentUserId, CancellationToken cancellationToken = default)
@@ -115,6 +184,39 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     throw new InvalidOperationException($"Workflow validation failed: {errors}");
                 }
                 await AddExecutionLogAsync(executionId.ToString(), TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, "Workflow validation completed successfully", cancellationToken: cancellationToken);
+
+                // Example: Create a UI interaction when workflow requires user input
+                // This is where you would check if nodes require user interaction
+                if (workflow.Nodes.Any(n => n.NodeType == WorkflowNodeType.DecisionNode || n.InputConfiguration.UserInputs.Any()))
+                {
+                    var uiInteraction = new UIInteraction
+                    {
+                        _ID = ObjectId.GenerateNewId(),
+                        WorkflowExecutionId = executionId,
+                        NodeId = workflow.Nodes.First(n => n.NodeType == WorkflowNodeType.DecisionNode || n.InputConfiguration.UserInputs.Any()).Id,
+                        InteractionType = UIInteractionType.UserInput,
+                        Status = UIInteractionStatus.Pending,
+                        Title = "User Input Required",
+                        Description = "Please provide input for the workflow execution",
+                        InputSchema = new BsonDocument
+                        {
+                            ["type"] = "object",
+                            ["properties"] = new BsonDocument
+                            {
+                                ["userChoice"] = new BsonDocument
+                                {
+                                    ["type"] = "string",
+                                    ["description"] = "User selection"
+                                }
+                            }
+                        },
+                        Timeout = TimeSpan.FromMinutes(30)
+                    };
+
+                    // Emit SignalR events
+                    await EmitUIInteractionCreatedAsync(request.WorkflowId, uiInteraction, cancellationToken);
+                    await EmitUIInteractionAvailableAsync(request.WorkflowId, uiInteraction.NodeId, uiInteraction._ID.ToString(), cancellationToken);
+                }
 
                 // Validate permissions
                 var permissionResult = await _validationService.ValidateWorkflowPermissionsAsync(workflow, currentUserId.ToString(), cancellationToken);

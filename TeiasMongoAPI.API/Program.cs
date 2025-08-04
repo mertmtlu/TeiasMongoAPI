@@ -17,6 +17,8 @@ using TeiasMongoAPI.Services.Mappings;
 using TeiasMongoAPI.Services.Security;
 using TeiasMongoAPI.Services.Services.Implementations;
 using TeiasMongoAPI.Services.Services.Implementations.Execution;
+using TeiasMongoAPI.API.Hubs;
+using TeiasMongoAPI.API.Services;
 
 namespace TeiasMongoAPI.API
 {
@@ -215,6 +217,7 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IWorkflowService, WorkflowService>();
             builder.Services.AddScoped<IWorkflowExecutionEngine, WorkflowExecutionEngine>();
             builder.Services.AddScoped<IWorkflowValidationService, WorkflowValidationService>();
+            builder.Services.AddScoped<IWorkflowNotificationService, SignalRWorkflowNotificationService>();
             
             // Register Session Manager as Singleton
             builder.Services.AddSingleton<IWorkflowSessionManager, WorkflowSessionManager>();
@@ -321,6 +324,9 @@ namespace TeiasMongoAPI.API
 
             // Map Controllers
             app.MapControllers();
+
+            // Map SignalR Hubs
+            app.MapHub<UIWorkflowHub>("/uiWorkflowHub");
 
             // Health Checks
             app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions

@@ -9,7 +9,7 @@ namespace TeiasMongoAPI.API.Configuration
         public static IServiceCollection AddValidation(this IServiceCollection services)
         {
             // Add FluentValidation validators from the Services assembly
-            services.AddValidatorsFromAssembly(typeof(Services.Validators.Auth.UserRegisterDtoValidator).Assembly);
+            services.AddValidatorsFromAssembly(typeof(TeiasMongoAPI.Services.Validators.Auth.UserRegisterDtoValidator).Assembly);
 
             // Configure API behavior
             services.Configure<ApiBehaviorOptions>(options =>
