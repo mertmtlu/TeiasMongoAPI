@@ -869,7 +869,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         ErrorMessage = "Waiting for user input via UI interaction",
                         StartedAt = nodeExecution.StartedAt.Value,
                         ExecutionId = executionId,
-                        InputData = inputData.Data.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value),
+                        InputData = inputData.Data.ToDictionary(x => x.Name, x => (object)x.Value),
                         NodeId = nodeId
                     };
                 }
