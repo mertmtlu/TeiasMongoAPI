@@ -126,6 +126,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         new UIInteractionStatusChangedEventArgs
                         {
                             InteractionId = interactionId,
+                            ExecutionId = interaction.WorkflowExecutionId.ToString(),
                             Status = UIInteractionStatus.Timeout.ToString(),
                             CompletedAt = DateTime.UtcNow
                         },
@@ -149,6 +150,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         new UIInteractionStatusChangedEventArgs
                         {
                             InteractionId = interactionId,
+                            ExecutionId = interaction.WorkflowExecutionId.ToString(),
                             Status = UIInteractionStatus.Completed.ToString(),
                             OutputData = responseData,
                             CompletedAt = DateTime.UtcNow
@@ -205,6 +207,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         new UIInteractionStatusChangedEventArgs
                         {
                             InteractionId = interactionId,
+                            ExecutionId = interaction.WorkflowExecutionId.ToString(),
                             Status = UIInteractionStatus.Cancelled.ToString(),
                             OutputData = cancellationData,
                             CompletedAt = DateTime.UtcNow
@@ -262,12 +265,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     new UIInteractionCreatedEventArgs
                     {
                         InteractionId = interaction._ID.ToString(),
+                        ExecutionId = executionObjectId.ToString(), // ADD THIS
                         NodeId = nodeId,
                         InteractionType = interactionType.ToString(),
                         Status = UIInteractionStatus.Pending.ToString(),
                         Title = request.Title,
                         Description = request.Description,
                         InputSchema = request.InputSchema,
+                        ContextData = interaction.ContextData, // ADD THIS
                         CreatedAt = interaction.CreatedAt,
                         Timeout = request.Timeout
                     },
@@ -335,6 +340,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         new UIInteractionStatusChangedEventArgs
                         {
                             InteractionId = interaction._ID.ToString(),
+                            ExecutionId = interaction.WorkflowExecutionId.ToString(),
                             Status = UIInteractionStatus.Timeout.ToString(),
                             CompletedAt = DateTime.UtcNow
                         },

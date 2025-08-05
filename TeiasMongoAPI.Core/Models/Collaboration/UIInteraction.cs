@@ -36,6 +36,9 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         [BsonElement("outputData")]
         public Dictionary<string, object> OutputData { get; set; } = new();
 
+        [BsonElement("contextData")]
+        public Dictionary<string, object>? ContextData { get; set; }
+
         [BsonElement("createdAt")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

@@ -23,15 +23,29 @@ namespace TeiasMongoAPI.API.Services
             {
                 var eventData = new
                 {
+                    sessionId = args.InteractionId, // Frontend expects sessionId
                     workflowId,
-                    interactionId = args.InteractionId,
+                    executionId = args.ExecutionId, // Add missing executionId
                     nodeId = args.NodeId,
-                    interactionType = args.InteractionType,
                     status = args.Status,
-                    title = args.Title,
-                    description = args.Description,
-                    inputSchema = args.InputSchema,
-                    createdAt = args.CreatedAt,
+                    uiComponent = new // Frontend expects uiComponent object
+                    {
+                        id = args.InteractionId,
+                        name = args.Title,
+                        type = args.InteractionType,
+                        configuration = new
+                        {
+                            title = args.Title,
+                            description = args.Description,
+                            fields = args.InputSchema.ContainsKey("fields") ? args.InputSchema["fields"] : new object[0],
+                            submitLabel = args.InputSchema.ContainsKey("submitLabel") ? args.InputSchema["submitLabel"] : "Submit",
+                            cancelLabel = args.InputSchema.ContainsKey("cancelLabel") ? args.InputSchema["cancelLabel"] : "Cancel",
+                            allowSkip = args.InputSchema.ContainsKey("allowSkip") ? args.InputSchema["allowSkip"] : false
+                        }
+                    },
+                    contextData = args.ContextData ?? new Dictionary<string, object>(), // Add contextData
+                    timeoutAt = args.CreatedAt.Add(args.Timeout ?? TimeSpan.FromMinutes(30)).ToString("o"), // Frontend expects ISO string
+                    createdAt = args.CreatedAt.ToString("o"),
                     timeout = args.Timeout
                 };
 
@@ -51,11 +65,12 @@ namespace TeiasMongoAPI.API.Services
             {
                 var eventData = new
                 {
+                    sessionId = args.InteractionId, // Frontend expects sessionId
                     workflowId,
-                    interactionId = args.InteractionId,
+                    executionId = args.ExecutionId, // Add if available
                     status = args.Status,
                     outputData = args.OutputData,
-                    completedAt = args.CompletedAt
+                    completedAt = args.CompletedAt?.ToString("o") // ISO string format
                 };
 
                 await _hubContext.Clients.Group(workflowId).SendAsync("UIInteractionStatusChanged", eventData, cancellationToken);

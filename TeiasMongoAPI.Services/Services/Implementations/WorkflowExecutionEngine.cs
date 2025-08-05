@@ -79,19 +79,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _notificationService = notificationService;
         }
 
-        private async Task EmitUIInteractionCreatedAsync(string workflowId, UIInteraction interaction, CancellationToken cancellationToken = default)
+        private async Task EmitUIInteractionCreatedAsync(string workflowId, string executionId, UIInteraction interaction, CancellationToken cancellationToken = default)
         {
             try
             {
                 var eventArgs = new UIInteractionCreatedEventArgs
                 {
                     InteractionId = interaction._ID.ToString(),
+                    ExecutionId = executionId, // ADD THIS
                     NodeId = interaction.NodeId,
                     InteractionType = interaction.InteractionType.ToString(),
                     Status = interaction.Status.ToString(),
                     Title = interaction.Title,
                     Description = interaction.Description,
                     InputSchema = interaction.InputSchema,
+                    ContextData = interaction.ContextData, // ADD THIS
                     CreatedAt = interaction.CreatedAt,
                     Timeout = interaction.Timeout
                 };
@@ -105,13 +107,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        private async Task EmitUIInteractionStatusChangedAsync(string workflowId, string interactionId, UIInteractionStatus status, Dictionary<string, object> outputData = null, CancellationToken cancellationToken = default)
+        private async Task EmitUIInteractionStatusChangedAsync(string workflowId, string executionId, string interactionId, UIInteractionStatus status, Dictionary<string, object> outputData = null, CancellationToken cancellationToken = default)
         {
             try
             {
                 var eventArgs = new UIInteractionStatusChangedEventArgs
                 {
                     InteractionId = interactionId,
+                    ExecutionId = executionId, // ADD THIS
                     Status = status.ToString(),
                     OutputData = outputData,
                     CompletedAt = status == UIInteractionStatus.Completed || status == UIInteractionStatus.Cancelled || status == UIInteractionStatus.Timeout ? DateTime.UtcNow : (DateTime?)null
@@ -210,11 +213,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                                 }
                             }
                         },
+                        ContextData = new Dictionary<string, object>(),
                         Timeout = TimeSpan.FromMinutes(30)
                     };
 
                     // Emit SignalR events
-                    await EmitUIInteractionCreatedAsync(request.WorkflowId, uiInteraction, cancellationToken);
+                    await EmitUIInteractionCreatedAsync(request.WorkflowId, executionId.ToString(), uiInteraction, cancellationToken);
                     await EmitUIInteractionAvailableAsync(request.WorkflowId, uiInteraction.NodeId, uiInteraction._ID.ToString(), cancellationToken);
                 }
 

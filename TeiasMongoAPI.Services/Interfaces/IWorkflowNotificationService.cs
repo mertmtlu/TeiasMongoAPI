@@ -13,12 +13,14 @@ namespace TeiasMongoAPI.Services.Interfaces
     public class UIInteractionCreatedEventArgs
     {
         public required string InteractionId { get; set; }
+        public required string ExecutionId { get; set; } // ADD THIS
         public required string NodeId { get; set; }
         public required string InteractionType { get; set; }
         public required string Status { get; set; }
         public required string Title { get; set; }
         public required string Description { get; set; }
         public required Dictionary<string, object> InputSchema { get; set; }
+        public Dictionary<string, object>? ContextData { get; set; } // ADD THIS
         public required DateTime CreatedAt { get; set; }
         public TimeSpan? Timeout { get; set; }
     }
@@ -26,6 +28,7 @@ namespace TeiasMongoAPI.Services.Interfaces
     public class UIInteractionStatusChangedEventArgs
     {
         public required string InteractionId { get; set; }
+        public required string ExecutionId { get; set; } // ADD THIS
         public required string Status { get; set; }
         public Dictionary<string, object>? OutputData { get; set; }
         public DateTime? CompletedAt { get; set; }
