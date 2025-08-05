@@ -6,6 +6,7 @@ using TeiasMongoAPI.Services.DTOs.Request.UIWorkflow;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.DTOs.Response.UIWorkflow;
 using TeiasMongoAPI.Services.Interfaces;
+using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 
 namespace TeiasMongoAPI.API.Controllers
 {
@@ -18,12 +19,15 @@ namespace TeiasMongoAPI.API.Controllers
     public class UIWorkflowController : BaseController
     {
         private readonly IUIInteractionService _uiInteractionService;
+        private readonly IWorkflowExecutionEngine _workflowExecutionEngine;
 
         public UIWorkflowController(
             IUIInteractionService uiInteractionService,
+            IWorkflowExecutionEngine workflowExecutionEngine,
             ILogger<UIWorkflowController> logger) : base(logger)
         {
             _uiInteractionService = uiInteractionService;
+            _workflowExecutionEngine = workflowExecutionEngine;
         }
 
         /// <summary>
@@ -226,6 +230,50 @@ namespace TeiasMongoAPI.API.Controllers
 
                 return Success("submitted", "UI interaction submitted successfully");
             }, "SubmitUIInteraction");
+        }
+
+        /// <summary>
+        /// Completes a UI interaction and continues workflow execution
+        /// </summary>
+        /// <param name="interactionId">The interaction ID</param>
+        /// <param name="outputData">The output data from user interaction</param>
+        /// <returns>Node execution response</returns>
+        [HttpPost("interactions/{interactionId}/complete")]
+        public async Task<ActionResult<ApiResponse<NodeExecutionResponseDto>>> CompleteUIInteraction(
+            string interactionId,
+            [FromBody] Dictionary<string, object> outputData)
+        {
+            return await ExecuteActionAsync(async () =>
+            {
+                if (!CurrentUserId.HasValue)
+                {
+                    return Unauthorized<NodeExecutionResponseDto>("User not authenticated");
+                }
+
+                try
+                {
+                    // Get interaction to find execution and node info
+                    var interaction = await _uiInteractionService.GetUIInteractionAsync(interactionId, HttpContext.RequestAborted);
+                    if (interaction == null)
+                    {
+                        return NotFound<NodeExecutionResponseDto>($"UI interaction {interactionId} not found");
+                    }
+
+                    var result = await _workflowExecutionEngine.CompleteUIInteractionAsync(
+                        interaction.ExecutionId,
+                        interaction.NodeId,
+                        interactionId,
+                        outputData,
+                        HttpContext.RequestAborted);
+
+                    return Success(result, "UI interaction completed and workflow execution continued");
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Failed to complete UI interaction {InteractionId}", interactionId);
+                    return Error<NodeExecutionResponseDto>($"Failed to complete UI interaction: {ex.Message}");
+                }
+            }, "CompleteUIInteraction");
         }
 
         /// <summary>

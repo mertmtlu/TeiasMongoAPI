@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using System.Collections.Concurrent;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
@@ -13,6 +14,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Execution;
+using TeiasMongoAPI.Services.Interfaces.Collaboration;
 using TeiasMongoAPI.Services.Services.Base;
 using TeiasMongoAPI.Services.Helpers;
 using MSLogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -28,6 +30,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IBackgroundTaskQueue _backgroundTaskQueue;
         private readonly IUserService _userService;
         private readonly IWorkflowNotificationService _notificationService;
+        private readonly IUIInteractionService _uiInteractionService;
         private readonly SemaphoreSlim _executionSemaphore = new(10, 10); // Limit concurrent workflows
         private static readonly object _workflowExecutionLock = new object();
 
@@ -66,7 +69,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IWorkflowSessionManager sessionManager,
             IBackgroundTaskQueue backgroundTaskQueue,
             IUserService userService,
-            IWorkflowNotificationService notificationService)
+            IWorkflowNotificationService notificationService,
+            IUIInteractionService uiInteractionService)
             : base(unitOfWork, mapper, logger)
         {
             _validationService = validationService;
@@ -77,6 +81,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _logger.LogInformation($"WorkflowExecutionEngine instance created: {GetHashCode()}");
             _userService = userService;
             _notificationService = notificationService;
+            _uiInteractionService = uiInteractionService;
         }
 
         private async Task EmitUIInteractionCreatedAsync(string workflowId, string executionId, UIInteraction interaction, CancellationToken cancellationToken = default)
@@ -188,39 +193,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
                 await AddExecutionLogAsync(executionId.ToString(), TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, "Workflow validation completed successfully", cancellationToken: cancellationToken);
 
-                // Example: Create a UI interaction when workflow requires user input
-                // This is where you would check if nodes require user interaction
-                if (workflow.Nodes.Any(n => n.NodeType == WorkflowNodeType.DecisionNode || n.InputConfiguration.UserInputs.Any()))
-                {
-                    var uiInteraction = new UIInteraction
-                    {
-                        _ID = ObjectId.GenerateNewId(),
-                        WorkflowExecutionId = executionId,
-                        NodeId = workflow.Nodes.First(n => n.NodeType == WorkflowNodeType.DecisionNode || n.InputConfiguration.UserInputs.Any()).Id,
-                        InteractionType = UIInteractionType.UserInput,
-                        Status = UIInteractionStatus.Pending,
-                        Title = "User Input Required",
-                        Description = "Please provide input for the workflow execution",
-                        InputSchema = new Dictionary<string, object>
-                        {
-                            ["type"] = "object",
-                            ["properties"] = new Dictionary<string, object>
-                            {
-                                ["userChoice"] = new Dictionary<string, object>
-                                {
-                                    ["type"] = "string",
-                                    ["description"] = "User selection"
-                                }
-                            }
-                        },
-                        ContextData = new Dictionary<string, object>(),
-                        Timeout = TimeSpan.FromMinutes(30)
-                    };
-
-                    // Emit SignalR events
-                    await EmitUIInteractionCreatedAsync(request.WorkflowId, executionId.ToString(), uiInteraction, cancellationToken);
-                    await EmitUIInteractionAvailableAsync(request.WorkflowId, uiInteraction.NodeId, uiInteraction._ID.ToString(), cancellationToken);
-                }
 
                 // Validate permissions
                 var permissionResult = await _validationService.ValidateWorkflowPermissionsAsync(workflow, currentUserId.ToString(), cancellationToken);
@@ -586,10 +558,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var totalEnabledNodes = enabledNodes.Count;
             var finishedNodes = session.CompletedNodes.Count + session.FailedNodes.Count;
 
-            // Check if all enabled nodes are finished
+            // Count nodes waiting for input - they're not finished yet
+            var waitingNodes = session.Execution.NodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
+
+            // Check if all enabled nodes are finished (completed, failed, or skipped)
             if (finishedNodes >= totalEnabledNodes)
             {
                 return true;
+            }
+
+            // If there are nodes waiting for input, workflow is not complete
+            if (waitingNodes > 0)
+            {
+                return false;
             }
 
             // Check if workflow should stop due to failed nodes and ContinueOnError = false
@@ -670,6 +651,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                             nodeId: nodeId, metadata: new Dictionary<string, object>
                             {
                                 ["status"] = "Skipped"
+                            }, cancellationToken: cancellationToken);
+                        break;
+
+                    case NodeExecutionStatus.WaitingForInput:
+                        // Don't mark as completed, but don't count as failed either
+                        // The node is waiting for user input and will continue later
+                        _logger.LogInformation($"Node {nodeId} is waiting for UI input in execution {session.ExecutionId}");        
+
+                        await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Node '{node?.Name ?? nodeId}' is waiting for user input",
+                            nodeId: nodeId, metadata: new Dictionary<string, object>
+                            {
+                                ["status"] = "WaitingForInput"
                             }, cancellationToken: cancellationToken);
                         break;
                 }
@@ -827,7 +820,62 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     }
                 };
 
-                // Execute program
+                // Check if this program requires UI interaction
+                var program = await _unitOfWork.Programs.GetByIdAsync(node.ProgramId, cancellationToken);
+                if (program != null && IsUIInteractionRequired(program))
+                {
+                    _logger.LogInformation($"Program {program.Name} requires UI interaction. Creating UI interaction session.");
+
+                    // Create UI interaction
+                    var uiInteraction = new UIInteraction
+                    {
+                        _ID = ObjectId.GenerateNewId(),
+                        WorkflowExecutionId = ObjectId.Parse(executionId),
+                        NodeId = nodeId,
+                        InteractionType = UIInteractionType.UserInput,
+                        Status = UIInteractionStatus.Pending,
+                        Title = $"Input Required: {program.Name}",
+                        Description = $"Program '{program.Name}' requires user interaction to continue.",
+                        InputSchema = CreateUISchemaForProgram(program),
+                        ContextData = new Dictionary<string, object>
+                        {
+                            ["programId"] = program._ID.ToString(),
+                            ["programName"] = program.Name,
+                            ["nodeId"] = nodeId,
+                            ["inputData"] = inputData.Data.ToJson(),
+                            ["executionId"] = executionId,
+                            ["workflowId"] = session.Workflow._ID.ToString()
+                        },
+                        Timeout = TimeSpan.FromMinutes(30),
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    // Store UI interaction in database
+                    await _unitOfWork.UIInteractions.CreateAsync(uiInteraction, cancellationToken);
+
+                    // Emit SignalR events
+                    await EmitUIInteractionCreatedAsync(session.Workflow._ID.ToString(), executionId, uiInteraction, cancellationToken);
+
+                    // Set node status to waiting for UI input
+                    nodeExecution.Status = NodeExecutionStatus.WaitingForInput;
+                    nodeExecution.CompletedAt = null; // Clear completion time since we're waiting
+                    await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
+
+                    _logger.LogInformation($"UI interaction {uiInteraction._ID} created for node {nodeId}. Workflow execution will pause until user provides input.");
+
+                    // Return early - execution will continue when UI interaction is completed
+                    return new NodeExecutionResponseDto
+                    {
+                        Status = NodeExecutionStatus.WaitingForInput,
+                        Message = "Waiting for user input via UI interaction",
+                        StartedAt = nodeExecution.StartedAt,
+                        ProgramExecutionId = uiInteraction._ID.ToString(),
+                        InputData = inputData.Data,
+                        NodeId = nodeId
+                    };
+                }
+
+                // Execute program (only if no UI interaction required)
                 var programResult = await _projectExecutionEngine.ExecuteProjectAsync(programRequest, cancellationToken);
 
                 // Process results
@@ -1852,6 +1900,251 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 _logger.LogError(ex, "Error bulk downloading execution files for execution {ExecutionId}", executionId);
                 throw;
             }
+        }
+
+        public async Task<NodeExecutionResponseDto> CompleteUIInteractionAsync(string executionId, string nodeId, string interactionId, Dictionary<string, object> outputData, CancellationToken cancellationToken = default)
+        {
+            _logger.LogInformation($"Completing UI interaction {interactionId} for node {nodeId} in execution {executionId}");
+
+            try
+            {
+                // Get the UI interaction
+                var interaction = await _unitOfWork.UIInteractions.GetByIdAsync(ObjectId.Parse(interactionId), cancellationToken);
+                if (interaction == null)
+                {
+                    throw new InvalidOperationException($"UI interaction {interactionId} not found");
+                }
+
+                // Update UI interaction status
+                interaction.Status = UIInteractionStatus.Completed;
+                interaction.OutputData = outputData;
+                interaction.CompletedAt = DateTime.UtcNow;
+                await _unitOfWork.UIInteractions.UpdateAsync(ObjectId.Parse(interactionId), interaction, cancellationToken);
+
+                // Emit status changed event
+                await EmitUIInteractionStatusChangedAsync(
+                    interaction.WorkflowExecutionId.ToString(),
+                    executionId,
+                    interactionId,
+                    UIInteractionStatus.Completed,
+                    outputData,
+                    cancellationToken);
+
+                // Continue node execution with the provided output data
+                return await ContinueNodeExecutionAfterUIInteractionAsync(executionId, nodeId, outputData, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to complete UI interaction {interactionId} for node {nodeId}");
+                throw;
+            }
+        }
+
+        private async Task<NodeExecutionResponseDto> ContinueNodeExecutionAfterUIInteractionAsync(string executionId, string nodeId, Dictionary<string, object> uiOutputData, CancellationToken cancellationToken)
+        {
+            _logger.LogInformation($"Continuing node {nodeId} execution after UI interaction completion");
+
+            if (!_sessionManager.TryGetSession(executionId, out var session))
+            {
+                throw new InvalidOperationException($"Execution session {executionId} not found");
+            }
+
+            var node = session.Workflow.Nodes.First(n => n.Id == nodeId);
+            var nodeExecution = session.Execution.NodeExecutions.First(ne => ne.NodeId == nodeId);
+
+            // Update node status back to running
+            nodeExecution.Status = NodeExecutionStatus.Running;
+            await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
+
+            // Prepare input data (including UI output)
+            var inputData = await PrepareNodeInputDataAsync(session, nodeId, cancellationToken);
+
+            // Add UI interaction output to input data
+            foreach (var kvp in uiOutputData)
+            {
+                inputData.Data[$"ui_{kvp.Key}"] = BsonValue.Create(kvp.Value);
+            }
+
+            // Generate WorkflowInputs.py content
+            var workflowInputsHelper = WorkflowInputsGenerator.GenerateWorkflowInputsFromBsonDocument(inputData.Data);
+            var enhancedEnvironment = new Dictionary<string, string>(node.ExecutionSettings.Environment);
+            enhancedEnvironment["WORKFLOW_INPUTS_CONTENT"] = workflowInputsHelper;
+
+            // Add UI output data as environment variables for easy access
+            enhancedEnvironment["UI_OUTPUT_DATA"] = JsonSerializer.Serialize(uiOutputData);
+
+            // Create program execution request
+            var programRequest = new ProjectExecutionRequest
+            {
+                ProgramId = node.ProgramId.ToString(),
+                VersionId = node.VersionId?.ToString(),
+                UserId = session.Execution.ExecutedBy,
+                Parameters = inputData.Data,
+                Environment = enhancedEnvironment,
+                TimeoutMinutes = node.ExecutionSettings.TimeoutMinutes,
+                ResourceLimits = new ProjectResourceLimits
+                {
+                    MaxCpuPercentage = node.ExecutionSettings.ResourceLimits.MaxCpuPercentage,
+                    MaxMemoryMb = node.ExecutionSettings.ResourceLimits.MaxMemoryMb,
+                    MaxDiskMb = node.ExecutionSettings.ResourceLimits.MaxDiskMb
+                }
+            };
+
+            // Execute program with UI output
+            var programResult = await _projectExecutionEngine.ExecuteProjectAsync(programRequest, cancellationToken);
+
+            // Process results (same as normal execution)
+            var outputData = await ProcessNodeOutputAsync(session, nodeId, programResult, cancellationToken);
+
+            // Update node execution
+            nodeExecution.CompletedAt = DateTime.UtcNow;
+            nodeExecution.Duration = nodeExecution.CompletedAt - nodeExecution.StartedAt;
+            nodeExecution.ProgramExecutionId = programResult.ExecutionId;
+            nodeExecution.InputData = inputData.Data;
+            nodeExecution.OutputData = outputData.Data;
+
+            if (programResult.Success)
+            {
+                nodeExecution.Status = NodeExecutionStatus.Completed;
+                session.NodeOutputs[nodeId] = outputData;
+                _logger.LogInformation($"Node {nodeId} completed successfully after UI interaction in execution {executionId}");
+            }
+            else
+            {
+                nodeExecution.Status = NodeExecutionStatus.Failed;
+                nodeExecution.Error = new NodeExecutionError
+                {
+                    ErrorType = NodeErrorType.ExecutionError,
+                    Message = programResult.ErrorMessage ?? "Program execution failed after UI interaction",
+                    ExitCode = programResult.ExitCode,
+                    Timestamp = DateTime.UtcNow,
+                    CanRetry = nodeExecution.RetryCount < nodeExecution.MaxRetries
+                };
+                _logger.LogError($"Node {nodeId} failed after UI interaction in execution {executionId}: {programResult.ErrorMessage}");
+            }
+
+            // Update node execution in database and session state
+            await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
+
+            return _mapper.Map<NodeExecutionResponseDto>(nodeExecution);
+        }
+
+        private static bool IsUIInteractionRequired(Program program)
+        {
+            // Check if program has UI components that require user interaction
+            if (string.IsNullOrEmpty(program.UiType))
+                return false;
+
+            var uiType = program.UiType.ToLower().Trim();
+
+            // Programs that require UI interaction
+            var interactiveUiTypes = new[] { "web", "desktop", "custom", "webapp", "frontend", "standard" };
+
+            // Programs that don't require UI interaction
+            var nonInteractiveUiTypes = new[] { "console", "none", "cli", "batch", "service" };
+
+            if (nonInteractiveUiTypes.Contains(uiType))
+                return false;
+
+            if (interactiveUiTypes.Contains(uiType))
+                return true;
+
+            // Default: if UiType is set but not recognized, assume it needs interaction
+            return true;
+        }
+
+        private static Dictionary<string, object> CreateUISchemaForProgram(Program program)
+        {
+            // Create a JSON schema for the UI interaction based on program type
+            var schema = new Dictionary<string, object>
+            {
+                ["type"] = "object",
+                ["title"] = $"Input for {program.Name}",
+                ["description"] = program.Description ?? $"Please provide input for {program.Name}",
+                ["properties"] = new Dictionary<string, object>()
+            };
+
+            var properties = (Dictionary<string, object>)schema["properties"];
+
+            // Add different input fields based on program type/configuration
+            switch (program.UiType?.ToLower())
+            {
+                case "web":
+                case "webapp":
+                    properties["userInput"] = new Dictionary<string, object>
+                    {
+                        ["type"] = "string",
+                        ["title"] = "User Input",
+                        ["description"] = "Input data for the web application"
+                    };
+                    properties["parameters"] = new Dictionary<string, object>
+                    {
+                        ["type"] = "object",
+                        ["title"] = "Additional Parameters",
+                        ["description"] = "Additional configuration parameters"
+                    };
+                    break;
+
+                case "desktop":
+                    properties["configData"] = new Dictionary<string, object>
+                    {
+                        ["type"] = "string",
+                        ["title"] = "Configuration Data",
+                        ["description"] = "Configuration data for the desktop application"
+                    };
+                    break;
+
+                case "custom":
+                    // Try to extract schema from program's UiConfiguration if available
+                    if (program.UiConfiguration != null)
+                    {
+                        try
+                        {
+                            // If UiConfiguration contains schema information, use it
+                            var uiConfig = JsonSerializer.Serialize(program.UiConfiguration);
+                            var configDict = JsonSerializer.Deserialize<Dictionary<string, object>>(uiConfig);
+
+                            if (configDict?.ContainsKey("inputSchema") == true)
+                            {
+                                return (Dictionary<string, object>)configDict["inputSchema"];
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            // Fall through to default
+                        }
+                    }
+
+                    properties["customInput"] = new Dictionary<string, object>
+                    {
+                        ["type"] = "string",
+                        ["title"] = "Custom Input",
+                        ["description"] = "Input for custom application"
+                    };
+                    break;
+
+                default:
+                    properties["userInput"] = new Dictionary<string, object>
+                    {
+                        ["type"] = "string",
+                        ["title"] = "User Input",
+                        ["description"] = $"Input required for {program.Name}"
+                    };
+                    break;
+            }
+
+            // Add required fields
+            schema["required"] = properties.Keys.ToArray();
+
+            // Add UI configuration for better frontend rendering
+            schema["uiSchema"] = new Dictionary<string, object>
+            {
+                ["submitLabel"] = "Submit",
+                ["cancelLabel"] = "Cancel",
+                ["allowSkip"] = false
+            };
+
+            return schema;
         }
     }
 

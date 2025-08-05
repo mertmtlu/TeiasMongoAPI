@@ -26,6 +26,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<VersionFileDetailDto> DownloadExecutionFileAsync(string executionId, string filePath, CancellationToken cancellationToken = default);
         Task<BulkDownloadResult> DownloadAllExecutionFilesAsync(string executionId, CancellationToken cancellationToken = default);
         Task<BulkDownloadResult> BulkDownloadExecutionFilesAsync(string executionId, WorkflowExecutionFileBulkDownloadRequest request, CancellationToken cancellationToken = default);
+        Task<NodeExecutionResponseDto> CompleteUIInteractionAsync(string executionId, string nodeId, string interactionId, Dictionary<string, object> outputData, CancellationToken cancellationToken = default);
     }
 
     public class WorkflowExecutionRequest

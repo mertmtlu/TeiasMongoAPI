@@ -378,7 +378,8 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         Cancelled,
         Skipped,
         Timeout,
-        Retrying
+        Retrying,
+        WaitingForInput
     }
 
     public enum WorkflowExecutionMode
