@@ -14,7 +14,6 @@ using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Execution;
-using TeiasMongoAPI.Services.Interfaces.Collaboration;
 using TeiasMongoAPI.Services.Services.Base;
 using TeiasMongoAPI.Services.Helpers;
 using MSLogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -867,10 +866,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     return new NodeExecutionResponseDto
                     {
                         Status = NodeExecutionStatus.WaitingForInput,
-                        Message = "Waiting for user input via UI interaction",
-                        StartedAt = nodeExecution.StartedAt,
-                        ProgramExecutionId = uiInteraction._ID.ToString(),
-                        InputData = inputData.Data,
+                        ErrorMessage = "Waiting for user input via UI interaction",
+                        StartedAt = nodeExecution.StartedAt.Value,
+                        ExecutionId = executionId,
+                        InputData = inputData.Data.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value),
                         NodeId = nodeId
                     };
                 }
@@ -883,7 +882,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
                 // Update node execution
                 nodeExecution.CompletedAt = DateTime.UtcNow;
-                nodeExecution.Duration = nodeExecution.CompletedAt - nodeExecution.StartedAt;
+                nodeExecution.Duration = nodeExecution.CompletedAt - nodeExecution.StartedAt.Value;
                 nodeExecution.ProgramExecutionId = programResult.ExecutionId;
                 nodeExecution.InputData = inputData.Data;
                 nodeExecution.OutputData = outputData.Data;
@@ -1998,7 +1997,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             // Update node execution
             nodeExecution.CompletedAt = DateTime.UtcNow;
-            nodeExecution.Duration = nodeExecution.CompletedAt - nodeExecution.StartedAt;
+            nodeExecution.Duration = nodeExecution.CompletedAt - nodeExecution.StartedAt.Value;
             nodeExecution.ProgramExecutionId = programResult.ExecutionId;
             nodeExecution.InputData = inputData.Data;
             nodeExecution.OutputData = outputData.Data;

@@ -270,7 +270,7 @@ namespace TeiasMongoAPI.API.Controllers
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "Failed to complete UI interaction {InteractionId}", interactionId);
+                    _logger.LogError(ex, "Failed to complete UI interaction {InteractionId}", interactionId);
                     return Error<NodeExecutionResponseDto>($"Failed to complete UI interaction: {ex.Message}");
                 }
             }, "CompleteUIInteraction");
