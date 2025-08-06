@@ -13,15 +13,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
     public class UIInteractionService : BaseService, IUIInteractionService
     {
         private readonly IWorkflowNotificationService _notificationService;
+        private readonly IUiComponentService _uiComponentService;
 
         public UIInteractionService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ILogger<UIInteractionService> logger,
-            IWorkflowNotificationService notificationService)
+            IWorkflowNotificationService notificationService,
+            IUiComponentService uiComponentService)
             : base(unitOfWork, mapper, logger)
         {
             _notificationService = notificationService;
+            _uiComponentService = uiComponentService;
         }
 
         public async Task<List<UIInteractionSession>> GetPendingUIInteractionsForUserAsync(string userId, CancellationToken cancellationToken = default)
@@ -226,7 +229,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        public async Task<UIInteractionSession> CreateUIInteractionAsync(string workflowId, string executionId, string nodeId, UIInteractionRequest request, CancellationToken cancellationToken = default)
+        public async Task<UIInteractionSession> CreateUIInteractionAsync(string workflowId, string executionId, string nodeId, UIInteractionRequest request, string? uiComponentId = null, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -254,7 +257,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     InputData = request.InitialData ?? new(),
                     Timeout = request.Timeout,
                     CreatedAt = DateTime.UtcNow,
-                    Metadata = request.Metadata.ToBsonDocument()
+                    Metadata = request.Metadata.ToBsonDocument(),
+                    UiComponentId = uiComponentId
                 };
 
                 await _unitOfWork.UIInteractions.CreateAsync(interaction, cancellationToken);
@@ -361,6 +365,26 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
+        private async Task<UIInteractionSession?> EnrichWithUiComponentDataAsync(UIInteractionSession session, CancellationToken cancellationToken)
+        {
+            if (!string.IsNullOrEmpty(session.UiComponentId))
+            {
+                try
+                {
+                    var componentConfig = await _uiComponentService.GetComponentConfigurationAsync(session.UiComponentId, cancellationToken);
+                    if (componentConfig?.Configuration != null)
+                    {
+                        session.UiComponentConfiguration = componentConfig.Configuration;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to load UI component configuration for component {ComponentId}", session.UiComponentId);
+                }
+            }
+            return session;
+        }
+
         private async Task<UIInteractionSession?> MapToUIInteractionSessionAsync(UIInteraction interaction, CancellationToken cancellationToken)
         {
             try
@@ -374,7 +398,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     return null;
                 }
 
-                return new UIInteractionSession
+                var session = new UIInteractionSession
                 {
                     SessionId = interaction._ID.ToString(),
                     WorkflowId = execution.WorkflowId.ToString(),
@@ -390,8 +414,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     TimeoutAt = interaction.Timeout.HasValue ? interaction.CreatedAt.Add(interaction.Timeout.Value) : null,
                     CreatedAt = interaction.CreatedAt,
                     CompletedAt = interaction.CompletedAt,
-                    Metadata = interaction.Metadata.ToDictionary()
+                    Metadata = interaction.Metadata.ToDictionary(),
+                    UiComponentId = interaction.UiComponentId
                 };
+
+                return await EnrichWithUiComponentDataAsync(session, cancellationToken);
             }
             catch (Exception ex)
             {

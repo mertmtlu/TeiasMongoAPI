@@ -50,6 +50,12 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
 
         [BsonElement("metadata")]
         public BsonDocument Metadata { get; set; } = new();
+
+        [BsonElement("uiComponentId")]
+        public string? UiComponentId { get; set; }
+
+        [BsonElement("uiComponentConfiguration")]
+        public BsonDocument? UiComponentConfiguration { get; set; }
     }
 
     public enum UIInteractionType

@@ -10,6 +10,7 @@ using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
+using TeiasMongoAPI.Services.DTOs.Request.UIWorkflow;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.Interfaces;
@@ -825,18 +826,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     _logger.LogInformation($"Program {program.Name} requires UI interaction. Creating UI interaction session.");
 
-                    // Create UI interaction
-                    var uiInteraction = new UIInteraction
+                    // Get UI component ID for this program
+                    var uiComponentId = await GetUIComponentIdForProgramAsync(program, cancellationToken);
+
+                    // Create UI interaction request
+                    var uiInteractionRequest = new UIInteractionRequest
                     {
-                        _ID = ObjectId.GenerateNewId(),
-                        WorkflowExecutionId = ObjectId.Parse(executionId),
-                        NodeId = nodeId,
-                        InteractionType = UIInteractionType.UserInput,
-                        Status = UIInteractionStatus.Pending,
                         Title = $"Input Required: {program.Name}",
                         Description = $"Program '{program.Name}' requires user interaction to continue.",
+                        InteractionType = "UserInput",
                         InputSchema = CreateUISchemaForProgram(program),
-                        ContextData = new Dictionary<string, object>
+                        Timeout = TimeSpan.FromMinutes(30),
+                        Metadata = new Dictionary<string, object>
                         {
                             ["programId"] = program._ID.ToString(),
                             ["programName"] = program.Name,
@@ -844,23 +845,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                             ["inputData"] = inputData.Data.ToJson(),
                             ["executionId"] = executionId,
                             ["workflowId"] = session.Workflow._ID.ToString()
-                        },
-                        Timeout = TimeSpan.FromMinutes(30),
-                        CreatedAt = DateTime.UtcNow
+                        }
                     };
 
-                    // Store UI interaction in database
-                    await _unitOfWork.UIInteractions.CreateAsync(uiInteraction, cancellationToken);
-
-                    // Emit SignalR events
-                    await EmitUIInteractionCreatedAsync(session.Workflow._ID.ToString(), executionId, uiInteraction, cancellationToken);
+                    // Create UI interaction using the service
+                    var uiInteractionSession = await _uiInteractionService.CreateUIInteractionAsync(
+                        session.Workflow._ID.ToString(),
+                        executionId,
+                        nodeId,
+                        uiInteractionRequest,
+                        uiComponentId,
+                        cancellationToken);
 
                     // Set node status to waiting for UI input
                     nodeExecution.Status = NodeExecutionStatus.WaitingForInput;
                     nodeExecution.CompletedAt = null; // Clear completion time since we're waiting
                     await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
 
-                    _logger.LogInformation($"UI interaction {uiInteraction._ID} created for node {nodeId}. Workflow execution will pause until user provides input.");
+                    _logger.LogInformation($"UI interaction {uiInteractionSession.SessionId} created for node {nodeId}. Workflow execution will pause until user provides input.");
 
                     // Return early - execution will continue when UI interaction is completed
                     return new NodeExecutionResponseDto
@@ -2050,6 +2052,37 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             // Default: if UiType is set but not recognized, assume it needs interaction
             return true;
+        }
+
+        private async Task<string?> GetUIComponentIdForProgramAsync(Program program, CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Get program version (assuming current version if not specified)
+                var version = await _unitOfWork.Versions.GetLatestVersionForProgramAsync(program._ID, cancellationToken);
+                if (version == null)
+                {
+                    _logger.LogWarning("No version found for program {ProgramId}", program._ID);
+                    return null;
+                }
+
+                // Get UI components for this program version
+                var components = await _unitOfWork.UiComponents.GetByProgramVersionAsync(program._ID, version._ID, cancellationToken);
+                if (components == null || !components.Any())
+                {
+                    _logger.LogWarning("No UI components found for program {ProgramId}, version {VersionId}", program._ID, version._ID);
+                    return null;
+                }
+
+                // Return the first active component, or just the first one
+                var activeComponent = components.FirstOrDefault(c => c.Status == "active") ?? components.First();
+                return activeComponent._ID.ToString();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get UI component for program {ProgramId}", program._ID);
+                return null;
+            }
         }
 
         private static Dictionary<string, object> CreateUISchemaForProgram(Program program)

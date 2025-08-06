@@ -18,6 +18,8 @@ namespace TeiasMongoAPI.Services.DTOs.Response.UIWorkflow
         public required DateTime CreatedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
         public Dictionary<string, object> Metadata { get; set; } = new();
+        public string? UiComponentId { get; set; }
+        public Dictionary<string, object>? UiComponentConfiguration { get; set; }
     }
 
     public class UIInteractionSessionListApiResponse
@@ -60,5 +62,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.UIWorkflow
         public required DateTime CreatedAt { get; set; }
         public DateTime? CompletedAt { get; set; }
         public Dictionary<string, object> Metadata { get; set; } = new();
+        public string? UiComponentId { get; set; }
+        public Dictionary<string, object>? UiComponentConfiguration { get; set; }
     }
 }
