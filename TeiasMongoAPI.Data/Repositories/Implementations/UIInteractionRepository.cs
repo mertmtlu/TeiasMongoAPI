@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using System.Text.Json;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Data.Context;
@@ -101,7 +102,20 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
 
                 if (outputData != null)
                 {
-                    updateBuilder = updateBuilder.Set(x => x.OutputData, outputData);
+                    // Convert JsonElement objects to BsonDocument to avoid serialization issues
+                    var convertedOutputData = new Dictionary<string, object>();
+                    foreach (var kvp in outputData)
+                    {
+                        if (kvp.Value is JsonElement jsonElement)
+                        {
+                            convertedOutputData[kvp.Key] = jsonElement.ToBsonDocument();
+                        }
+                        else
+                        {
+                            convertedOutputData[kvp.Key] = kvp.Value;
+                        }
+                    }
+                    updateBuilder = updateBuilder.Set(x => x.OutputData, convertedOutputData);
                 }
 
                 var result = await _collection.UpdateOneAsync(filter, updateBuilder, cancellationToken: cancellationToken);
