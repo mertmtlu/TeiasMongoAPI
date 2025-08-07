@@ -238,6 +238,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _logger.LogInformation("Created UI component {ComponentId} with name {ComponentName} of type {ComponentType} for program {ProgramId}, version {VersionId}",
                 createdComponent._ID, dto.Name, dto.Type, programId, versionId);
 
+            // Update program UI type based on new components
+            try
+            {
+                await _programService.UpdateProgramUiTypeAsync(programId, cancellationToken);
+                _logger.LogDebug("Updated program UI type after component creation for program {ProgramId}", programId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to update program UI type after component creation for program {ProgramId}", programId);
+                // Don't fail the component creation if UI type update fails
+            }
+
             return _mapper.Map<UiComponentDto>(createdComponent);
         }
 
@@ -290,6 +302,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             _logger.LogInformation("Updated UI component {ComponentId}", id);
 
+            // Update program UI type after component update (in case status changed)
+            try
+            {
+                var programId = existingComponent.ProgramId.ToString();
+                await _programService.UpdateProgramUiTypeAsync(programId, cancellationToken);
+                _logger.LogDebug("Updated program UI type after component update for program {ProgramId}", programId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to update program UI type after component update for program {ProgramId}", existingComponent.ProgramId);
+                // Don't fail the update if UI type update fails
+            }
+
             try
             {
                 return _mapper.Map<UiComponentDto>(existingComponent);
@@ -334,6 +359,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (success)
             {
                 _logger.LogInformation("Deleted UI component {ComponentId}", id);
+                
+                // Update program UI type after component deletion
+                try
+                {
+                    var programId = component.ProgramId.ToString();
+                    await _programService.UpdateProgramUiTypeAsync(programId, cancellationToken);
+                    _logger.LogDebug("Updated program UI type after component deletion for program {ProgramId}", programId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update program UI type after component deletion for program {ProgramId}", component.ProgramId);
+                    // Don't fail the deletion if UI type update fails
+                }
             }
 
             return success;

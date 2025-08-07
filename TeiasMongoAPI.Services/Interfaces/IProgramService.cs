@@ -49,5 +49,8 @@ namespace TeiasMongoAPI.Services.Interfaces
         // Validation
         Task<bool> ValidateNameUniqueAsync(string name, string? excludeId = null, CancellationToken cancellationToken = default);
         Task<bool> ValidateUserAccessAsync(string programId, string userId, string requiredAccessLevel, CancellationToken cancellationToken = default);
+
+        // UI Type Management
+        Task<string> UpdateProgramUiTypeAsync(string programId, CancellationToken cancellationToken = default);
     }
 }

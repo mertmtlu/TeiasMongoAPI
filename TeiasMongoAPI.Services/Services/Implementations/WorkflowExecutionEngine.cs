@@ -822,7 +822,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
                 // Check if this program requires UI interaction
                 var program = await _unitOfWork.Programs.GetByIdAsync(node.ProgramId, cancellationToken);
-                if (program != null && IsUIInteractionRequired(program))
+                if (program != null && await IsUIInteractionRequiredAsync(program, cancellationToken))
                 {
                     _logger.LogInformation($"Program {program.Name} requires UI interaction. Creating UI interaction session.");
 
@@ -2027,31 +2027,77 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Update node execution in database and session state
             await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
 
+            // Continue workflow execution by processing dependent nodes
+            // This ensures the workflow continues after UI interaction completion
+            if (nodeExecution.Status == NodeExecutionStatus.Completed)
+            {
+                _logger.LogInformation($"Triggering workflow continuation after UI interaction completion for node {nodeId} in execution {executionId}");
+                
+                // Update session state to mark this node as completed
+                if (!session.CompletedNodes.Contains(nodeId))
+                {
+                    session.CompletedNodes.Add(nodeId);
+                }
+                
+                // Use Task.Run to continue workflow execution in the background
+                // This prevents blocking the UI response while allowing the workflow to continue
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        // Create dummy semaphore and locks for continuation
+                        using var globalSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes);
+                        var nodeLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
+                        
+                        // Process dependent nodes to continue workflow execution
+                        await ProcessDependentNodesAsync(session, nodeId, globalSemaphore, nodeLocks, 
+                            () => { /* Empty completion callback */ }, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"Error continuing workflow after UI interaction for node {nodeId} in execution {executionId}");
+                    }
+                }, cancellationToken);
+            }
+
             return _mapper.Map<NodeExecutionResponseDto>(nodeExecution);
         }
 
-        private static bool IsUIInteractionRequired(Program program)
+        private async Task<bool> IsUIInteractionRequiredAsync(Program program, CancellationToken cancellationToken)
         {
-            // Check if program has UI components that require user interaction
-            if (string.IsNullOrEmpty(program.UiType))
-                return false;
+            // Check if program has actual UI components that require user interaction
+            // This is more reliable than just checking the UiType field
+            
+            try
+            {
+                // First, check if UiType explicitly indicates no UI interaction
+                if (!string.IsNullOrEmpty(program.UiType))
+                {
+                    var uiType = program.UiType.ToLower().Trim();
+                    var nonInteractiveUiTypes = new[] { "console", "none", "cli", "batch", "service" };
+                    
+                    if (nonInteractiveUiTypes.Contains(uiType))
+                        return false;
+                }
 
-            var uiType = program.UiType.ToLower().Trim();
+                // Check if program actually has UI components
+                var uiComponentId = await GetUIComponentIdForProgramAsync(program, cancellationToken);
+                
+                // If no UI components found, no UI interaction is required
+                if (string.IsNullOrEmpty(uiComponentId))
+                {
+                    _logger.LogDebug("Program {ProgramId} has no UI components, no UI interaction required", program._ID);
+                    return false;
+                }
 
-            // Programs that require UI interaction
-            var interactiveUiTypes = new[] { "web", "desktop", "custom", "webapp", "frontend", "standard" };
-
-            // Programs that don't require UI interaction
-            var nonInteractiveUiTypes = new[] { "console", "none", "cli", "batch", "service" };
-
-            if (nonInteractiveUiTypes.Contains(uiType))
-                return false;
-
-            if (interactiveUiTypes.Contains(uiType))
+                _logger.LogDebug("Program {ProgramId} has UI components, UI interaction required", program._ID);
                 return true;
-
-            // Default: if UiType is set but not recognized, assume it needs interaction
-            return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error checking UI interaction requirement for program {ProgramId}, defaulting to no interaction required", program._ID);
+                return false;
+            }
         }
 
         private async Task<string?> GetUIComponentIdForProgramAsync(Program program, CancellationToken cancellationToken)

@@ -849,6 +849,101 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return userLevel >= requiredLevel;
         }
 
+        /// <summary>
+        /// Updates a program's UI type based on its actual UI components
+        /// </summary>
+        /// <param name="programId">The program ID</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>Updated UI type</returns>
+        public async Task<string> UpdateProgramUiTypeAsync(string programId, CancellationToken cancellationToken = default)
+        {
+            var objectId = ParseObjectId(programId);
+            var program = await _unitOfWork.Programs.GetByIdAsync(objectId, cancellationToken);
+
+            if (program == null)
+            {
+                throw new KeyNotFoundException($"Program with ID {programId} not found.");
+            }
+
+            var newUiType = await DetermineProgramUiTypeAsync(objectId, cancellationToken);
+            
+            // Only update if the UI type actually changed
+            if (program.UiType != newUiType)
+            {
+                program.UiType = newUiType;
+                
+                await _unitOfWork.Programs.UpdateAsync(objectId, program, cancellationToken);
+                _logger.LogInformation("Updated program {ProgramId} UI type from '{OldUiType}' to '{NewUiType}'", 
+                    programId, program.UiType, newUiType);
+            }
+
+            return newUiType;
+        }
+
+        /// <summary>
+        /// Determines the appropriate UI type for a program based on its UI components
+        /// </summary>
+        /// <param name="programId">The program ID</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>Determined UI type</returns>
+        private async Task<string> DetermineProgramUiTypeAsync(ObjectId programId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Get the latest version of the program
+                var version = await _unitOfWork.Versions.GetLatestVersionForProgramAsync(programId, cancellationToken);
+                if (version == null)
+                {
+                    _logger.LogWarning("No version found for program {ProgramId}, defaulting to console UI type", programId);
+                    return "console";
+                }
+
+                // Get UI components for this program version
+                var components = await _unitOfWork.UiComponents.GetByProgramVersionAsync(programId, version._ID, cancellationToken);
+                
+                if (components == null || !components.Any())
+                {
+                    _logger.LogDebug("No UI components found for program {ProgramId}, setting UI type to console", programId);
+                    return "console";
+                }
+
+                // Check for active components
+                var activeComponents = components.Where(c => c.Status == "active").ToList();
+                if (!activeComponents.Any())
+                {
+                    // If no active components, but components exist, still consider it a UI program
+                    _logger.LogDebug("Program {ProgramId} has UI components but none are active, setting UI type to web", programId);
+                    return "web";
+                }
+
+                // Determine UI type based on component types
+                var componentTypes = activeComponents.Select(c => c.Type.ToLower()).Distinct().ToList();
+                
+                // If it has form components, it definitely needs user interaction
+                if (componentTypes.Contains("input_form"))
+                {
+                    return "web";
+                }
+
+                // If it has interactive components like charts, grids, etc., it's a web UI
+                var interactiveTypes = new[] { "visualization", "chart", "data_grid", "navigation" };
+                if (componentTypes.Any(ct => interactiveTypes.Contains(ct)))
+                {
+                    return "web";
+                }
+
+                // If it has any UI components at all, default to web
+                _logger.LogDebug("Program {ProgramId} has {ComponentCount} UI components, setting UI type to web", 
+                    programId, activeComponents.Count);
+                return "web";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error determining UI type for program {ProgramId}, defaulting to console", programId);
+                return "console";
+            }
+        }
+
         #endregion
     }
 }
