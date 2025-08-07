@@ -2104,9 +2104,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         var scopedWorkflowEngine = scope.ServiceProvider.GetRequiredService<IWorkflowExecutionEngine>();
                         var scopedSessionManager = scope.ServiceProvider.GetRequiredService<IWorkflowSessionManager>();
 
-                        // Continue workflow execution using ONLY scoped services
-                        await ContinueWorkflowExecutionInBackgroundWithScopedServices(
-                            scopedWorkflowEngine,
+                        // Cast to the concrete type to access internal continuation methods
+                        var concreteEngine = (WorkflowExecutionEngine)scopedWorkflowEngine;
+                        
+                        // Continue workflow execution using ONLY scoped services and internal methods
+                        await concreteEngine.ContinueWorkflowExecutionInBackgroundInternal(
                             scopedSessionManager,
                             scopedLogger,
                             executionId,
@@ -2128,16 +2130,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         }
 
         /// <summary>
-        /// Continues workflow execution in the background using ONLY scoped services
+        /// Continues workflow execution in the background using internal methods and scoped services
         /// </summary>
-        /// <param name="scopedWorkflowEngine">Scoped workflow engine instance</param>
         /// <param name="scopedSessionManager">Scoped session manager instance</param>
         /// <param name="scopedLogger">Scoped logger instance</param>
         /// <param name="executionId">Execution ID</param>
         /// <param name="completedNodeId">ID of the completed node</param>
         /// <param name="cancellationToken">Cancellation token</param>
-        private static async Task ContinueWorkflowExecutionInBackgroundWithScopedServices(
-            IWorkflowExecutionEngine scopedWorkflowEngine,
+        private async Task ContinueWorkflowExecutionInBackgroundInternal(
             IWorkflowSessionManager scopedSessionManager,
             ILogger<WorkflowExecutionEngine> scopedLogger,
             string executionId,
@@ -2153,34 +2153,34 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             scopedLogger.LogInformation("Retrieved session {ExecutionId} in background continuation. Session has {CompletedNodes} completed nodes and {RunningNodes} running nodes",
                 executionId, session.CompletedNodes.Count, session.RunningNodes.Count);
 
-            // Find nodes that depend on the completed node using fresh session data
-            var dependentNodeIds = session.Workflow.Edges
-                .Where(e => e.SourceNodeId == completedNodeId && !e.IsDisabled)
-                .Select(e => e.TargetNodeId)
-                .Distinct()
-                .ToList();
+            // Create semaphore and locks for continuation (same as original ProcessDependentNodesAsync)
+            using var globalSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes);
+            var nodeLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
+            
+            // Use the original ProcessDependentNodesAsync method which properly handles automatic continuation
+            // This avoids the "manual execution" check that was causing the InvalidOperationException
+            scopedLogger.LogInformation("Starting ProcessDependentNodesAsync for node {CompletedNodeId} using internal workflow methods", 
+                completedNodeId);
+            
+            await ProcessDependentNodesAsync(session, completedNodeId, globalSemaphore, nodeLocks, 
+                () => { /* Empty completion callback */ }, cancellationToken);
 
-            scopedLogger.LogInformation("Found {DependentNodeCount} dependent nodes for completed node {CompletedNodeId}: [{DependentNodes}]",
-                dependentNodeIds.Count, completedNodeId, string.Join(", ", dependentNodeIds));
-
-            // Execute each dependent node using the scoped workflow engine
-            foreach (var dependentNodeId in dependentNodeIds)
+            // Wait for all running nodes to complete before disposing scope
+            // This prevents ObjectDisposedException during node completion and AutoMapper operations
+            scopedLogger.LogInformation("Waiting for all running nodes to complete before disposing background scope. Running nodes: {RunningNodeCount}", 
+                session.RunningNodes.Count);
+                
+            if (session.RunningNodes.Count > 0)
             {
                 try
                 {
-                    scopedLogger.LogInformation("Starting execution of dependent node {DependentNodeId} after {CompletedNodeId} using scoped services",
-                        dependentNodeId, completedNodeId);
-
-                    // Execute the node using the scoped workflow engine (NOT the old instance)
-                    var result = await scopedWorkflowEngine.ExecuteNodeAsync(executionId, dependentNodeId, cancellationToken);
-
-                    scopedLogger.LogInformation("Dependent node {DependentNodeId} execution completed with status: {Status}",
-                        dependentNodeId, result.Status);
+                    var runningTasks = session.RunningNodes.Values.ToArray();
+                    await Task.WhenAll(runningTasks);
+                    scopedLogger.LogInformation("All running nodes completed successfully");
                 }
                 catch (Exception ex)
                 {
-                    scopedLogger.LogError(ex, "Error executing dependent node {DependentNodeId} after {CompletedNodeId}",
-                        dependentNodeId, completedNodeId);
+                    scopedLogger.LogError(ex, "Error waiting for running nodes to complete");
                 }
             }
 
