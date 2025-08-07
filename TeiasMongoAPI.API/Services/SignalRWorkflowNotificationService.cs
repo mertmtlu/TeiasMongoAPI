@@ -49,12 +49,17 @@ namespace TeiasMongoAPI.API.Services
                     timeout = args.Timeout
                 };
 
+                _logger.LogInformation("Attempting to send UI interaction notification for ExecutionID {ExecutionId} to workflow group {WorkflowId}. HubContext instance hash: {HubContextHashCode}", 
+                    args.ExecutionId, workflowId, _hubContext.GetHashCode());
+                
                 await _hubContext.Clients.Group(workflowId).SendAsync("UIInteractionCreated", eventData, cancellationToken);
-                _logger.LogDebug($"Sent UIInteractionCreated notification for workflow {workflowId}, interaction {args.InteractionId}");
+                
+                _logger.LogInformation("Successfully sent UI interaction notification for ExecutionID {ExecutionId}", args.ExecutionId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to send UIInteractionCreated notification for workflow {workflowId}");
+                _logger.LogError(ex, "Failed to send UI interaction notification for ExecutionID {ExecutionId}. Exception: {ExceptionMessage}", 
+                    args.ExecutionId, ex.Message);
                 throw;
             }
         }
@@ -73,12 +78,17 @@ namespace TeiasMongoAPI.API.Services
                     completedAt = args.CompletedAt?.ToString("o") // ISO string format
                 };
 
+                _logger.LogInformation("Attempting to send UI interaction status change notification for ExecutionID {ExecutionId} to workflow group {WorkflowId}", 
+                    args.ExecutionId, workflowId);
+                
                 await _hubContext.Clients.Group(workflowId).SendAsync("UIInteractionStatusChanged", eventData, cancellationToken);
-                _logger.LogDebug($"Sent UIInteractionStatusChanged notification for workflow {workflowId}, interaction {args.InteractionId}");
+                
+                _logger.LogInformation("Successfully sent UI interaction status change notification for ExecutionID {ExecutionId}", args.ExecutionId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to send UIInteractionStatusChanged notification for workflow {workflowId}");
+                _logger.LogError(ex, "Failed to send UI interaction status change notification for ExecutionID {ExecutionId}. Exception: {ExceptionMessage}", 
+                    args.ExecutionId, ex.Message);
                 throw;
             }
         }
@@ -95,12 +105,17 @@ namespace TeiasMongoAPI.API.Services
                     timestamp = args.Timestamp
                 };
 
+                _logger.LogInformation("Attempting to send UI interaction available notification for InteractionID {InteractionId} to workflow group {WorkflowId}", 
+                    args.InteractionId, workflowId);
+                
                 await _hubContext.Clients.Group(workflowId).SendAsync("UIInteractionAvailable", eventData, cancellationToken);
-                _logger.LogDebug($"Sent UIInteractionAvailable notification for workflow {workflowId}, node {args.NodeId}");
+                
+                _logger.LogInformation("Successfully sent UI interaction available notification for InteractionID {InteractionId}", args.InteractionId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to send UIInteractionAvailable notification for workflow {workflowId}");
+                _logger.LogError(ex, "Failed to send UI interaction available notification for InteractionID {InteractionId}. Exception: {ExceptionMessage}", 
+                    args.InteractionId, ex.Message);
                 throw;
             }
         }

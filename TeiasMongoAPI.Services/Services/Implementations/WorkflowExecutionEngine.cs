@@ -885,6 +885,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     };
 
                     // Create UI interaction using the service
+                    _logger.LogInformation("Creating UI interaction session for ExecutionID {ExecutionId}, NodeID {NodeId}, WorkflowID {WorkflowId}", 
+                        executionId, nodeId, session.Workflow._ID.ToString());
+                    
                     var uiInteractionSession = await _uiInteractionService.CreateUIInteractionAsync(
                         session.Workflow._ID.ToString(),
                         executionId,
@@ -892,6 +895,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         uiInteractionRequest,
                         uiComponentId,
                         cancellationToken);
+                    
+                    _logger.LogInformation("UI interaction session created successfully for ExecutionID {ExecutionId}, InteractionID {InteractionId}", 
+                        executionId, uiInteractionSession.SessionId);
 
                     // Set node status to waiting for UI input
                     nodeExecution.Status = NodeExecutionStatus.WaitingForInput;
@@ -2103,6 +2109,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         // Get ALL scoped services - don't pass any objects from the old scope
                         var scopedWorkflowEngine = scope.ServiceProvider.GetRequiredService<IWorkflowExecutionEngine>();
                         var scopedSessionManager = scope.ServiceProvider.GetRequiredService<IWorkflowSessionManager>();
+                        
+                        scopedLogger.LogInformation("Background task started for ExecutionID {ExecutionId} with scoped services resolved", executionId);
 
                         // Cast to the concrete type to access internal continuation methods
                         var concreteEngine = (WorkflowExecutionEngine)scopedWorkflowEngine;
@@ -2177,6 +2185,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     var runningTasks = session.RunningNodes.Values.ToArray();
                     await Task.WhenAll(runningTasks);
                     scopedLogger.LogInformation("All running nodes completed successfully");
+
+                    // Check if workflow is complete and finalize it
+                    if (IsWorkflowComplete(session))
+                    {
+                        scopedLogger.LogInformation("Workflow execution completed, finalizing workflow {ExecutionId}", executionId);
+                        await FinalizeExecutionAsync(session, cancellationToken);
+                        await CheckAndCleanupCompletedWorkflowAsync(session, cancellationToken);
+                    }
                 }
                 catch (Exception ex)
                 {

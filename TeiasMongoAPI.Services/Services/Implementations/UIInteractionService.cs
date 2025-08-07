@@ -264,6 +264,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 await _unitOfWork.UIInteractions.CreateAsync(interaction, cancellationToken);
 
                 // Emit creation event
+                _logger.LogInformation("Calling notification service to send UI interaction created event for ExecutionID {ExecutionId}, WorkflowID {WorkflowId}. NotificationService instance hash: {ServiceHashCode}", 
+                    executionObjectId.ToString(), workflowId, _notificationService.GetHashCode());
+                
                 await _notificationService.NotifyUIInteractionCreatedAsync(
                     workflowId,
                     new UIInteractionCreatedEventArgs
