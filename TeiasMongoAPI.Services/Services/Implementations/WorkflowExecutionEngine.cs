@@ -333,7 +333,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Wait for all running nodes to complete before cleanup
                 await WaitForAllRunningNodesToComplete(session);
                 _executionSemaphore.Release();
-                _sessionManager.RemoveSession(session.ExecutionId);
+                
+                // Only remove session if no nodes are waiting for UI input
+                // This ensures sessions remain available for UI interaction completion
+                var waitingNodes = session.Execution.NodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
+                if (waitingNodes == 0)
+                {
+                    _sessionManager.RemoveSession(session.ExecutionId);
+                    _logger.LogDebug("Session {ExecutionId} removed as no nodes are waiting for input", session.ExecutionId);
+                }
+                else
+                {
+                    _logger.LogInformation("Session {ExecutionId} kept alive for {WaitingNodes} nodes waiting for UI input", 
+                        session.ExecutionId, waitingNodes);
+                }
             }
         }
 
@@ -2052,6 +2065,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         // Process dependent nodes to continue workflow execution
                         await ProcessDependentNodesAsync(session, nodeId, globalSemaphore, nodeLocks, 
                             () => { /* Empty completion callback */ }, cancellationToken);
+                        
+                        // Check if workflow is complete and cleanup session if needed
+                        await CheckAndCleanupCompletedWorkflowAsync(session, cancellationToken);
                     }
                     catch (Exception ex)
                     {
@@ -2061,6 +2077,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             return _mapper.Map<NodeExecutionResponseDto>(nodeExecution);
+        }
+
+        private async Task CheckAndCleanupCompletedWorkflowAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Check if workflow is complete (no running nodes, no waiting nodes)
+                var runningNodes = session.RunningNodes.Count;
+                var waitingNodes = session.Execution.NodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
+                
+                if (runningNodes == 0 && waitingNodes == 0)
+                {
+                    var isComplete = IsWorkflowComplete(session);
+                    if (isComplete)
+                    {
+                        _logger.LogInformation("Workflow {ExecutionId} completed after UI interaction, cleaning up session", session.ExecutionId);
+                        
+                        // Update workflow execution status
+                        session.Execution.Status = WorkflowExecutionStatus.Completed;
+                        session.Execution.CompletedAt = DateTime.UtcNow;
+                        
+                        // Save final execution state
+                        await _unitOfWork.WorkflowExecutions.UpdateAsync(ObjectId.Parse(session.ExecutionId), session.Execution, cancellationToken);
+                        
+                        // Remove session as workflow is complete
+                        _sessionManager.RemoveSession(session.ExecutionId);
+                        _logger.LogInformation("Session {ExecutionId} cleaned up after workflow completion", session.ExecutionId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking and cleaning up completed workflow for session {ExecutionId}", session.ExecutionId);
+            }
         }
 
         private async Task<bool> IsUIInteractionRequiredAsync(Program program, CancellationToken cancellationToken)
