@@ -45,7 +45,7 @@ namespace TeiasMongoAPI.API.Controllers
                 }
 
                 var sessions = await _uiInteractionService.GetPendingUIInteractionsForUserAsync(
-                    CurrentUserId.Value.ToString(), 
+                    CurrentUserId.Value.ToString(),
                     HttpContext.RequestAborted);
 
                 var response = new UIInteractionSessionListApiResponse
@@ -84,7 +84,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// <returns>List of UI interactions for the workflow execution</returns>
         [HttpGet("workflows/{workflowId}/executions/{executionId}/ui-interactions")]
         public async Task<ActionResult<ApiResponse<UIInteractionSessionListApiResponse>>> GetWorkflowUIInteractions(
-            string workflowId, 
+            string workflowId,
             string executionId)
         {
             return await ExecuteActionAsync(async () =>
@@ -95,10 +95,10 @@ namespace TeiasMongoAPI.API.Controllers
                 }
 
                 // TODO: Validate user has access to this workflow execution
-                
+
                 var sessions = await _uiInteractionService.GetUIInteractionsForWorkflowExecutionAsync(
-                    workflowId, 
-                    executionId, 
+                    workflowId,
+                    executionId,
                     HttpContext.RequestAborted);
 
                 var response = new UIInteractionSessionListApiResponse
@@ -190,7 +190,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// <returns>Success response</returns>
         [HttpPost("interactions/{interactionId}/submit")]
         public async Task<ActionResult<ApiResponse<string>>> SubmitUIInteraction(
-            string interactionId, 
+            string interactionId,
             [FromBody] UIInteractionSubmissionRequest request)
         {
             return await ExecuteActionAsync(async () =>
@@ -220,9 +220,9 @@ namespace TeiasMongoAPI.API.Controllers
                 responseData["submittedAt"] = DateTime.UtcNow;
 
                 var success = await _uiInteractionService.SubmitUIInteractionAsync(
-                    interactionId, 
-                    responseData, 
-                    CurrentUserId.Value.ToString(), 
+                    interactionId,
+                    responseData,
+                    CurrentUserId.Value.ToString(),
                     HttpContext.RequestAborted);
 
                 if (!success)
@@ -230,7 +230,31 @@ namespace TeiasMongoAPI.API.Controllers
                     return Error<string>("Failed to submit UI interaction", new List<string> { "The interaction may no longer be available or may have timed out" });
                 }
 
-                return Success("submitted", "UI interaction submitted successfully");
+                // Auto-complete the interaction and continue workflow execution
+                try
+                {
+                    var interaction = await _uiInteractionService.GetUIInteractionAsync(interactionId, HttpContext.RequestAborted);
+                    if (interaction != null)
+                    {
+                        _logger.LogInformation("Auto-completing UI interaction {InteractionId} after submission to continue workflow", interactionId);
+
+                        await _workflowExecutionEngine.CompleteUIInteractionAsync(
+                            interaction.ExecutionId,
+                            interaction.NodeId,
+                            interactionId,
+                            responseData,
+                            HttpContext.RequestAborted);
+
+                        _logger.LogInformation("Workflow continuation triggered after UI interaction {InteractionId} submission", interactionId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to auto-complete UI interaction {InteractionId} after submission", interactionId);
+                    // Don't fail the submit operation, but log the error
+                }
+
+                return Success("submitted", "UI interaction submitted successfully and workflow continued");
             }, "SubmitUIInteraction");
         }
 
@@ -261,12 +285,18 @@ namespace TeiasMongoAPI.API.Controllers
                         return NotFound<NodeExecutionResponseDto>($"UI interaction {interactionId} not found");
                     }
 
+                    _logger.LogInformation("Completing UI interaction {InteractionId} for execution {ExecutionId}, node {NodeId} with output data: {OutputData}",
+                        interactionId, interaction.ExecutionId, interaction.NodeId, System.Text.Json.JsonSerializer.Serialize(outputData));
+
                     var result = await _workflowExecutionEngine.CompleteUIInteractionAsync(
                         interaction.ExecutionId,
                         interaction.NodeId,
                         interactionId,
                         outputData,
                         HttpContext.RequestAborted);
+
+                    _logger.LogInformation("UI interaction {InteractionId} completion result: Status={Status}, ExecutionId={ExecutionId}",
+                        interactionId, result.Status, result.ExecutionId);
 
                     return Success(result, "UI interaction completed and workflow execution continued");
                 }
@@ -286,7 +316,7 @@ namespace TeiasMongoAPI.API.Controllers
         /// <returns>Success response</returns>
         [HttpPost("interactions/{interactionId}/cancel")]
         public async Task<ActionResult<ApiResponse<string>>> CancelUIInteraction(
-            string interactionId, 
+            string interactionId,
             [FromBody] CancelUIInteractionRequest? request = null)
         {
             return await ExecuteActionAsync(async () =>
@@ -299,9 +329,9 @@ namespace TeiasMongoAPI.API.Controllers
                 // TODO: Validate user has access to this interaction
 
                 var success = await _uiInteractionService.CancelUIInteractionAsync(
-                    interactionId, 
-                    CurrentUserId.Value.ToString(), 
-                    request?.Reason, 
+                    interactionId,
+                    CurrentUserId.Value.ToString(),
+                    request?.Reason,
                     HttpContext.RequestAborted);
 
                 if (!success)

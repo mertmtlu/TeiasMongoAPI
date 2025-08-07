@@ -31,6 +31,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IUserService _userService;
         private readonly IWorkflowNotificationService _notificationService;
         private readonly IUIInteractionService _uiInteractionService;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly SemaphoreSlim _executionSemaphore = new(10, 10); // Limit concurrent workflows
         private static readonly object _workflowExecutionLock = new object();
 
@@ -70,7 +71,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IBackgroundTaskQueue backgroundTaskQueue,
             IUserService userService,
             IWorkflowNotificationService notificationService,
-            IUIInteractionService uiInteractionService)
+            IUIInteractionService uiInteractionService,
+            IServiceScopeFactory serviceScopeFactory)
             : base(unitOfWork, mapper, logger)
         {
             _validationService = validationService;
@@ -82,6 +84,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _userService = userService;
             _notificationService = notificationService;
             _uiInteractionService = uiInteractionService;
+            _serviceScopeFactory = serviceScopeFactory;
         }
 
         private async Task EmitUIInteractionCreatedAsync(string workflowId, string executionId, UIInteraction interaction, CancellationToken cancellationToken = default)
@@ -333,7 +336,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Wait for all running nodes to complete before cleanup
                 await WaitForAllRunningNodesToComplete(session);
                 _executionSemaphore.Release();
-                
+
                 // Only remove session if no nodes are waiting for UI input
                 // This ensures sessions remain available for UI interaction completion
                 var waitingNodes = session.Execution.NodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
@@ -344,7 +347,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
                 else
                 {
-                    _logger.LogInformation("Session {ExecutionId} kept alive for {WaitingNodes} nodes waiting for UI input", 
+                    _logger.LogInformation("Session {ExecutionId} kept alive for {WaitingNodes} nodes waiting for UI input",
                         session.ExecutionId, waitingNodes);
                 }
             }
@@ -545,6 +548,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             try
             {
+                _logger.LogInformation("Processing dependent nodes for completed node {CompletedNodeId} in execution {ExecutionId}",
+                    completedNodeId, session.ExecutionId);
+
                 // Find nodes that depend on the completed node
                 var dependentNodeIds = session.Workflow.Edges
                     .Where(e => e.SourceNodeId == completedNodeId && !e.IsDisabled)
@@ -552,16 +558,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     .Distinct()
                     .ToList();
 
-                // Process each dependent node
-                var dependentTasks = dependentNodeIds.Select(dependentNodeId =>
-                    TryStartNodeExecutionAsync(session, dependentNodeId, globalSemaphore, nodeLocks, onNodeCompleted, cancellationToken)
-                );
+                _logger.LogInformation("Found {DependentNodeCount} dependent nodes for {CompletedNodeId}: [{DependentNodes}]",
+                    dependentNodeIds.Count, completedNodeId, string.Join(", ", dependentNodeIds));
 
-                await Task.WhenAll(dependentTasks);
+                if (!dependentNodeIds.Any())
+                {
+                    _logger.LogInformation("No dependent nodes found for {CompletedNodeId}", completedNodeId);
+                    return;
+                }
+
+                // Process each dependent node
+                var dependentTasks = dependentNodeIds.Select(async dependentNodeId =>
+                {
+                    _logger.LogInformation("Attempting to start dependent node {DependentNodeId} after {CompletedNodeId}",
+                        dependentNodeId, completedNodeId);
+                    await TryStartNodeExecutionAsync(session, dependentNodeId, globalSemaphore, nodeLocks, onNodeCompleted, cancellationToken);
+                    return dependentNodeId; // Return node ID for logging
+                });
+
+                var completedNodeIds = await Task.WhenAll(dependentTasks);
+
+                _logger.LogInformation("Dependent node processing completed for {CompletedNodeId}. Processed nodes: [{ProcessedNodes}]",
+                    completedNodeId, string.Join(", ", completedNodeIds));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error processing dependent nodes for {completedNodeId} in execution {session.ExecutionId}");
+                _logger.LogError(ex, "Error processing dependent nodes for {CompletedNodeId} in execution {ExecutionId}",
+                    completedNodeId, session.ExecutionId);
             }
         }
 
@@ -670,7 +693,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     case NodeExecutionStatus.WaitingForInput:
                         // Don't mark as completed, but don't count as failed either
                         // The node is waiting for user input and will continue later
-                        _logger.LogInformation($"Node {nodeId} is waiting for UI input in execution {session.ExecutionId}");        
+                        _logger.LogInformation($"Node {nodeId} is waiting for UI input in execution {session.ExecutionId}");
 
                         await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Node '{node?.Name ?? nodeId}' is waiting for user input",
                             nodeId: nodeId, metadata: new Dictionary<string, object>
@@ -1931,9 +1954,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
                 // Update UI interaction status
                 interaction.Status = UIInteractionStatus.Completed;
-                interaction.OutputData = outputData;
+                interaction.OutputData = ConvertJsonElementsToBsonCompatible(outputData);
                 interaction.CompletedAt = DateTime.UtcNow;
+
+                _logger.LogDebug("Saving UI interaction {InteractionId} with converted output data", interactionId);
                 await _unitOfWork.UIInteractions.UpdateAsync(ObjectId.Parse(interactionId), interaction, cancellationToken);
+
+                // Convert data for event emission and wo_rkflow continuation
+                var convertedOutputData = ConvertJsonElementsToBsonCompatible(outputData);
 
                 // Emit status changed event
                 await EmitUIInteractionStatusChangedAsync(
@@ -1941,11 +1969,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     executionId,
                     interactionId,
                     UIInteractionStatus.Completed,
-                    outputData,
+                    convertedOutputData,
                     cancellationToken);
 
                 // Continue node execution with the provided output data
-                return await ContinueNodeExecutionAfterUIInteractionAsync(executionId, nodeId, outputData, cancellationToken);
+                return await ContinueNodeExecutionAfterUIInteractionAsync(executionId, nodeId, convertedOutputData, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -1956,7 +1984,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         private async Task<NodeExecutionResponseDto> ContinueNodeExecutionAfterUIInteractionAsync(string executionId, string nodeId, Dictionary<string, object> uiOutputData, CancellationToken cancellationToken)
         {
-            _logger.LogInformation($"Continuing node {nodeId} execution after UI interaction completion");
+            _logger.LogInformation("Continuing node {NodeId} execution after UI interaction completion in execution {ExecutionId}. UI Output: {UIOutput}",
+                nodeId, executionId, JsonSerializer.Serialize(ConvertBsonToJsonCompatible(uiOutputData)));
 
             if (!_sessionManager.TryGetSession(executionId, out var session))
             {
@@ -1976,7 +2005,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Add UI interaction output to input data
             foreach (var kvp in uiOutputData)
             {
-                inputData.Data[$"ui_{kvp.Key}"] = BsonValue.Create(kvp.Value);
+                inputData.Data[$"{kvp.Key}"] = BsonValue.Create(kvp.Value);
+                break;
             }
 
             // Generate WorkflowInputs.py content
@@ -1985,7 +2015,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             enhancedEnvironment["WORKFLOW_INPUTS_CONTENT"] = workflowInputsHelper;
 
             // Add UI output data as environment variables for easy access
-            enhancedEnvironment["UI_OUTPUT_DATA"] = JsonSerializer.Serialize(uiOutputData);
+            enhancedEnvironment["UI_OUTPUT_DATA"] = JsonSerializer.Serialize(ConvertBsonToJsonCompatible(uiOutputData));
 
             // Create program execution request
             var programRequest = new ProjectExecutionRequest
@@ -2005,7 +2035,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             };
 
             // Execute program with UI output
+            _logger.LogInformation("Executing program {ProgramId} for node {NodeId} after UI interaction with parameters: {Parameters}",
+                node.ProgramId, nodeId, ConvertBsonDocumentToJson(inputData.Data));
+
             var programResult = await _projectExecutionEngine.ExecuteProjectAsync(programRequest, cancellationToken);
+
+            _logger.LogInformation("Program execution completed for node {NodeId}. Success: {Success}, ExecutionId: {ExecutionId}, Message: {Message}",
+                nodeId, programResult.Success, programResult.ExecutionId, programResult.ErrorMessage ?? "No errors");
 
             // Process results (same as normal execution)
             var outputData = await ProcessNodeOutputAsync(session, nodeId, programResult, cancellationToken);
@@ -2045,38 +2081,110 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (nodeExecution.Status == NodeExecutionStatus.Completed)
             {
                 _logger.LogInformation($"Triggering workflow continuation after UI interaction completion for node {nodeId} in execution {executionId}");
-                
+
                 // Update session state to mark this node as completed
                 if (!session.CompletedNodes.Contains(nodeId))
                 {
                     session.CompletedNodes.Add(nodeId);
                 }
-                
-                // Use Task.Run to continue workflow execution in the background
+
+                // Use Task.Run to continue workflow execution in the background with proper DI scope
                 // This prevents blocking the UI response while allowing the workflow to continue
                 _ = Task.Run(async () =>
                 {
+                    using var scope = _serviceScopeFactory.CreateScope();
+                    var scopedLogger = scope.ServiceProvider.GetRequiredService<ILogger<WorkflowExecutionEngine>>();
+
                     try
                     {
-                        // Create dummy semaphore and locks for continuation
-                        using var globalSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes);
-                        var nodeLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
-                        
-                        // Process dependent nodes to continue workflow execution
-                        await ProcessDependentNodesAsync(session, nodeId, globalSemaphore, nodeLocks, 
-                            () => { /* Empty completion callback */ }, cancellationToken);
-                        
-                        // Check if workflow is complete and cleanup session if needed
-                        await CheckAndCleanupCompletedWorkflowAsync(session, cancellationToken);
+                        scopedLogger.LogInformation("Starting background workflow continuation for node {NodeId} in execution {ExecutionId} with independent DI scope",
+                            nodeId, executionId);
+
+                        // Get ALL scoped services - don't pass any objects from the old scope
+                        var scopedWorkflowEngine = scope.ServiceProvider.GetRequiredService<IWorkflowExecutionEngine>();
+                        var scopedSessionManager = scope.ServiceProvider.GetRequiredService<IWorkflowSessionManager>();
+
+                        // Continue workflow execution using ONLY scoped services
+                        await ContinueWorkflowExecutionInBackgroundWithScopedServices(
+                            scopedWorkflowEngine,
+                            scopedSessionManager,
+                            scopedLogger,
+                            executionId,
+                            nodeId,
+                            cancellationToken);
+
+                        scopedLogger.LogInformation("Background workflow continuation completed successfully for node {NodeId} in execution {ExecutionId}",
+                            nodeId, executionId);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, $"Error continuing workflow after UI interaction for node {nodeId} in execution {executionId}");
+                        scopedLogger.LogError(ex, "Error continuing workflow after UI interaction for node {NodeId} in execution {ExecutionId}",
+                            nodeId, executionId);
                     }
                 }, cancellationToken);
             }
 
             return _mapper.Map<NodeExecutionResponseDto>(nodeExecution);
+        }
+
+        /// <summary>
+        /// Continues workflow execution in the background using ONLY scoped services
+        /// </summary>
+        /// <param name="scopedWorkflowEngine">Scoped workflow engine instance</param>
+        /// <param name="scopedSessionManager">Scoped session manager instance</param>
+        /// <param name="scopedLogger">Scoped logger instance</param>
+        /// <param name="executionId">Execution ID</param>
+        /// <param name="completedNodeId">ID of the completed node</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        private static async Task ContinueWorkflowExecutionInBackgroundWithScopedServices(
+            IWorkflowExecutionEngine scopedWorkflowEngine,
+            IWorkflowSessionManager scopedSessionManager,
+            ILogger<WorkflowExecutionEngine> scopedLogger,
+            string executionId,
+            string completedNodeId,
+            CancellationToken cancellationToken)
+        {
+            // Get fresh session from scoped session manager (NOT the old one)
+            if (!scopedSessionManager.TryGetSession(executionId, out var session))
+            {
+                throw new InvalidOperationException($"Execution session {executionId} not found during background continuation");
+            }
+
+            scopedLogger.LogInformation("Retrieved session {ExecutionId} in background continuation. Session has {CompletedNodes} completed nodes and {RunningNodes} running nodes",
+                executionId, session.CompletedNodes.Count, session.RunningNodes.Count);
+
+            // Find nodes that depend on the completed node using fresh session data
+            var dependentNodeIds = session.Workflow.Edges
+                .Where(e => e.SourceNodeId == completedNodeId && !e.IsDisabled)
+                .Select(e => e.TargetNodeId)
+                .Distinct()
+                .ToList();
+
+            scopedLogger.LogInformation("Found {DependentNodeCount} dependent nodes for completed node {CompletedNodeId}: [{DependentNodes}]",
+                dependentNodeIds.Count, completedNodeId, string.Join(", ", dependentNodeIds));
+
+            // Execute each dependent node using the scoped workflow engine
+            foreach (var dependentNodeId in dependentNodeIds)
+            {
+                try
+                {
+                    scopedLogger.LogInformation("Starting execution of dependent node {DependentNodeId} after {CompletedNodeId} using scoped services",
+                        dependentNodeId, completedNodeId);
+
+                    // Execute the node using the scoped workflow engine (NOT the old instance)
+                    var result = await scopedWorkflowEngine.ExecuteNodeAsync(executionId, dependentNodeId, cancellationToken);
+
+                    scopedLogger.LogInformation("Dependent node {DependentNodeId} execution completed with status: {Status}",
+                        dependentNodeId, result.Status);
+                }
+                catch (Exception ex)
+                {
+                    scopedLogger.LogError(ex, "Error executing dependent node {DependentNodeId} after {CompletedNodeId}",
+                        dependentNodeId, completedNodeId);
+                }
+            }
+
+            scopedLogger.LogInformation("Background workflow continuation completed for node {CompletedNodeId}", completedNodeId);
         }
 
         private async Task CheckAndCleanupCompletedWorkflowAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
@@ -2086,21 +2194,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Check if workflow is complete (no running nodes, no waiting nodes)
                 var runningNodes = session.RunningNodes.Count;
                 var waitingNodes = session.Execution.NodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
-                
+
                 if (runningNodes == 0 && waitingNodes == 0)
                 {
                     var isComplete = IsWorkflowComplete(session);
                     if (isComplete)
                     {
                         _logger.LogInformation("Workflow {ExecutionId} completed after UI interaction, cleaning up session", session.ExecutionId);
-                        
+
                         // Update workflow execution status
                         session.Execution.Status = WorkflowExecutionStatus.Completed;
                         session.Execution.CompletedAt = DateTime.UtcNow;
-                        
+
                         // Save final execution state
                         await _unitOfWork.WorkflowExecutions.UpdateAsync(ObjectId.Parse(session.ExecutionId), session.Execution, cancellationToken);
-                        
+
                         // Remove session as workflow is complete
                         _sessionManager.RemoveSession(session.ExecutionId);
                         _logger.LogInformation("Session {ExecutionId} cleaned up after workflow completion", session.ExecutionId);
@@ -2117,7 +2225,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             // Check if program has actual UI components that require user interaction
             // This is more reliable than just checking the UiType field
-            
+
             try
             {
                 // First, check if UiType explicitly indicates no UI interaction
@@ -2125,14 +2233,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     var uiType = program.UiType.ToLower().Trim();
                     var nonInteractiveUiTypes = new[] { "console", "none", "cli", "batch", "service" };
-                    
+
                     if (nonInteractiveUiTypes.Contains(uiType))
                         return false;
                 }
 
                 // Check if program actually has UI components
                 var uiComponentId = await GetUIComponentIdForProgramAsync(program, cancellationToken);
-                
+
                 // If no UI components found, no UI interaction is required
                 if (string.IsNullOrEmpty(uiComponentId))
                 {
@@ -2273,6 +2381,222 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             };
 
             return schema;
+        }
+
+        /// <summary>
+        /// Converts JsonElement objects to BSON-compatible types for MongoDB serialization
+        /// </summary>
+        /// <param name="data">Dictionary containing potentially JsonElement values</param>
+        /// <returns>Dictionary with BSON-compatible values</returns>
+        private Dictionary<string, object> ConvertJsonElementsToBsonCompatible(Dictionary<string, object> data)
+        {
+            if (data == null) return new Dictionary<string, object>();
+
+            var convertedData = new Dictionary<string, object>();
+
+            foreach (var kvp in data)
+            {
+                convertedData[kvp.Key] = ConvertValueToBsonCompatible(kvp.Value);
+            }
+
+            return convertedData;
+        }
+
+        /// <summary>
+        /// Converts a single value to BSON-compatible type
+        /// </summary>
+        /// <param name="value">Value to convert</param>
+        /// <returns>BSON-compatible value</returns>
+        private object ConvertValueToBsonCompatible(object value)
+        {
+            if (value == null) return null;
+
+            // Handle JsonElement specifically
+            if (value is System.Text.Json.JsonElement jsonElement)
+            {
+                return ConvertJsonElementToBsonCompatible(jsonElement);
+            }
+
+            // Handle Dictionary<string, object> recursively
+            if (value is Dictionary<string, object> dict)
+            {
+                return ConvertJsonElementsToBsonCompatible(dict);
+            }
+
+            // Handle arrays/lists
+            if (value is System.Collections.IEnumerable enumerable && !(value is string))
+            {
+                var list = new List<object>();
+                foreach (var item in enumerable)
+                {
+                    list.Add(ConvertValueToBsonCompatible(item));
+                }
+                return list;
+            }
+
+            // Return primitive types as-is (string, int, bool, etc.)
+            return value;
+        }
+
+        /// <summary>
+        /// Converts JsonElement to appropriate .NET type for BSON serialization
+        /// </summary>
+        /// <param name="jsonElement">JsonElement to convert</param>
+        /// <returns>BSON-compatible value</returns>
+        private object ConvertJsonElementToBsonCompatible(System.Text.Json.JsonElement jsonElement)
+        {
+            switch (jsonElement.ValueKind)
+            {
+                case System.Text.Json.JsonValueKind.String:
+                    return jsonElement.GetString();
+
+                case System.Text.Json.JsonValueKind.Number:
+                    if (jsonElement.TryGetInt32(out int intValue))
+                        return intValue;
+                    if (jsonElement.TryGetInt64(out long longValue))
+                        return longValue;
+                    if (jsonElement.TryGetDouble(out double doubleValue))
+                        return doubleValue;
+                    return jsonElement.GetDecimal();
+
+                case System.Text.Json.JsonValueKind.True:
+                    return true;
+
+                case System.Text.Json.JsonValueKind.False:
+                    return false;
+
+                case System.Text.Json.JsonValueKind.Null:
+                    return null;
+
+                case System.Text.Json.JsonValueKind.Object:
+                    var dict = new Dictionary<string, object>();
+                    foreach (var property in jsonElement.EnumerateObject())
+                    {
+                        dict[property.Name] = ConvertJsonElementToBsonCompatible(property.Value);
+                    }
+                    return dict;
+
+                case System.Text.Json.JsonValueKind.Array:
+                    var list = new List<object>();
+                    foreach (var item in jsonElement.EnumerateArray())
+                    {
+                        list.Add(ConvertJsonElementToBsonCompatible(item));
+                    }
+                    return list;
+
+                default:
+                    return jsonElement.ToString();
+            }
+        }
+
+        /// <summary>
+        /// Converts BSON objects to JSON-compatible types for System.Text.Json serialization
+        /// </summary>
+        /// <param name="data">Dictionary potentially containing BSON objects</param>
+        /// <returns>Dictionary with JSON-compatible values</returns>
+        private Dictionary<string, object> ConvertBsonToJsonCompatible(Dictionary<string, object> data)
+        {
+            if (data == null) return new Dictionary<string, object>();
+
+            var convertedData = new Dictionary<string, object>();
+
+            foreach (var kvp in data)
+            {
+                convertedData[kvp.Key] = ConvertBsonValueToJsonCompatible(kvp.Value);
+            }
+
+            return convertedData;
+        }
+
+        /// <summary>
+        /// Converts a BSON document to JSON string safely
+        /// </summary>
+        /// <param name="bsonDoc">BSON document</param>
+        /// <returns>JSON string representation</returns>
+        private string ConvertBsonDocumentToJson(MongoDB.Bson.BsonDocument bsonDoc)
+        {
+            if (bsonDoc == null) return "{}";
+
+            try
+            {
+                // Use MongoDB's native JSON conversion which handles BSON types properly
+                return bsonDoc.ToJson();
+            }
+            catch (Exception)
+            {
+                // Fallback to manual conversion
+                var dict = new Dictionary<string, object>();
+                foreach (var element in bsonDoc)
+                {
+                    dict[element.Name] = ConvertBsonValueToJsonCompatible(element.Value);
+                }
+                return JsonSerializer.Serialize(dict);
+            }
+        }
+
+        /// <summary>
+        /// Converts a single BSON value to JSON-compatible type
+        /// </summary>
+        /// <param name="value">BSON value to convert</param>
+        /// <returns>JSON-compatible value</returns>
+        private object ConvertBsonValueToJsonCompatible(object value)
+        {
+            if (value == null) return null;
+
+            // Handle BSON types
+            if (value is MongoDB.Bson.BsonValue bsonValue)
+            {
+                switch (bsonValue.BsonType)
+                {
+                    case MongoDB.Bson.BsonType.String:
+                        return bsonValue.AsString;
+                    case MongoDB.Bson.BsonType.Int32:
+                        return bsonValue.AsInt32;
+                    case MongoDB.Bson.BsonType.Int64:
+                        return bsonValue.AsInt64;
+                    case MongoDB.Bson.BsonType.Double:
+                        return bsonValue.AsDouble;
+                    case MongoDB.Bson.BsonType.Decimal128:
+                        return bsonValue.AsDecimal;
+                    case MongoDB.Bson.BsonType.Boolean:
+                        return bsonValue.AsBoolean;
+                    case MongoDB.Bson.BsonType.DateTime:
+                        return bsonValue.ToUniversalTime();
+                    case MongoDB.Bson.BsonType.Null:
+                        return null;
+                    case MongoDB.Bson.BsonType.Array:
+                        return bsonValue.AsBsonArray.Select(ConvertBsonValueToJsonCompatible).ToList();
+                    case MongoDB.Bson.BsonType.Document:
+                        var dict = new Dictionary<string, object>();
+                        foreach (var element in bsonValue.AsBsonDocument)
+                        {
+                            dict[element.Name] = ConvertBsonValueToJsonCompatible(element.Value);
+                        }
+                        return dict;
+                    default:
+                        return bsonValue.ToString();
+                }
+            }
+
+            // Handle Dictionary<string, object> recursively
+            if (value is Dictionary<string, object> dictValue)
+            {
+                return ConvertBsonToJsonCompatible(dictValue);
+            }
+
+            // Handle arrays/lists
+            if (value is System.Collections.IEnumerable enumerable && !(value is string))
+            {
+                var list = new List<object>();
+                foreach (var item in enumerable)
+                {
+                    list.Add(ConvertBsonValueToJsonCompatible(item));
+                }
+                return list;
+            }
+
+            // Return primitive types as-is
+            return value;
         }
     }
 

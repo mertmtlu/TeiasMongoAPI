@@ -108,12 +108,13 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                     {
                         if (kvp.Value is JsonElement jsonElement)
                         {
-                            convertedOutputData[kvp.Key] = jsonElement.ToBsonDocument();
+
+                            convertedOutputData[kvp.Key] = BsonDocument.Parse(jsonElement.ToString());
                         }
-                        else
-                        {
-                            convertedOutputData[kvp.Key] = kvp.Value;
-                        }
+                        //else
+                        //{
+                        //    convertedOutputData[kvp.Key] = kvp.Value;
+                        //}
                     }
                     updateBuilder = updateBuilder.Set(x => x.OutputData, convertedOutputData);
                 }
