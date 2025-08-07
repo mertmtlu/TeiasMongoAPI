@@ -120,7 +120,9 @@ namespace TeiasMongoAPI.API.Controllers
                         TimeoutAt = s.TimeoutAt,
                         CreatedAt = s.CreatedAt,
                         CompletedAt = s.CompletedAt,
-                        Metadata = s.Metadata
+                        Metadata = s.Metadata,
+                        UiComponentId = s.UiComponentId,
+                        UiComponentConfiguration = s.UiComponentConfiguration
                     }).ToList(),
                     TotalCount = sessions.Count
                 };
