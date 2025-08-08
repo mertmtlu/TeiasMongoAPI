@@ -17,6 +17,54 @@ namespace TeiasMongoAPI.API.Services
             _logger = logger;
         }
 
+        public async Task NotifyUIInteractionCreatedWithPayloadAsync(string workflowId, UIInteractionCreatedWithPayloadEventArgs args, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var eventData = new
+                {
+                    sessionId = args.InteractionId,
+                    workflowId,
+                    executionId = args.ExecutionId,
+                    nodeId = args.NodeId,
+                    status = args.Status,
+                    // Complete UI session data included directly - eliminates race condition
+                    session = args.SessionPayload,
+                    uiComponent = new
+                    {
+                        id = args.InteractionId,
+                        name = args.Title,
+                        type = args.InteractionType,
+                        configuration = new
+                        {
+                            title = args.Title,
+                            description = args.Description,
+                            fields = TransformInputSchemaToFields(args.InputSchema),
+                            submitLabel = args.InputSchema.ContainsKey("submitLabel") ? args.InputSchema["submitLabel"] : "Submit",
+                            cancelLabel = args.InputSchema.ContainsKey("cancelLabel") ? args.InputSchema["cancelLabel"] : "Cancel",
+                            allowSkip = args.InputSchema.ContainsKey("allowSkip") ? args.InputSchema["allowSkip"] : false
+                        }
+                    },
+                    contextData = args.ContextData ?? new Dictionary<string, object>(),
+                    timeoutAt = args.CreatedAt.Add(args.Timeout ?? TimeSpan.FromMinutes(30)).ToString("o"),
+                    createdAt = args.CreatedAt.ToString("o"),
+                    timeout = args.Timeout
+                };
+
+                _logger.LogInformation("Sending UI interaction with complete payload for ExecutionID {ExecutionId} to workflow group {WorkflowId}", 
+                    args.ExecutionId, workflowId);
+                
+                await _hubContext.Clients.Group(workflowId).SendAsync("UIInteractionCreatedWithPayload", eventData, cancellationToken);
+                
+                _logger.LogInformation("Successfully sent UI interaction with payload for ExecutionID {ExecutionId} - race condition eliminated", args.ExecutionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send UI interaction with payload for ExecutionID {ExecutionId}", args.ExecutionId);
+                throw;
+            }
+        }
+
         public async Task NotifyUIInteractionCreatedAsync(string workflowId, UIInteractionCreatedEventArgs args, CancellationToken cancellationToken = default)
         {
             try

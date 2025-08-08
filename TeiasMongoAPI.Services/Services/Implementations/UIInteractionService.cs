@@ -261,31 +261,55 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     UiComponentId = uiComponentId
                 };
 
+                // Create and save to database first
                 await _unitOfWork.UIInteractions.CreateAsync(interaction, cancellationToken);
-
-                // Emit creation event
-                _logger.LogInformation("Calling notification service to send UI interaction created event for ExecutionID {ExecutionId}, WorkflowID {WorkflowId}. NotificationService instance hash: {ServiceHashCode}", 
-                    executionObjectId.ToString(), workflowId, _notificationService.GetHashCode());
                 
-                await _notificationService.NotifyUIInteractionCreatedAsync(
+                // Map to session DTO after database write - critical for race condition fix
+                var session = await MapToUIInteractionSessionAsync(interaction, cancellationToken) 
+                    ?? throw new InvalidOperationException("Failed to map created interaction to session");
+
+                _logger.LogInformation("UI interaction {InteractionId} successfully persisted. Sending notification with complete payload for ExecutionID {ExecutionId}, WorkflowID {WorkflowId}", 
+                    interaction._ID, executionObjectId.ToString(), workflowId);
+                
+                // NEW: Send notification with complete payload - eliminates race condition
+                await _notificationService.NotifyUIInteractionCreatedWithPayloadAsync(
                     workflowId,
-                    new UIInteractionCreatedEventArgs
+                    new UIInteractionCreatedWithPayloadEventArgs
                     {
                         InteractionId = interaction._ID.ToString(),
-                        ExecutionId = executionObjectId.ToString(), // ADD THIS
+                        ExecutionId = executionObjectId.ToString(),
                         NodeId = nodeId,
                         InteractionType = interactionType.ToString(),
                         Status = UIInteractionStatus.Pending.ToString(),
                         Title = request.Title,
                         Description = request.Description,
                         InputSchema = request.InputSchema,
-                        ContextData = interaction.ContextData, // ADD THIS
+                        ContextData = interaction.ContextData,
+                        CreatedAt = interaction.CreatedAt,
+                        Timeout = request.Timeout,
+                        SessionPayload = session // Complete session data - no API call needed!
+                    },
+                    cancellationToken);
+
+                // Keep legacy notifications for backward compatibility
+                await _notificationService.NotifyUIInteractionCreatedAsync(
+                    workflowId,
+                    new UIInteractionCreatedEventArgs
+                    {
+                        InteractionId = interaction._ID.ToString(),
+                        ExecutionId = executionObjectId.ToString(),
+                        NodeId = nodeId,
+                        InteractionType = interactionType.ToString(),
+                        Status = UIInteractionStatus.Pending.ToString(),
+                        Title = request.Title,
+                        Description = request.Description,
+                        InputSchema = request.InputSchema,
+                        ContextData = interaction.ContextData,
                         CreatedAt = interaction.CreatedAt,
                         Timeout = request.Timeout
                     },
                     cancellationToken);
 
-                // Also emit available event for legacy compatibility
                 await _notificationService.NotifyUIInteractionAvailableAsync(
                     workflowId,
                     new UIInteractionAvailableEventArgs
@@ -296,8 +320,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     },
                     cancellationToken);
 
-                return await MapToUIInteractionSessionAsync(interaction, cancellationToken) 
-                    ?? throw new InvalidOperationException("Failed to map created interaction to session");
+                _logger.LogInformation("UI interaction {InteractionId} created with payload notification sent - race condition eliminated", interaction._ID);
+                return session;
             }
             catch (Exception ex)
             {
