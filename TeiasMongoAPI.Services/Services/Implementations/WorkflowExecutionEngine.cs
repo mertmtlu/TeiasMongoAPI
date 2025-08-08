@@ -271,15 +271,27 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
 
                 // Queue background task execution
+                var executionIdString = executionId.ToString();
                 await _backgroundTaskQueue.QueueBackgroundWorkItemAsync(async (serviceProvider, ct) =>
                 {
-                    // Resolve a new scoped instance of IWorkflowExecutionEngine
-                    var scopedWorkflowEngine = serviceProvider.GetRequiredService<IWorkflowExecutionEngine>();
+                    // Resolve services from the new scope
+                    var scopedEngine = serviceProvider.GetRequiredService<IWorkflowExecutionEngine>();
+                    var sessionManager = serviceProvider.GetRequiredService<IWorkflowSessionManager>();
 
-                    // Since we need access to the internal method, we'll cast to the concrete type
-                    if (scopedWorkflowEngine is WorkflowExecutionEngine engine)
+                    // Retrieve the session using the executionId
+                    if (sessionManager.TryGetSession(executionIdString, out var sessionToExecute))
                     {
-                        await engine.ExecuteWorkflowInternalAsync(session, ct);
+                        if (scopedEngine is WorkflowExecutionEngine engine)
+                        {
+                            // Execute using the retrieved session
+                            await engine.ExecuteWorkflowInternalAsync(sessionToExecute, ct);
+                        }
+                    }
+                    else
+                    {
+                        // Log an error if the session disappeared, which could happen if the workflow was cancelled
+                        var logger = serviceProvider.GetRequiredService<ILogger<WorkflowExecutionEngine>>();
+                        logger.LogWarning("Could not find session {ExecutionId} to start background execution. It may have been cancelled.", executionIdString);
                     }
                 });
 
@@ -385,7 +397,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             var nodeSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes, session.Options.MaxConcurrentNodes);
             var nodeLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
-            var completionSource = new TaskCompletionSource<object>();
 
             // Update phase to indicate we're starting node execution
             await UpdateExecutionStatusAsync(session.ExecutionId, WorkflowExecutionStatus.Running, "Executing nodes", cancellationToken);
@@ -398,38 +409,28 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 if (!initialNodes.Any())
                 {
                     _logger.LogWarning($"No nodes without dependencies found in execution {session.ExecutionId}");
+
+                    // If there are no initial nodes, we might need to finalize immediately
+                    await CheckAndFinalizeWorkflowIfCompleteAsync(session, cancellationToken);
                     return;
                 }
-
-                // Track workflow completion
-                var totalEnabledNodes = session.Workflow.Nodes.Count(n => !n.IsDisabled);
-                var completedNodesCount = 0;
 
                 // Start initial nodes
                 foreach (var nodeId in initialNodes)
                 {
                     await TryStartNodeExecutionAsync(session, nodeId, nodeSemaphore, nodeLocks,
-                        () =>
-                        {
-                            var completed = Interlocked.Increment(ref completedNodesCount);
-                            if (completed >= totalEnabledNodes)
-                            {
-                                completionSource.TrySetResult(null);
-                            }
-                        },
+                        () => { /* Fire-and-forget: workflow continues via ContinueWith logic */ },
                         cancellationToken);
                 }
 
-                // Wait for all nodes to complete
-                await completionSource.Task;
+                // Fire-and-forget: The background task returns immediately after starting initial nodes.
+                // The workflow continues via the 'ContinueWith' logic in TryStartNodeExecutionAsync.
             }
             finally
             {
-                nodeSemaphore.Dispose();
-                foreach (var lockPair in nodeLocks)
-                {
-                    lockPair.Value.Dispose();
-                }
+                // Note: Resources are not disposed here since workflow continues running.
+                // These resources need to live as long as the session exists.
+                // Proper cleanup should be implemented when session is removed from session manager.
             }
         }
 
