@@ -1,4 +1,5 @@
 using MongoDB.Bson;
+using MongoDB.Bson.IO;
 using TeiasMongoAPI.Core.Models.DTOs;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -62,15 +63,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 BsonType.Int32 => value.AsInt32,
                 BsonType.Int64 => value.AsInt64,
                 BsonType.Double => value.AsDouble,
-                BsonType.Decimal128 => decimal.ToDouble(value.AsDecimal128),
+                BsonType.Decimal128 => (double)value.AsDecimal128,
                 BsonType.Boolean => value.AsBoolean,
                 BsonType.DateTime => value.ToUniversalTime(),
                 BsonType.ObjectId => value.AsObjectId.ToString(),
                 BsonType.Document => ConvertBsonToJsonSafe(value.AsBsonDocument),
                 BsonType.Array => value.AsBsonArray.Select(ConvertBsonValueToJsonSafe).ToList(),
+                BsonType.Binary when value.AsBsonBinaryData.SubType == BsonBinarySubType.UuidStandard || value.AsBsonBinaryData.SubType == BsonBinarySubType.UuidLegacy => value.AsGuid.ToString(),
                 BsonType.Binary => Convert.ToBase64String(value.AsBsonBinaryData.Bytes),
-                BsonType.Guid => value.AsGuid.ToString(),
-                BsonType.RegularExpression => value.AsRegex.Pattern,
+                BsonType.RegularExpression => value.AsRegex.ToString(),
                 
                 // Handle all other types with string fallback
                 _ => value.ToString() ?? string.Empty

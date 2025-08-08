@@ -6,6 +6,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Services.Helpers;
 using MongoDB.Bson;
+using TeiasMongoAPI.Services.Services.Implementations;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 {

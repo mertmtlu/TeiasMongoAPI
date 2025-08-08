@@ -2618,32 +2618,50 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
     public class WorkflowExecutionSession
     {
-        public required WorkflowExecution Execution { get; init; }
-        public required Workflow Workflow { get; init; }
-        public required WorkflowExecution OriginalExecution { get; init; }
-        public required List<WorkflowNode> SortedNodes { get; init; }
+        public required string ExecutionId { get; set; }
+        public required Workflow Workflow { get; set; }
+        public required WorkflowExecution Execution { get; set; }
         public required WorkflowExecutionOptions Options { get; set; }
         public required CancellationTokenSource CancellationTokenSource { get; set; }
         
-        // ConcurrentDictionary provides its own optimized thread-safety - no external locks needed
-        public ConcurrentDictionary<string, WorkflowDataContract> NodeOutputs { get; } = new();
-        public ConcurrentDictionary<string, Task<NodeExecution>> RunningNodes { get; } = new();
+        // Thread-safe collections - ConcurrentDictionary provides its own optimized thread-safety
+        public ConcurrentDictionary<string, WorkflowDataContract> NodeOutputs { get; set; } = new();
+        public ConcurrentDictionary<string, Task<NodeExecution>> RunningNodes { get; set; } = new();
         
         // Use ConcurrentDictionary as thread-safe sets with dummy values
         private readonly ConcurrentDictionary<string, byte> _completedNodes = new();
         private readonly ConcurrentDictionary<string, byte> _failedNodes = new();
         
-        // Simple, lock-free properties - ConcurrentDictionary.Keys is thread-safe
-        public IReadOnlySet<string> CompletedNodes => _completedNodes.Keys.ToHashSet();
-        public IReadOnlySet<string> FailedNodes => _failedNodes.Keys.ToHashSet();
+        // Thread-safe properties using ConcurrentDictionary
+        public HashSet<string> CompletedNodes 
+        { 
+            get => _completedNodes.Keys.ToHashSet(); 
+            set 
+            { 
+                _completedNodes.Clear();
+                foreach (var nodeId in value ?? new HashSet<string>())
+                    _completedNodes.TryAdd(nodeId, 0);
+            } 
+        }
+        
+        public HashSet<string> FailedNodes 
+        { 
+            get => _failedNodes.Keys.ToHashSet(); 
+            set 
+            { 
+                _failedNodes.Clear();
+                foreach (var nodeId in value ?? new HashSet<string>())
+                    _failedNodes.TryAdd(nodeId, 0);
+            } 
+        }
 
-        // Simple methods relying on ConcurrentDictionary's atomic operations
+        // Thread-safe methods for node state management
         public void MarkNodeCompleted(string nodeId)
         {
             if (string.IsNullOrEmpty(nodeId)) return;
             
             _completedNodes.TryAdd(nodeId, 0);
-            _failedNodes.TryRemove(nodeId, out _); // Remove from failed if previously failed
+            _failedNodes.TryRemove(nodeId, out _);
         }
         
         public void MarkNodeFailed(string nodeId)
@@ -2651,7 +2669,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (string.IsNullOrEmpty(nodeId)) return;
             
             _failedNodes.TryAdd(nodeId, 0);
-            _completedNodes.TryRemove(nodeId, out _); // Remove from completed if previously completed
+            _completedNodes.TryRemove(nodeId, out _);
         }
         
         public bool IsNodeCompleted(string nodeId)
@@ -2663,8 +2681,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             return !string.IsNullOrEmpty(nodeId) && _failedNodes.ContainsKey(nodeId);
         }
-
-        // No IDisposable needed - ConcurrentDictionary handles its own cleanup
     }
 
     public class ExecutionStatusInfo

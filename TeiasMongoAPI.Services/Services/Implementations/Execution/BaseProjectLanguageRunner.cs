@@ -6,6 +6,7 @@ using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Core.Models.DTOs;
+using TeiasMongoAPI.Services.Services.Implementations;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 {
