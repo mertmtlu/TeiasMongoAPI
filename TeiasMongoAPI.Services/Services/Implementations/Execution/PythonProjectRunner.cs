@@ -16,7 +16,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public override string Language => "Python";
         public override int Priority => 20;
 
-        public PythonProjectRunner(ILogger<PythonProjectRunner> logger, IUnitOfWork unitOfWork) : base(logger)
+        public PythonProjectRunner(ILogger<PythonProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper)
         {
             _unitOfWork = unitOfWork;
         }

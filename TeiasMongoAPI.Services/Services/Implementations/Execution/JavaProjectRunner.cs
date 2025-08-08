@@ -10,7 +10,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public override string Language => "Java";
         public override int Priority => 30;
 
-        public JavaProjectRunner(ILogger<JavaProjectRunner> logger) : base(logger) { }
+        public JavaProjectRunner(ILogger<JavaProjectRunner> logger, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper) { }
 
         public override async Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default)
         {

@@ -17,77 +17,206 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         IReadOnlyCollection<string> SessionKeys { get; }
     }
 
-    public class WorkflowSessionManager : IWorkflowSessionManager
+    public class WorkflowSessionManager : IWorkflowSessionManager, IDisposable
     {
         private readonly ConcurrentDictionary<string, WorkflowExecutionSession> _activeSessions = new();
         private readonly ILogger<WorkflowSessionManager> _logger;
-        private readonly object _lock = new object();
+        
+        // ReaderWriterLockSlim for consistent protection of all operations
+        private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
 
         public WorkflowSessionManager(ILogger<WorkflowSessionManager> logger)
         {
             _logger = logger;
-            _logger.LogInformation($"WorkflowSessionManager singleton instance created: {GetHashCode()}");
+            _logger.LogInformation("WorkflowSessionManager singleton instance created: {InstanceHash}", GetHashCode());
         }
 
+        // CORRECTED: Consistent locking for all write operations
         public void AddSession(string executionId, WorkflowExecutionSession session)
         {
-            _activeSessions[executionId] = session;
-            _logger.LogInformation($"[SessionManager {GetHashCode()}] Added session {executionId}. Total sessions: {_activeSessions.Count}");
+            if (string.IsNullOrEmpty(executionId))
+                throw new ArgumentException("ExecutionId cannot be null or empty", nameof(executionId));
+            if (session == null)
+                throw new ArgumentNullException(nameof(session));
+
+            _lock.EnterWriteLock();
+            try
+            {
+                _activeSessions[executionId] = session;
+                _logger.LogInformation("[SessionManager {InstanceHash}] Added session {ExecutionId}. Total sessions: {SessionCount}", 
+                    GetHashCode(), executionId, _activeSessions.Count);
+            }
+            finally
+            {
+                _lock.ExitWriteLock();
+            }
         }
 
+        // CORRECTED: Consistent locking for all read operations
         public WorkflowExecutionSession? GetSession(string executionId)
         {
-            _activeSessions.TryGetValue(executionId, out var session);
-            return session;
+            if (string.IsNullOrEmpty(executionId))
+                return null;
+
+            _lock.EnterReadLock();
+            try
+            {
+                _activeSessions.TryGetValue(executionId, out var session);
+                return session;
+            }
+            finally
+            {
+                _lock.ExitReadLock();
+            }
         }
 
         public bool TryGetSession(string executionId, out WorkflowExecutionSession? session)
         {
-            var result = _activeSessions.TryGetValue(executionId, out session);
-            if (!result)
+            session = null;
+            if (string.IsNullOrEmpty(executionId))
+                return false;
+
+            _lock.EnterReadLock();
+            try
             {
-                _logger.LogWarning($"[SessionManager {GetHashCode()}] Session {executionId} not found. Current sessions: [{string.Join(", ", _activeSessions.Keys)}]");
+                var result = _activeSessions.TryGetValue(executionId, out session);
+                if (!result)
+                {
+                    _logger.LogWarning("[SessionManager {InstanceHash}] Session {ExecutionId} not found. Current sessions: [{SessionKeys}]", 
+                        GetHashCode(), executionId, string.Join(", ", _activeSessions.Keys));
+                }
+                return result;
             }
-            return result;
+            finally
+            {
+                _lock.ExitReadLock();
+            }
         }
 
+        // CORRECTED: Consistent locking for all write operations
         public void RemoveSession(string executionId)
         {
-            _activeSessions.TryRemove(executionId, out _);
-            _logger.LogInformation($"[SessionManager {GetHashCode()}] Removed session {executionId}. Remaining sessions: {_activeSessions.Count}");
+            if (string.IsNullOrEmpty(executionId))
+                return;
+
+            _lock.EnterWriteLock();
+            try
+            {
+                _activeSessions.TryRemove(executionId, out _);
+                _logger.LogInformation("[SessionManager {InstanceHash}] Removed session {ExecutionId}. Remaining sessions: {SessionCount}", 
+                    GetHashCode(), executionId, _activeSessions.Count);
+            }
+            finally
+            {
+                _lock.ExitWriteLock();
+            }
         }
 
         public bool IsWorkflowRunning(string workflowId)
         {
-            return _activeSessions.Values.Any(session => session.Workflow._ID.ToString() == workflowId);
+            if (string.IsNullOrEmpty(workflowId))
+                return false;
+
+            _lock.EnterReadLock();
+            try
+            {
+                return _activeSessions.Values.Any(session => 
+                    session.Workflow._ID.ToString().Equals(workflowId, StringComparison.OrdinalIgnoreCase));
+            }
+            finally
+            {
+                _lock.ExitReadLock();
+            }
         }
 
         public string? GetRunningExecutionId(string workflowId)
         {
-            var runningSession = _activeSessions.FirstOrDefault(kvp => kvp.Value.Workflow._ID.ToString() == workflowId);
-            return runningSession.Key;
-        }
+            if (string.IsNullOrEmpty(workflowId))
+                return null;
 
-        public bool TryAddSessionIfNotRunning(string executionId, WorkflowExecutionSession session, string workflowId)
-        {
-            lock (_lock)
+            _lock.EnterReadLock();
+            try
             {
-                // Check if workflow is already running
-                if (IsWorkflowRunning(workflowId))
-                {
-                    _logger.LogWarning($"[SessionManager {GetHashCode()}] Cannot add session {executionId} - workflow {workflowId} is already running");
-                    return false;
-                }
-
-                // Add the session
-                _activeSessions[executionId] = session;
-                _logger.LogInformation($"[SessionManager {GetHashCode()}] Added session {executionId} for workflow {workflowId}. Total sessions: {_activeSessions.Count}");
-                return true;
+                var runningSession = _activeSessions.FirstOrDefault(kvp => 
+                    kvp.Value.Workflow._ID.ToString().Equals(workflowId, StringComparison.OrdinalIgnoreCase));
+                return runningSession.Key;
+            }
+            finally
+            {
+                _lock.ExitReadLock();
             }
         }
 
-        public int SessionCount => _activeSessions.Count;
+        // ATOMIC: Critical check-and-add operation under write lock
+        public bool TryAddSessionIfNotRunning(string executionId, WorkflowExecutionSession session, string workflowId)
+        {
+            if (string.IsNullOrEmpty(executionId))
+                throw new ArgumentException("ExecutionId cannot be null or empty", nameof(executionId));
+            if (session == null)
+                throw new ArgumentNullException(nameof(session));
+            if (string.IsNullOrEmpty(workflowId))
+                throw new ArgumentException("WorkflowId cannot be null or empty", nameof(workflowId));
 
-        public IReadOnlyCollection<string> SessionKeys => _activeSessions.Keys.ToList();
+            _lock.EnterWriteLock();
+            try
+            {
+                // Atomic check and add - both operations under same write lock
+                var isAlreadyRunning = _activeSessions.Values.Any(s => 
+                    s.Workflow._ID.ToString().Equals(workflowId, StringComparison.OrdinalIgnoreCase));
+
+                if (isAlreadyRunning)
+                {
+                    _logger.LogWarning("[SessionManager {InstanceHash}] Cannot add session {ExecutionId} - workflow {WorkflowId} is already running", 
+                        GetHashCode(), executionId, workflowId);
+                    return false;
+                }
+
+                _activeSessions[executionId] = session;
+                _logger.LogInformation("[SessionManager {InstanceHash}] Added session {ExecutionId} for workflow {WorkflowId}. Total sessions: {SessionCount}", 
+                    GetHashCode(), executionId, workflowId, _activeSessions.Count);
+                return true;
+            }
+            finally
+            {
+                _lock.ExitWriteLock();
+            }
+        }
+
+        public int SessionCount 
+        {
+            get
+            {
+                _lock.EnterReadLock();
+                try
+                {
+                    return _activeSessions.Count;
+                }
+                finally
+                {
+                    _lock.ExitReadLock();
+                }
+            }
+        }
+
+        public IReadOnlyCollection<string> SessionKeys 
+        {
+            get
+            {
+                _lock.EnterReadLock();
+                try
+                {
+                    return _activeSessions.Keys.ToList();
+                }
+                finally
+                {
+                    _lock.ExitReadLock();
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            _lock?.Dispose();
+        }
     }
 }

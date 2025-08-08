@@ -11,7 +11,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public override string Language => "C#";
         public override int Priority => 10;
 
-        public CSharpProjectRunner(ILogger<CSharpProjectRunner> logger) : base(logger) { }
+        public CSharpProjectRunner(ILogger<CSharpProjectRunner> logger, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper) { }
 
         public override async Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default)
         {

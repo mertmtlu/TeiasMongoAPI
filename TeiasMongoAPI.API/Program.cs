@@ -220,6 +220,9 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IWorkflowNotificationService, SignalRWorkflowNotificationService>();
             builder.Services.AddScoped<IUIInteractionService, UIInteractionService>();
             
+            // Register BSON to DTO Mapping Service
+            builder.Services.AddScoped<IBsonToDtoMappingService, BsonToDtoMappingService>();
+            
             // Register Session Manager as Singleton
             builder.Services.AddSingleton<IWorkflowSessionManager, WorkflowSessionManager>();
 

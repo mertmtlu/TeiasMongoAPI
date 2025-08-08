@@ -5,19 +5,22 @@ using System.Text.Json;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.Interfaces.Execution;
+using TeiasMongoAPI.Core.Models.DTOs;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 {
     public abstract class BaseProjectLanguageRunner : IProjectLanguageRunner
     {
         protected readonly ILogger _logger;
+        protected readonly IBsonToDtoMappingService _bsonMapper;
 
         public abstract string Language { get; }
         public virtual int Priority => 100;
 
-        protected BaseProjectLanguageRunner(ILogger logger)
+        protected BaseProjectLanguageRunner(ILogger logger, IBsonToDtoMappingService bsonMapper)
         {
             _logger = logger;
+            _bsonMapper = bsonMapper;
         }
 
         public abstract Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default);
@@ -172,40 +175,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             return string.Empty;
         }
 
+        /// <summary>
+        /// FIXED: Safe parameter processing with proper BSON to JSON conversion
+        /// </summary>
         protected async Task ProcessInputFilesFromParametersAsync(ProjectExecutionContext context, CancellationToken cancellationToken)
         {
             try
             {
-                var parametersJson = System.Text.Json.JsonSerializer.Serialize(context.Parameters);
-                var parametersDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(parametersJson);
+                // CRITICAL FIX: Use DTO mapping service instead of direct JsonSerializer
+                var contextDto = _bsonMapper.MapToExecutionContextDto(
+                    context.Parameters, 
+                    context.ExecutionId, 
+                    context.ProjectDirectory);
 
-                if (parametersDict?.ContainsKey("inputFiles") == true)
+                if (contextDto.InputFiles != null && contextDto.InputFiles.Any())
                 {
-                    var inputFilesJson = System.Text.Json.JsonSerializer.Serialize(parametersDict["inputFiles"]);
-                    var inputFiles = System.Text.Json.JsonSerializer.Deserialize<List<InputFileData>>(inputFilesJson);
+                    // Create input directory in project
+                    var inputDir = Path.Combine(context.ProjectDirectory, "input");
+                    Directory.CreateDirectory(inputDir);
 
-                    if (inputFiles != null && inputFiles.Any())
+                    foreach (var inputFile in contextDto.InputFiles)
                     {
-                        // Create input directory in project
-                        var inputDir = Path.Combine(context.ProjectDirectory, "input");
-                        Directory.CreateDirectory(inputDir);
-
-                        foreach (var inputFile in inputFiles)
+                        if (!string.IsNullOrEmpty(inputFile.Content))
                         {
-                            if (!string.IsNullOrEmpty(inputFile.Content))
-                            {
-                                var filePath = Path.Combine(inputDir, inputFile.Name);
-                                var content = Convert.FromBase64String(inputFile.Content);
-                                await File.WriteAllBytesAsync(filePath, content, cancellationToken);
+                            var filePath = Path.Combine(inputDir, inputFile.Name);
+                            var content = Convert.FromBase64String(inputFile.Content);
+                            await File.WriteAllBytesAsync(filePath, content, cancellationToken);
 
-                                _logger.LogDebug("Created input file: {FilePath} ({Size} bytes)",
-                                    filePath, content.Length);
-                            }
+                            _logger.LogDebug("Created input file: {FilePath} ({Size} bytes)",
+                                filePath, content.Length);
                         }
-
-                        _logger.LogInformation("Processed {FileCount} input files for execution {ExecutionId}",
-                            inputFiles.Count, context.ExecutionId);
                     }
+
+                    _logger.LogInformation("Processed {FileCount} input files for execution {ExecutionId}",
+                        contextDto.InputFiles.Count, context.ExecutionId);
                 }
             }
             catch (Exception ex)
@@ -215,34 +218,32 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             }
         }
 
+        /// <summary>
+        /// FIXED: Safe parameter processing for external scripts
+        /// </summary>
         protected object ProcessParametersForExecution(object parameters, string projectDirectory)
         {
             try
             {
-                var parametersJson = System.Text.Json.JsonSerializer.Serialize(parameters);
-                var parametersDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(parametersJson);
+                // CRITICAL FIX: Convert to JSON-safe DTO before serialization
+                var contextDto = _bsonMapper.MapToExecutionContextDto(parameters, Guid.NewGuid().ToString(), projectDirectory);
+                var parametersDict = contextDto.Parameters;
 
                 if (parametersDict == null)
                 {
                     return parameters;
                 }
 
-                // Process input files (existing logic)
-                if (parametersDict.ContainsKey("inputFiles"))
+                // Process input files using DTO service
+                if (contextDto.InputFiles != null && contextDto.InputFiles.Any())
                 {
-                    var inputFilesJson = System.Text.Json.JsonSerializer.Serialize(parametersDict["inputFiles"]);
-                    var inputFiles = System.Text.Json.JsonSerializer.Deserialize<List<InputFileData>>(inputFilesJson);
+                    var filePaths = contextDto.InputFiles.Select(f => $"./input/{f.Name}").ToList();
+                    var fileNames = contextDto.InputFiles.Select(f => f.Name).ToList();
 
-                    if (inputFiles != null)
-                    {
-                        var filePaths = inputFiles.Select(f => $"./input/{f.Name}").ToList();
-                        var fileNames = inputFiles.Select(f => f.Name).ToList();
-
-                        parametersDict["inputFiles"] = filePaths;
-                        parametersDict["inputFileNames"] = fileNames;
-                        parametersDict["inputDirectory"] = "./input";
-                        parametersDict["hasInputFiles"] = true;
-                    }
+                    parametersDict["inputFiles"] = filePaths;
+                    parametersDict["inputFileNames"] = fileNames;
+                    parametersDict["inputDirectory"] = "./input";
+                    parametersDict["hasInputFiles"] = true;
                 }
                 else
                 {

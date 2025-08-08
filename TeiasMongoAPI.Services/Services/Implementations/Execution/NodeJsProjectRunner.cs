@@ -10,7 +10,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public override string Language => "Node.js";
         public override int Priority => 40;
 
-        public NodeJsProjectRunner(ILogger<NodeJsProjectRunner> logger) : base(logger) { }
+        public NodeJsProjectRunner(ILogger<NodeJsProjectRunner> logger, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper) { }
 
         public override async Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default)
         {
