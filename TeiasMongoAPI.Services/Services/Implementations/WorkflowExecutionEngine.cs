@@ -372,29 +372,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         private async Task<bool> AreDependenciesSatisfiedAsync(WorkflowExecutionSession session, string nodeId, CancellationToken cancellationToken)
         {
+            _logger.LogInformation("DEBUG: Checking dependencies for node {NodeId}", nodeId);
             var incomingEdges = session.Workflow.Edges.Where(e => e.TargetNodeId == nodeId && !e.IsDisabled);
+            _logger.LogInformation("DEBUG: Found {EdgeCount} incoming edges for node {NodeId}: [{SourceNodes}]",
+                incomingEdges.Count(), nodeId, string.Join(", ", incomingEdges.Select(e => e.SourceNodeId)));
 
             foreach (var edge in incomingEdges)
             {
                 var sourceNodeExecution = session.Execution.NodeExecutions.First(ne => ne.NodeId == edge.SourceNodeId);
+                _logger.LogInformation("DEBUG: Source node {SourceNodeId} has status {Status} (CompletedAt: {CompletedAt})",
+                    edge.SourceNodeId, sourceNodeExecution.Status, sourceNodeExecution.CompletedAt);
 
                 // Check if source node is completed or if this is an optional dependency
                 if (sourceNodeExecution.Status != NodeExecutionStatus.Completed &&
                     sourceNodeExecution.Status != NodeExecutionStatus.Skipped)
                 {
+                    _logger.LogInformation("DEBUG: Source node {SourceNodeId} is not completed (Status: {Status}), checking if optional",
+                        edge.SourceNodeId, sourceNodeExecution.Status);
+
                     // Check if this is an optional dependency
                     var targetNode = session.Workflow.Nodes.First(n => n.Id == nodeId);
                     var inputMapping = targetNode.InputConfiguration.InputMappings.FirstOrDefault(im => im.SourceNodeId == edge.SourceNodeId);
 
                     if (inputMapping?.IsOptional == true)
                     {
+                        _logger.LogInformation("DEBUG: Dependency {SourceNodeId} -> {NodeId} is optional, continuing", edge.SourceNodeId, nodeId);
                         continue; // Optional dependency, can proceed
                     }
 
+                    _logger.LogInformation("DEBUG: Required dependency {SourceNodeId} -> {NodeId} not satisfied, returning false", edge.SourceNodeId, nodeId);
                     return false; // Required dependency not satisfied
                 }
             }
 
+            _logger.LogInformation("DEBUG: All dependencies satisfied for node {NodeId}, returning true", nodeId);
             return true;
         }
 
@@ -486,27 +497,50 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var nodeLock = nodeLocks.GetOrAdd(nodeId, _ => new SemaphoreSlim(1, 1));
 
             // Try to acquire the node-specific lock
+            _logger.LogInformation("DEBUG: Attempting to acquire lock for node {NodeId}", nodeId);
             if (!await nodeLock.WaitAsync(0, cancellationToken))
             {
-                // Node is already being processed
+                _logger.LogInformation("DEBUG: Failed to acquire lock for node {NodeId} - node already being processed", nodeId);
                 return;
             }
+            _logger.LogInformation("DEBUG: Successfully acquired lock for node {NodeId}", nodeId);
 
             try
             {
+                _logger.LogInformation("DEBUG: TryStartNodeExecutionAsync for node {NodeId} - Starting checks", nodeId);
+                _logger.LogInformation("DEBUG: Node status - Completed: {InCompleted}, Failed: {InFailed}, Running: {InRunning}",
+                    session.CompletedNodes.Contains(nodeId),
+                    session.FailedNodes.Contains(nodeId),
+                    session.RunningNodes.ContainsKey(nodeId));
+
                 // Double-check that the node isn't already processed or running
-                if (session.CompletedNodes.Contains(nodeId) ||
-                    session.FailedNodes.Contains(nodeId) ||
-                    session.RunningNodes.ContainsKey(nodeId))
+                if (session.CompletedNodes.Contains(nodeId))
                 {
+                    _logger.LogInformation("DEBUG: Node {NodeId} already in CompletedNodes - returning early", nodeId);
+                    return;
+                }
+
+                if (session.FailedNodes.Contains(nodeId))
+                {
+                    _logger.LogInformation("DEBUG: Node {NodeId} already in FailedNodes - returning early", nodeId);
+                    return;
+                }
+
+                if (session.RunningNodes.ContainsKey(nodeId))
+                {
+                    _logger.LogInformation("DEBUG: Node {NodeId} already in RunningNodes - returning early", nodeId);
                     return;
                 }
 
                 // Check if dependencies are satisfied
+                _logger.LogInformation("DEBUG: Checking dependencies for node {NodeId}", nodeId);
                 if (!await AreDependenciesSatisfiedAsync(session, nodeId, cancellationToken))
                 {
+                    _logger.LogInformation("DEBUG: Dependencies not satisfied for node {NodeId} - returning early", nodeId);
                     return;
                 }
+
+                _logger.LogInformation("DEBUG: All checks passed for node {NodeId} - proceeding with execution", nodeId);
 
                 // Start the node execution
                 var nodeTask = ExecuteNodeWithTrackingAsync(session, nodeId, globalSemaphore, cancellationToken);
@@ -579,6 +613,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Process each dependent node
                 var dependentTasks = dependentNodeIds.Select(async dependentNodeId =>
                 {
+                    var dependentNode = session.Workflow.Nodes.FirstOrDefault(n => n.Id == dependentNodeId);
+                    _logger.LogInformation("Processing dependent node {DependentNodeId}: ProgramId={ProgramId}, IsDisabled={IsDisabled}",
+                        dependentNodeId,
+                        dependentNode?.ProgramId.ToString() ?? "NULL",
+                        dependentNode?.IsDisabled ?? true);
                     _logger.LogInformation("Attempting to start dependent node {DependentNodeId} after {CompletedNodeId}",
                         dependentNodeId, completedNodeId);
                     await TryStartNodeExecutionAsync(session, dependentNodeId, globalSemaphore, nodeLocks, onNodeCompleted, cancellationToken);
@@ -591,7 +630,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     completedNodeId, string.Join(", ", completedNodeIds));
 
                 // Check if workflow is complete after processing dependent nodes
-                await CheckAndFinalizeWorkflowIfCompleteAsync(session, cancellationToken);
+                await CheckAndContinueOrFinalizeWorkflowAsync(session, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -730,7 +769,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 // Add node execution start log
                 var node = session.Workflow.Nodes.FirstOrDefault(n => n.Id == nodeId);
-                _logger.LogInformation($"Starting execution of node '{node?.Name ?? nodeId}'");
+                _logger.LogInformation("Starting execution of node '{NodeName}' (ID: {NodeId}, ProgramId: {ProgramId}, Type: {NodeType})",
+                    node?.Name ?? "UNNAMED", nodeId, node?.ProgramId.ToString() ?? "NULL", node?.NodeType);
+
+                if (node?.ProgramId == null || node.ProgramId == ObjectId.Empty)
+                {
+                    _logger.LogError("CRITICAL: Node {NodeId} has null/empty ProgramId - this will cause execution failure", nodeId);
+                }
 
                 await AddExecutionLogAsync(session.ExecutionId, TeiasMongoAPI.Core.Models.Collaboration.LogLevel.Info, $"Starting execution of node '{node?.Name ?? nodeId}'", nodeId: nodeId, metadata: new Dictionary<string, object>
                 {
@@ -962,23 +1007,48 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 };
 
                 // Check if this program requires UI interaction
-                _logger.LogInformation("Checking UI interaction requirement for node {NodeId}, program {ProgramId}", nodeId, node.ProgramId);
+                _logger.LogInformation("Fetching program {ProgramId} for node {NodeId}", node.ProgramId, nodeId);
                 var program = await _unitOfWork.Programs.GetByIdAsync(node.ProgramId, cancellationToken);
+
                 if (program == null)
                 {
-                    _logger.LogWarning("Program {ProgramId} not found for node {NodeId}", node.ProgramId, nodeId);
+                    _logger.LogError("FATAL: Program {ProgramId} not found for node {NodeId} - failing node execution", node.ProgramId, nodeId);
+                    nodeExecution.Status = NodeExecutionStatus.Failed;
+                    nodeExecution.Error = new NodeExecutionError
+                    {
+                        ErrorType = NodeErrorType.ConfigurationError,
+                        Message = $"Program {node.ProgramId} not found",
+                        Timestamp = DateTime.UtcNow,
+                        CanRetry = false
+                    };
+                    nodeExecution.CompletedAt = DateTime.UtcNow;
+                    await UpdateNodeExecutionAndSyncSessionAsync(executionId, nodeId, nodeExecution, cancellationToken);
+
+                    return new NodeExecutionResponseDto
+                    {
+                        Status = NodeExecutionStatus.Failed,
+                        ErrorMessage = $"Program {node.ProgramId} not found",
+                        StartedAt = nodeExecution.StartedAt.Value,
+                        ExecutionId = executionId,
+                        NodeId = nodeId
+                    };
                 }
                 else
                 {
-                    _logger.LogInformation("Program {ProgramName} ({ProgramId}) found for node {NodeId}, checking UI interaction requirement", program.Name, node.ProgramId, nodeId);
+                    _logger.LogInformation("Program loaded successfully: {ProgramName} (UiType: {UiType})",
+                        program.Name, program.UiType ?? "Unknown");
                 }
 
-                if (program != null && await IsUIInteractionRequiredAsync(program, cancellationToken))
+                var requiresUI = await IsUIInteractionRequiredAsync(program, session, cancellationToken);
+                _logger.LogInformation("UI interaction requirement for node {NodeId}: {RequiresUI} (Program: {ProgramName}, UiType: {UiType})",
+                    nodeId, requiresUI, program?.Name, program?.UiType ?? "Unknown");
+
+                if (requiresUI)
                 {
                     _logger.LogInformation($"Program {program.Name} requires UI interaction. Creating UI interaction session.");
 
                     // Get UI component ID for this program
-                    var uiComponentId = await GetUIComponentIdForProgramAsync(program, cancellationToken);
+                    var uiComponentId = await GetUIComponentIdForProgramAsync(program, session, cancellationToken);
 
                     // Create UI interaction request
                     var uiInteractionRequest = new UIInteractionRequest
@@ -2316,6 +2386,30 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 return;
             }
 
+            scopedLogger.LogInformation("DEBUG: Retrieved session {ExecutionId} in background continuation. Completed nodes: [{CompletedNodes}]",
+                executionId, string.Join(", ", session.CompletedNodes));
+
+            // CRITICAL FIX: Force reload session from database to ensure we have the latest state
+            var latestExecution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(executionId), cancellationToken);
+            if (latestExecution != null)
+            {
+                scopedLogger.LogInformation("DEBUG: Forcing session state refresh from database");
+
+                // Update session execution state with latest from database
+                session.Execution = latestExecution;
+
+                // Ensure CompletedNodes is in sync with database
+                var dbCompletedNodes = latestExecution.NodeExecutions.Where(ne => ne.Status == NodeExecutionStatus.Completed).Select(ne => ne.NodeId).ToList();
+                session.CompletedNodes.Clear();
+                foreach (var nodeId in dbCompletedNodes)
+                {
+                    session.CompletedNodes.Add(nodeId);
+                }
+
+                scopedLogger.LogInformation("DEBUG: After refresh - Completed nodes: [{CompletedNodes}]",
+                    string.Join(", ", session.CompletedNodes));
+            }
+
             scopedLogger.LogInformation("Retrieved session {ExecutionId} in background continuation. Continuing workflow...", executionId);
 
             // Use a semaphore and locks for this continuation scope
@@ -2385,10 +2479,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        private async Task<bool> IsUIInteractionRequiredAsync(Program program, CancellationToken cancellationToken)
+        private async Task<bool> IsUIInteractionRequiredAsync(Program program, WorkflowExecutionSession session, CancellationToken cancellationToken)
         {
-            // Check if program has actual UI components that require user interaction
-            // This is more reliable than just checking the UiType field
+            // IMPORTANT: Do NOT cache UI interaction requirement decisions
+            // Each node execution should always create a new UI interaction session if the program has UI components
+            // Only the UI component lookup itself is cached for performance
 
             try
             {
@@ -2404,7 +2499,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
                 // Check if program actually has UI components
                 _logger.LogInformation("Checking UI components for program {ProgramId} (Name: {ProgramName})", program._ID, program.Name);
-                var uiComponentId = await GetUIComponentIdForProgramAsync(program, cancellationToken);
+                var uiComponentId = await GetUIComponentIdForProgramAsync(program, session, cancellationToken);
 
                 // If no UI components found, no UI interaction is required
                 if (string.IsNullOrEmpty(uiComponentId))
@@ -2423,8 +2518,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
-        private async Task<string?> GetUIComponentIdForProgramAsync(Program program, CancellationToken cancellationToken)
+        private async Task<string?> GetUIComponentIdForProgramAsync(Program program, WorkflowExecutionSession session, CancellationToken cancellationToken)
         {
+            // Check cache first to ensure consistent behavior within the same execution
+            var programIdString = program._ID.ToString();
+            if (session.ProgramUIComponentCache.TryGetValue(programIdString, out var cachedComponentId))
+            {
+                _logger.LogInformation("Using cached UI component for program {ProgramId} (Name: {ProgramName}): {ComponentId}", program._ID, program.Name, cachedComponentId);
+                return cachedComponentId;
+            }
+
             try
             {
                 _logger.LogInformation("Looking up UI components for program {ProgramId} (Name: {ProgramName})", program._ID, program.Name);
@@ -2434,6 +2537,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 if (version == null)
                 {
                     _logger.LogWarning("No version found for program {ProgramId} (Name: {ProgramName})", program._ID, program.Name);
+                    session.ProgramUIComponentCache[programIdString] = null;
                     return null;
                 }
 
@@ -2444,6 +2548,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 if (components == null || !components.Any())
                 {
                     _logger.LogWarning("No UI components found for program {ProgramId} (Name: {ProgramName}), version {VersionId}", program._ID, program.Name, version._ID);
+                    session.ProgramUIComponentCache[programIdString] = null;
                     return null;
                 }
 
@@ -2451,12 +2556,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
                 // Return the first active component, or just the first one
                 var activeComponent = components.FirstOrDefault(c => c.Status == "active") ?? components.First();
+                var componentIdString = activeComponent._ID.ToString();
                 _logger.LogInformation("Selected UI component {ComponentId} (Status: {Status}) for program {ProgramId} (Name: {ProgramName})", activeComponent._ID, activeComponent.Status, program._ID, program.Name);
-                return activeComponent._ID.ToString();
+                session.ProgramUIComponentCache[programIdString] = componentIdString;
+                return componentIdString;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to get UI component for program {ProgramId}", program._ID);
+                session.ProgramUIComponentCache[programIdString] = null;
                 return null;
             }
         }
@@ -2608,6 +2716,98 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             // Return primitive types as-is (string, int, bool, etc.)
             return value;
+        }
+
+        private async Task CheckAndContinueOrFinalizeWorkflowAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Check workflow status and either continue execution or finalize if complete
+                // Get the latest execution data from database to ensure accuracy
+                var latestExecution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(session.ExecutionId), cancellationToken);
+                if (latestExecution == null)
+                {
+                    _logger.LogWarning("Could not find execution {ExecutionId} in database during completion check", session.ExecutionId);
+                    return;
+                }
+
+                var nodeExecutions = latestExecution.NodeExecutions ?? new List<NodeExecution>();
+                var enabledNodes = session.Workflow.Nodes.Where(n => !n.IsDisabled).ToList();
+                var totalEnabledNodes = enabledNodes.Count;
+
+                // Count nodes based on their actual database status
+                var completedNodesCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Completed);
+                var skippedNodesCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Skipped);
+                var failedNodesCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Failed);
+                var runningNodesCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Running);
+                var waitingNodesCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
+
+                var finishedNodesCount = completedNodesCount + skippedNodesCount + failedNodesCount;
+
+                _logger.LogInformation("Checking workflow completion for execution {ExecutionId}: {CompletedNodes} completed, {SkippedNodes} skipped, {FailedNodes} failed, {RunningNodes} running, {WaitingNodes} waiting ({FinishedNodes}/{TotalNodes} finished)",
+                    session.ExecutionId, completedNodesCount, skippedNodesCount, failedNodesCount, runningNodesCount, waitingNodesCount, finishedNodesCount, totalEnabledNodes);
+
+                // Check if workflow execution is finished
+                // Workflow is complete when all enabled nodes are either completed, skipped, or failed
+                // AND there are no nodes currently running or waiting for input
+                if (finishedNodesCount >= totalEnabledNodes && runningNodesCount == 0 && waitingNodesCount == 0)
+                {
+                    _logger.LogInformation("Workflow execution {ExecutionId} is complete. Finalizing workflow...", session.ExecutionId);
+                    await FinalizeWorkflowAsync(session.ExecutionId, cancellationToken);
+                }
+                else
+                {
+                    _logger.LogInformation("Workflow execution {ExecutionId} is not complete yet: {FinishedNodes}/{TotalNodes} nodes finished, {RunningNodes} running, {WaitingNodes} waiting",
+                        session.ExecutionId, finishedNodesCount, totalEnabledNodes, runningNodesCount, waitingNodesCount);
+
+                    // CRITICAL FIX: Continue workflow execution by finding and starting eligible nodes
+                    if (runningNodesCount == 0 && waitingNodesCount == 0 && finishedNodesCount < totalEnabledNodes)
+                    {
+                        _logger.LogInformation("No nodes are currently running or waiting. Searching for eligible nodes to continue execution...");
+
+                        // Find nodes that can be started (dependencies satisfied, not already processed)
+                        var processedNodes = new HashSet<string>();
+
+                        // Add all nodes that are already finished to processedNodes
+                        foreach (var nodeExecution in nodeExecutions)
+                        {
+                            if (nodeExecution.Status == NodeExecutionStatus.Completed ||
+                                nodeExecution.Status == NodeExecutionStatus.Failed ||
+                                nodeExecution.Status == NodeExecutionStatus.Skipped)
+                            {
+                                processedNodes.Add(nodeExecution.NodeId);
+                            }
+                        }
+
+                        var eligibleNodes = await GetEligibleNodesAsync(session, processedNodes, cancellationToken);
+
+                        if (eligibleNodes.Any())
+                        {
+                            _logger.LogInformation("Found {EligibleNodeCount} eligible nodes to continue execution: [{EligibleNodes}]",
+                                eligibleNodes.Count, string.Join(", ", eligibleNodes));
+
+                            // Start eligible nodes using the existing infrastructure
+                            var globalSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes, session.Options.MaxConcurrentNodes);
+                            var nodeLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
+
+                            foreach (var nodeId in eligibleNodes)
+                            {
+                                _logger.LogInformation("Starting eligible node {NodeId} to continue workflow execution", nodeId);
+                                await TryStartNodeExecutionAsync(session, nodeId, globalSemaphore, nodeLocks,
+                                    () => { /* Node completion will trigger dependent processing */ }, cancellationToken);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("No eligible nodes found to continue execution. Workflow may be stuck due to unmet dependencies or configuration issues.");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking workflow completion for execution {ExecutionId}", session.ExecutionId);
+            }
         }
 
         /// <summary>
@@ -2783,6 +2983,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         // Thread-safe collections - ConcurrentDictionary provides its own optimized thread-safety
         public ConcurrentDictionary<string, WorkflowDataContract> NodeOutputs { get; set; } = new();
         public ConcurrentDictionary<string, Task<NodeExecution>> RunningNodes { get; set; } = new();
+
+        // Cache for UI component lookup per program to ensure consistency within execution
+        // Note: UI interaction requirement decisions are NOT cached - each node creates its own UI session
+        public ConcurrentDictionary<string, string?> ProgramUIComponentCache { get; set; } = new();
 
         // Use ConcurrentDictionary as thread-safe sets with dummy values
         private readonly ConcurrentDictionary<string, byte> _completedNodes = new();
