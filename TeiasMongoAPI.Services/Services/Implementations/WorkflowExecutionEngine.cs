@@ -349,13 +349,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 await WaitForAllRunningNodesToComplete(session);
                 _executionSemaphore.Release();
 
-                // SAFEGUARD: Only remove the session if no nodes are waiting for UI input.
-                // This is the key fix to keep the session alive for workflows paused for user interaction.
+                // SAFEGUARD: Only remove the session if workflow is complete AND no nodes are waiting for UI input.
+                // This prevents premature session removal when workflow has more nodes to execute.
                 var waitingNodes = session.Execution.NodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
-                if (waitingNodes == 0)
+                var workflowComplete = IsWorkflowComplete(session);
+                if (waitingNodes == 0 && workflowComplete)
                 {
                     _sessionManager.RemoveSession(session.ExecutionId);
                     _logger.LogInformation("Session {ExecutionId} removed as workflow has completed and no nodes are waiting for input.", session.ExecutionId);
+                }
+                else if (!workflowComplete)
+                {
+                    _logger.LogInformation("Session {ExecutionId} kept alive because workflow is not yet complete.", session.ExecutionId);
                 }
                 else
                 {
@@ -957,7 +962,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 };
 
                 // Check if this program requires UI interaction
+                _logger.LogInformation("Checking UI interaction requirement for node {NodeId}, program {ProgramId}", nodeId, node.ProgramId);
                 var program = await _unitOfWork.Programs.GetByIdAsync(node.ProgramId, cancellationToken);
+                if (program == null)
+                {
+                    _logger.LogWarning("Program {ProgramId} not found for node {NodeId}", node.ProgramId, nodeId);
+                }
+                else
+                {
+                    _logger.LogInformation("Program {ProgramName} ({ProgramId}) found for node {NodeId}, checking UI interaction requirement", program.Name, node.ProgramId, nodeId);
+                }
+
                 if (program != null && await IsUIInteractionRequiredAsync(program, cancellationToken))
                 {
                     _logger.LogInformation($"Program {program.Name} requires UI interaction. Creating UI interaction session.");
@@ -2388,21 +2403,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
 
                 // Check if program actually has UI components
+                _logger.LogInformation("Checking UI components for program {ProgramId} (Name: {ProgramName})", program._ID, program.Name);
                 var uiComponentId = await GetUIComponentIdForProgramAsync(program, cancellationToken);
 
                 // If no UI components found, no UI interaction is required
                 if (string.IsNullOrEmpty(uiComponentId))
                 {
-                    _logger.LogDebug("Program {ProgramId} has no UI components, no UI interaction required", program._ID);
+                    _logger.LogInformation("Program {ProgramId} (Name: {ProgramName}) has no UI components, no UI interaction required", program._ID, program.Name);
                     return false;
                 }
 
-                _logger.LogDebug("Program {ProgramId} has UI components, UI interaction required", program._ID);
+                _logger.LogInformation("Program {ProgramId} (Name: {ProgramName}) has UI components (ID: {UIComponentId}), UI interaction required", program._ID, program.Name, uiComponentId);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error checking UI interaction requirement for program {ProgramId}, defaulting to no interaction required", program._ID);
+                _logger.LogError(ex, "Error checking UI interaction requirement for program {ProgramId} (Name: {ProgramName}), defaulting to no interaction required", program._ID, program.Name);
                 return false;
             }
         }
@@ -2411,24 +2427,31 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             try
             {
+                _logger.LogInformation("Looking up UI components for program {ProgramId} (Name: {ProgramName})", program._ID, program.Name);
+
                 // Get program version (assuming current version if not specified)
                 var version = await _unitOfWork.Versions.GetLatestVersionForProgramAsync(program._ID, cancellationToken);
                 if (version == null)
                 {
-                    _logger.LogWarning("No version found for program {ProgramId}", program._ID);
+                    _logger.LogWarning("No version found for program {ProgramId} (Name: {ProgramName})", program._ID, program.Name);
                     return null;
                 }
+
+                _logger.LogInformation("Found version {VersionId} for program {ProgramId} (Name: {ProgramName})", version._ID, program._ID, program.Name);
 
                 // Get UI components for this program version
                 var components = await _unitOfWork.UiComponents.GetByProgramVersionAsync(program._ID, version._ID, cancellationToken);
                 if (components == null || !components.Any())
                 {
-                    _logger.LogWarning("No UI components found for program {ProgramId}, version {VersionId}", program._ID, version._ID);
+                    _logger.LogWarning("No UI components found for program {ProgramId} (Name: {ProgramName}), version {VersionId}", program._ID, program.Name, version._ID);
                     return null;
                 }
 
+                _logger.LogInformation("Found {ComponentCount} UI components for program {ProgramId} (Name: {ProgramName}), version {VersionId}", components.Count(), program._ID, program.Name, version._ID);
+
                 // Return the first active component, or just the first one
                 var activeComponent = components.FirstOrDefault(c => c.Status == "active") ?? components.First();
+                _logger.LogInformation("Selected UI component {ComponentId} (Status: {Status}) for program {ProgramId} (Name: {ProgramName})", activeComponent._ID, activeComponent.Status, program._ID, program.Name);
                 return activeComponent._ID.ToString();
             }
             catch (Exception ex)
