@@ -245,9 +245,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     });
                 }
 
-                // Save execution record
-                await _unitOfWork.WorkflowExecutions.CreateAsync(execution, cancellationToken);
-
                 // Create execution session
                 var session = new WorkflowExecutionSession
                 {
@@ -269,6 +266,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     _logger.LogWarning($"Workflow {request.WorkflowId} is already running with execution ID {runningExecutionId}");
                     throw new InvalidOperationException($"Workflow {request.WorkflowId} is already running. Execution ID: {runningExecutionId}");
                 }
+
+                // Save execution record
+                await _unitOfWork.WorkflowExecutions.CreateAsync(execution, cancellationToken);
 
                 // Queue background task execution
                 var executionIdString = executionId.ToString();
@@ -331,7 +331,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 await ExecuteWorkflowDynamicallyAsync(session, combinedCancellationToken);
 
                 // Finalize execution
-                await FinalizeExecutionAsync(session, cancellationToken);
+                //await FinalizeExecutionAsync(session, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -349,17 +349,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 await WaitForAllRunningNodesToComplete(session);
                 _executionSemaphore.Release();
 
-                // Only remove session if no nodes are waiting for UI input
-                // This ensures sessions remain available for UI interaction completion
+                // SAFEGUARD: Only remove the session if no nodes are waiting for UI input.
+                // This is the key fix to keep the session alive for workflows paused for user interaction.
                 var waitingNodes = session.Execution.NodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
                 if (waitingNodes == 0)
                 {
                     _sessionManager.RemoveSession(session.ExecutionId);
-                    _logger.LogDebug("Session {ExecutionId} removed as no nodes are waiting for input", session.ExecutionId);
+                    _logger.LogInformation("Session {ExecutionId} removed as workflow has completed and no nodes are waiting for input.", session.ExecutionId);
                 }
                 else
                 {
-                    _logger.LogInformation("Session {ExecutionId} kept alive for {WaitingNodes} nodes waiting for UI input",
+                    _logger.LogInformation("Session {ExecutionId} is being kept alive because {WaitingNodes} node(s) are waiting for UI input.",
                         session.ExecutionId, waitingNodes);
                 }
             }
@@ -972,7 +972,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         Description = $"Program '{program.Name}' requires user interaction to continue.",
                         InteractionType = "UserInput",
                         InputSchema = CreateUISchemaForProgram(program),
-                        Timeout = TimeSpan.FromMinutes(30),
+                        Timeout = TimeSpan.FromMinutes(2880),
                         Metadata = new Dictionary<string, object>
                         {
                             ["programId"] = program._ID.ToString(),
@@ -1260,45 +1260,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         private async Task UpdateExecutionProgressAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
         {
-            // CRITICAL FIX: Calculate progress based on actual node execution statuses in the database
-            // rather than relying on potentially inconsistent in-memory session collections
-
-            // Get the latest execution data from database to ensure accuracy
+            // CRITICAL FIX: Always use the database as the single source of truth for progress.
             var latestExecution = await _unitOfWork.WorkflowExecutions.GetByIdAsync(ObjectId.Parse(session.ExecutionId), cancellationToken);
             if (latestExecution == null)
             {
-                _logger.LogWarning("Could not find execution {ExecutionId} in database during progress update", session.ExecutionId);
+                _logger.LogWarning("Could not find execution {ExecutionId} in database during progress update. Session might be stale.", session.ExecutionId);
                 return;
             }
 
             var nodeExecutions = latestExecution.NodeExecutions ?? new List<NodeExecution>();
+            var totalEnabledNodes = session.Workflow.Nodes.Count(n => !n.IsDisabled);
 
-            // Calculate progress based on actual node execution statuses
-            var completedNodes = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Completed);
-            var failedNodes = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Failed);
-            var skippedNodes = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Skipped);
-            var runningNodes = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Running);
-            var waitingNodes = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
+            // Calculate progress based on the fresh database state
+            var completedCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Completed);
+            var skippedCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Skipped);
+            var failedCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Failed);
+            var runningCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.Running);
+            var waitingCount = nodeExecutions.Count(ne => ne.Status == NodeExecutionStatus.WaitingForInput);
 
-            // Update progress with actual counts
+            var finishedCount = completedCount + skippedCount;
+
+            // 1. Update the in-memory session's Progress object
             var progress = session.Execution.Progress;
-            progress.CompletedNodes = completedNodes + skippedNodes; // Include skipped nodes as "completed" for progress
-            progress.FailedNodes = failedNodes;
-            progress.RunningNodes = runningNodes;
-            progress.PercentComplete = (double)progress.CompletedNodes / progress.TotalNodes * 100;
+            progress.CompletedNodes = finishedCount;
+            progress.FailedNodes = failedCount;
+            progress.RunningNodes = runningCount;
+            progress.PercentComplete = totalEnabledNodes > 0 ? (double)finishedCount / totalEnabledNodes * 100 : 0;
 
-            // Update phase to show execution progress with detailed status
             var phaseDetails = new List<string>();
-            if (completedNodes > 0) phaseDetails.Add($"{completedNodes} completed");
-            if (skippedNodes > 0) phaseDetails.Add($"{skippedNodes} skipped");
-            if (failedNodes > 0) phaseDetails.Add($"{failedNodes} failed");
-            if (runningNodes > 0) phaseDetails.Add($"{runningNodes} running");
-            if (waitingNodes > 0) phaseDetails.Add($"{waitingNodes} waiting for input");
+            if (runningCount > 0) phaseDetails.Add($"{runningCount} running");
+            if (waitingCount > 0) phaseDetails.Add($"{waitingCount} waiting");
+            if (failedCount > 0) phaseDetails.Add($"{failedCount} failed");
+            progress.CurrentPhase = $"Executing ({finishedCount}/{totalEnabledNodes} done" + (phaseDetails.Any() ? $", {string.Join(", ", phaseDetails)}" : "") + ")";
 
-            progress.CurrentPhase = $"Executing nodes ({progress.CompletedNodes}/{progress.TotalNodes} completed" +
-                                  (phaseDetails.Any() ? $" - {string.Join(", ", phaseDetails)}" : "") + ")";
-
-            // Sync the in-memory session collections with the database reality
+            // 2. Synchronize the in-memory session's collections with the database reality
             session.CompletedNodes = nodeExecutions
                 .Where(ne => ne.Status == NodeExecutionStatus.Completed || ne.Status == NodeExecutionStatus.Skipped)
                 .Select(ne => ne.NodeId)
@@ -1309,17 +1304,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 .Select(ne => ne.NodeId)
                 .ToHashSet();
 
-            // CRITICAL FIX: Update the in-memory session progress to match the calculated progress
-            session.Execution.Progress.CompletedNodes = progress.CompletedNodes;
-            session.Execution.Progress.FailedNodes = progress.FailedNodes;
-            session.Execution.Progress.RunningNodes = progress.RunningNodes;
-            session.Execution.Progress.PercentComplete = progress.PercentComplete;
-            session.Execution.Progress.CurrentPhase = progress.CurrentPhase;
-
+            // 3. Persist the updated progress to the database
             await _unitOfWork.WorkflowExecutions.UpdateExecutionProgressAsync(ObjectId.Parse(session.ExecutionId), progress, cancellationToken);
 
-            _logger.LogDebug("Updated execution progress for {ExecutionId}: {CompletedNodes}/{TotalNodes} completed ({PercentComplete:F1}%)",
-                session.ExecutionId, progress.CompletedNodes, progress.TotalNodes, progress.PercentComplete);
+            _logger.LogDebug("Synchronized execution progress for {ExecutionId}: {CompletedNodes}/{TotalNodes} completed ({PercentComplete:F1}%)",
+                session.ExecutionId, progress.CompletedNodes, totalEnabledNodes, progress.PercentComplete);
         }
 
         private async Task FinalizeExecutionAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)
@@ -2306,55 +2295,44 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             string completedNodeId,
             CancellationToken cancellationToken)
         {
-            // Get fresh session from scoped session manager (NOT the old one)
             if (!scopedSessionManager.TryGetSession(executionId, out var session))
             {
-                throw new InvalidOperationException($"Execution session {executionId} not found during background continuation");
+                scopedLogger.LogWarning("Execution session {ExecutionId} not found during background continuation. It may have been externally cancelled.", executionId);
+                return;
             }
 
-            scopedLogger.LogInformation("Retrieved session {ExecutionId} in background continuation. Session has {CompletedNodes} completed nodes and {RunningNodes} running nodes",
-                executionId, session.CompletedNodes.Count, session.RunningNodes.Count);
+            scopedLogger.LogInformation("Retrieved session {ExecutionId} in background continuation. Continuing workflow...", executionId);
 
-            // Create semaphore and locks for continuation (same as original ProcessDependentNodesAsync)
-            using var globalSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes);
+            // Use a semaphore and locks for this continuation scope
+            using var globalSemaphore = new SemaphoreSlim(session.Options.MaxConcurrentNodes, session.Options.MaxConcurrentNodes);
             var nodeLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
 
-            // Use the original ProcessDependentNodesAsync method which properly handles automatic continuation
-            // This avoids the "manual execution" check that was causing the InvalidOperationException
-            scopedLogger.LogInformation("Starting ProcessDependentNodesAsync for node {CompletedNodeId} using internal workflow methods",
-                completedNodeId);
-
+            // Process nodes that depended on the one that just completed via UI
             await ProcessDependentNodesAsync(session, completedNodeId, globalSemaphore, nodeLocks,
-                () => { /* Empty completion callback */ }, cancellationToken);
+                () => { /* Completion callback for tracking if needed */ }, cancellationToken);
 
-            // Wait for all running nodes to complete before disposing scope
-            // This prevents ObjectDisposedException during node completion and AutoMapper operations
-            scopedLogger.LogInformation("Waiting for all running nodes to complete before disposing background scope. Running nodes: {RunningNodeCount}",
-                session.RunningNodes.Count);
-
-            if (session.RunningNodes.Count > 0)
+            // CRITICAL FIX: After processing dependent nodes, wait for any newly started nodes to finish.
+            var runningTasks = session.RunningNodes.Values.ToArray();
+            if (runningTasks.Any())
             {
+                scopedLogger.LogInformation("Waiting for {TaskCount} newly started nodes to complete in execution {ExecutionId}", runningTasks.Length, executionId);
                 try
                 {
-                    var runningTasks = session.RunningNodes.Values.ToArray();
                     await Task.WhenAll(runningTasks);
-                    scopedLogger.LogInformation("All running nodes completed successfully");
-
-                    // Check if workflow is complete and finalize it
-                    if (IsWorkflowComplete(session))
-                    {
-                        scopedLogger.LogInformation("Workflow execution completed, finalizing workflow {ExecutionId}", executionId);
-                        await FinalizeExecutionAsync(session, cancellationToken);
-                        await CheckAndCleanupCompletedWorkflowAsync(session, cancellationToken);
-                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    scopedLogger.LogWarning("Awaited tasks were cancelled during background continuation for {ExecutionId}", executionId);
                 }
                 catch (Exception ex)
                 {
-                    scopedLogger.LogError(ex, "Error waiting for running nodes to complete");
+                    scopedLogger.LogError(ex, "Error waiting for subsequent nodes to complete in {ExecutionId}", executionId);
                 }
             }
 
-            scopedLogger.LogInformation("Background workflow continuation completed for node {CompletedNodeId}", completedNodeId);
+            // After all subsequent execution is done, perform a final completion check.
+            scopedLogger.LogInformation("All dependent nodes processed for {ExecutionId}. Performing final completion check.", executionId);
+            await CheckAndFinalizeWorkflowIfCompleteAsync(session, cancellationToken);
         }
 
         private async Task CheckAndCleanupCompletedWorkflowAsync(WorkflowExecutionSession session, CancellationToken cancellationToken)

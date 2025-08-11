@@ -285,6 +285,6 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public bool DebugMode { get; set; } = false;
         public bool SaveIntermediateResults { get; set; } = true;
         public int MaxConcurrentNodes { get; set; } = 5;
-        public int TimeoutMinutes { get; set; } = 60;
+        public int TimeoutMinutes { get; set; } = 2880;
     }
 }

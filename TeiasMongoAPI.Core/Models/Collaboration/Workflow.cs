@@ -67,7 +67,7 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public int MaxConcurrentNodes { get; set; } = 5;
 
         [BsonElement("timeoutMinutes")]
-        public int TimeoutMinutes { get; set; } = 60;
+        public int TimeoutMinutes { get; set; } = 2880;
 
         [BsonElement("retryPolicy")]
         public WorkflowRetryPolicy RetryPolicy { get; set; } = new();

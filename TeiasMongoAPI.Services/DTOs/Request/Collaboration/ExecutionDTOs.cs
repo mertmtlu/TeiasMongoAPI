@@ -8,7 +8,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public Dictionary<string, string> Environment { get; set; } = new();
         public ExecutionResourceLimitsDto? ResourceLimits { get; set; }
         public bool SaveResults { get; set; } = true;
-        public int TimeoutMinutes { get; set; } = 30;
+        public int TimeoutMinutes { get; set; } = 2880;
     }
 
     public class VersionExecutionRequestDto
@@ -17,7 +17,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public Dictionary<string, string> Environment { get; set; } = new();
         public ExecutionResourceLimitsDto? ResourceLimits { get; set; }
         public bool SaveResults { get; set; } = true;
-        public int TimeoutMinutes { get; set; } = 30;
+        public int TimeoutMinutes { get; set; } = 2880;
     }
 
     public class ExecutionParametersDto
@@ -30,7 +30,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public Dictionary<string, string> Environment { get; set; } = new();
         public ExecutionResourceLimitsDto? ResourceLimits { get; set; }
         public bool SaveResults { get; set; } = true;
-        public int TimeoutMinutes { get; set; } = 30;
+        public int TimeoutMinutes { get; set; } = 2880;
         public string? ExecutionName { get; set; }
     }
 

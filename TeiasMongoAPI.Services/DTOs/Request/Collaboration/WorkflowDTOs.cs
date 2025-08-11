@@ -254,7 +254,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public int MaxConcurrentNodes { get; set; } = 5;
 
         [Range(1, 1440)]
-        public int TimeoutMinutes { get; set; } = 60;
+        public int TimeoutMinutes { get; set; } = 2880;
 
         public WorkflowRetryPolicyDto RetryPolicy { get; set; } = new();
 
@@ -421,7 +421,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
     public class NodeExecutionSettingsDto
     {
         [Range(1, 1440)]
-        public int TimeoutMinutes { get; set; } = 30;
+        public int TimeoutMinutes { get; set; } = 2880;
 
         [Range(0, 10)]
         public int RetryCount { get; set; } = 3;

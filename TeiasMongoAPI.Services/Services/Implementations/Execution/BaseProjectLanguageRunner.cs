@@ -63,7 +63,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         }
 
         protected async Task<ProcessResult> RunProcessAsync(string executable, string arguments, string workingDirectory,
-            Dictionary<string, string>? environment = null, int timeoutMinutes = 30, CancellationToken cancellationToken = default)
+            Dictionary<string, string>? environment = null, int timeoutMinutes = 2880, CancellationToken cancellationToken = default)
         {
             var processInfo = new ProcessStartInfo
             {

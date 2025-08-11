@@ -183,7 +183,7 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
     public class NodeExecutionSettings
     {
         [BsonElement("timeoutMinutes")]
-        public int TimeoutMinutes { get; set; } = 30;
+        public int TimeoutMinutes { get; set; } = 2880;
 
         [BsonElement("retryCount")]
         public int RetryCount { get; set; } = 3;

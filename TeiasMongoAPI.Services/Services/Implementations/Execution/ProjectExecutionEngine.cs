@@ -967,7 +967,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
     {
         public string WorkingDirectory { get; set; } = "./storage";
         public int MaxConcurrentExecutions { get; set; } = 5;
-        public int DefaultTimeoutMinutes { get; set; } = 30;
+        public int DefaultTimeoutMinutes { get; set; } = 2880;
         public long MaxProjectSizeBytes { get; set; } = 500 * 1024 * 1024; // 500MB
         public List<string> BlockedFileExtensions { get; set; } = new() { ".exe", ".bat", ".cmd", ".ps1", ".sh", ".scr", ".vbs" };
         public bool EnableSecurityScanning { get; set; } = true;

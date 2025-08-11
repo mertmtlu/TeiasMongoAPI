@@ -57,7 +57,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         public int MaxConcurrentNodes { get; set; } = 5;
         
         [BsonElement("timeoutMinutes")]
-        public int TimeoutMinutes { get; set; } = 60;
+        public int TimeoutMinutes { get; set; } = 2880;
         
         [BsonElement("enableNotifications")]
         public bool EnableNotifications { get; set; } = true;

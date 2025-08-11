@@ -23,7 +23,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Execution
 
         public bool SaveResults { get; set; } = true;
 
-        public int TimeoutMinutes { get; set; } = 30;
+        public int TimeoutMinutes { get; set; } = 2880;
 
         public string? ExecutionName { get; set; }
 
