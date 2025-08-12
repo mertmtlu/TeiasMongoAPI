@@ -56,6 +56,25 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.AverageExecutionTime, opt => opt.Ignore())
                 .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
 
+            CreateMap<WorkflowNameDescriptionUpdateDto, Workflow>()
+                .ForMember(dest => dest._ID, opt => opt.Ignore())
+                .ForMember(dest => dest.Creator, opt => opt.Ignore())
+                .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
+                .ForMember(dest => dest.UpdatedAt, opt => opt.Ignore()) // Will be set by service
+                .ForMember(dest => dest.Version, opt => opt.Ignore())
+                .ForMember(dest => dest.LastExecutionId, opt => opt.Ignore())
+                .ForMember(dest => dest.ExecutionCount, opt => opt.Ignore())
+                .ForMember(dest => dest.AverageExecutionTime, opt => opt.Ignore())
+                .ForMember(dest => dest.Status, opt => opt.Ignore()) // Don't update status in name/description update
+                .ForMember(dest => dest.Nodes, opt => opt.Ignore()) // Don't update nodes
+                .ForMember(dest => dest.Edges, opt => opt.Ignore()) // Don't update edges
+                .ForMember(dest => dest.Settings, opt => opt.Ignore()) // Don't update settings
+                .ForMember(dest => dest.Permissions, opt => opt.Ignore()) // Don't update permissions
+                .ForMember(dest => dest.Tags, opt => opt.Ignore()) // Don't update tags
+                .ForMember(dest => dest.Metadata, opt => opt.Ignore()) // Don't update metadata
+                .ForMember(dest => dest.IsTemplate, opt => opt.Ignore()) // Don't update template flag
+                .ForAllMembers(opts => opts.Condition((src, dest, srcMember) => srcMember != null));
+
             CreateMap<Workflow, WorkflowDetailDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.LastExecutionId, opt => opt.MapFrom(src => src.LastExecutionId != null ? src.LastExecutionId.ToString() : null))

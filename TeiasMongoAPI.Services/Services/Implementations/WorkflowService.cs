@@ -124,6 +124,25 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await MapToDetailDtoAsync(workflow, cancellationToken);
         }
 
+        public async Task<WorkflowDetailDto> UpdateNameDescriptionAsync(string id, WorkflowNameDescriptionUpdateDto updateDto, CancellationToken cancellationToken = default)
+        {
+            var workflow = await _unitOfWork.Workflows.GetByIdAsync(ObjectId.Parse(id), cancellationToken);
+            if (workflow == null)
+            {
+                throw new InvalidOperationException($"Workflow {id} not found");
+            }
+
+            // Map updates to workflow using AutoMapper
+            _mapper.Map(updateDto, workflow);
+
+            workflow.UpdatedAt = DateTime.UtcNow;
+
+            await _unitOfWork.Workflows.UpdateAsync(ObjectId.Parse(id), workflow, cancellationToken);
+            _logger.LogInformation($"Updated workflow name/description for workflow {workflow.Name} with ID {id}");
+
+            return await MapToDetailDtoAsync(workflow, cancellationToken);
+        }
+
         public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
         {
             var workflow = await _unitOfWork.Workflows.GetByIdAsync(ObjectId.Parse(id), cancellationToken);

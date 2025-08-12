@@ -56,6 +56,15 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public bool? IsTemplate { get; set; }
     }
 
+    public class WorkflowNameDescriptionUpdateDto
+    {
+        [StringLength(200)]
+        public string? Name { get; set; }
+
+        [StringLength(1000)]
+        public string? Description { get; set; }
+    }
+
     public class WorkflowCloneDto
     {
         [Required]

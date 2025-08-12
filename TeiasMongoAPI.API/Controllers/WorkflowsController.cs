@@ -100,6 +100,22 @@ namespace TeiasMongoAPI.API.Controllers
         }
 
         /// <summary>
+        /// Update only the name and description of a workflow
+        /// </summary>
+        [HttpPatch("{id}/name-description")]
+        [RequirePermission(UserPermissions.EditWorkflows)]
+        public async Task<ActionResult<ApiResponse<WorkflowDetailDto>>> UpdateNameDescription(
+            string id,
+            [FromBody] WorkflowNameDescriptionUpdateDto updateDto,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _workflowService.UpdateNameDescriptionAsync(id, updateDto, cancellationToken);
+            }, "Update workflow name and description");
+        }
+
+        /// <summary>
         /// Delete a workflow
         /// </summary>
         [HttpDelete("{id}")]
