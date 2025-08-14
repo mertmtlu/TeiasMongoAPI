@@ -264,7 +264,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 {
                     var processedParams = ProcessParametersForExecution(context.Parameters, context.ProjectDirectory);
                     //var paramJson = JsonSerializer.Serialize(processedParams);
-                    arguments += $" '{context.Parameters.ToString().Replace(" ", "")}'";
+
+                    if (context.Parameters is BsonDocument doc)
+                    {
+                        var paramJson = JsonSerializer.Serialize(processedParams);
+                        arguments += $" '{paramJson.ToString()}'";
+                    }
+                    else
+                    {
+                        arguments += $" '{context.Parameters.ToString()}'";
+                    }
                 }
 
                 var processResult = await RunProcessAsync(

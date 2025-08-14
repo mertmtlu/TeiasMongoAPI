@@ -351,7 +351,10 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        \"\"\"Load values from dictionary, handling table elements specially\"\"\"");
             sb.AppendLine("        for key, value in data.items():");
             sb.AppendLine("            # Check if this is a table element");
-            sb.AppendLine("            value = self.parse_js_object_params(value)");
+            sb.AppendLine("            if isinstance(value, str):");
+            sb.AppendLine("                _temp = self.parse_js_object_params(value)");
+            sb.AppendLine("                if isinstance(_temp, dict) and _temp:");
+            sb.AppendLine("                    value = _temp");
             sb.AppendLine("            if self._is_table_element(key) and isinstance(value, dict):");
             sb.AppendLine("                # Expand table data into individual cell keys");
             sb.AppendLine("                for cell_key, cell_value in value.items():");
