@@ -1058,10 +1058,11 @@ namespace TeiasMongoAPI.API.Controllers
                 // Get execution details to extract programId and versionId
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
                 
-                // Get files using FileStorageService
-                var files = await _fileStorageService.ListVersionFilesAsync(
+                // Get execution files (runtime-generated files) instead of version files
+                var files = await _fileStorageService.ListExecutionFilesAsync(
                     execution.ProgramId, 
-                    execution.VersionId, 
+                    execution.VersionId,
+                    execution.Id,
                     cancellationToken);
 
                 // Transform to hierarchical structure

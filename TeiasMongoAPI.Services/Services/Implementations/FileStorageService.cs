@@ -274,6 +274,67 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
+        public async Task<List<VersionFileDto>> ListExecutionFilesAsync(string programId, string versionId, string executionId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var files = new List<VersionFileDto>();
+                var executionPath = Path.Combine(_settings.BasePath, programId, versionId, "execution", executionId);
+
+                if (!Directory.Exists(executionPath))
+                {
+                    return files;
+                }
+
+                // Get all files in the execution directory, excluding generated/cache folders
+                var excludedFolders = new HashSet<string> { "__pycache__", "node_modules", ".git", ".vscode", "bin", "obj" };
+                var allFiles = Directory.GetFiles(executionPath, "*", SearchOption.AllDirectories)
+                    .Where(file => !excludedFolders.Any(excluded => 
+                        file.Contains(Path.DirectorySeparatorChar + excluded + Path.DirectorySeparatorChar) ||
+                        file.Contains(Path.DirectorySeparatorChar + excluded) ||
+                        file.StartsWith(Path.Combine(executionPath, excluded))))
+                    .ToArray();
+
+                foreach (var file in allFiles)
+                {
+                    try
+                    {
+                        var fileInfo = new FileInfo(file);
+                        if (fileInfo.Exists)
+                        {
+                            var relativePath = Path.GetRelativePath(executionPath, file);
+                            
+                            // Read file content to calculate hash (similar to how version files work)
+                            var content = await File.ReadAllBytesAsync(file, cancellationToken);
+                            var hash = CalculateFileHash(content);
+
+                            files.Add(new VersionFileDto
+                            {
+                                Path = relativePath.Replace('\\', '/'), // Normalize path separators
+                                StorageKey = $"{programId}_{versionId}_{executionId}_{relativePath}",
+                                Hash = hash,
+                                Size = fileInfo.Length,
+                                FileType = DetermineFileType(relativePath),
+                                ContentType = GetContentTypeFromExtension(Path.GetExtension(relativePath))
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to process execution file {FilePath}", file);
+                    }
+                }
+
+                return files.OrderBy(f => f.Path).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to list execution files for program {ProgramId}, version {VersionId}, execution {ExecutionId}", 
+                    programId, versionId, executionId);
+                throw;
+            }
+        }
+
         public async Task<bool> DeleteVersionFilesAsync(string programId, string versionId, CancellationToken cancellationToken = default)
         {
             try

@@ -42,6 +42,13 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<List<VersionFileDto>> ListVersionFilesAsync(string programId, string versionId, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Lists all execution files (runtime-generated files) for a specific execution.
+        /// Storage path: ./storage/{programId}/{versionId}/execution/{executionId}/
+        /// Excludes version files and filters out generated folders like __pycache__
+        /// </summary>
+        Task<List<VersionFileDto>> ListExecutionFilesAsync(string programId, string versionId, string executionId, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Deletes all files for a specific program version
         /// </summary>
         Task<bool> DeleteVersionFilesAsync(string programId, string versionId, CancellationToken cancellationToken = default);
