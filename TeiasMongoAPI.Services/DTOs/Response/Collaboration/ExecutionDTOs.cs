@@ -195,6 +195,25 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public Dictionary<string, int> RemovedByStatus { get; set; } = new();
     }
 
+    public class ExecutionFileListResponseDto
+    {
+        public string ExecutionId { get; set; } = string.Empty;
+        public List<ExecutionFileDto> Files { get; set; } = new();
+        public int TotalFiles { get; set; }
+        public long TotalSize { get; set; }
+        public DateTime? LastModified { get; set; }
+    }
+
+    public class ExecutionFileDto
+    {
+        public string Path { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public bool IsDirectory { get; set; }
+        public long Size { get; set; }
+        public string ParentPath { get; set; } = string.Empty;
+        public List<ExecutionFileDto>? Children { get; set; }
+    }
+
     public class ExecutionSecurityScanResult
     {
         public bool IsSecure { get; set; }

@@ -17,13 +17,16 @@ namespace TeiasMongoAPI.API.Controllers
     public class ExecutionsController : BaseController
     {
         private readonly IExecutionService _executionService;
+        private readonly IFileStorageService _fileStorageService;
 
         public ExecutionsController(
             IExecutionService executionService,
+            IFileStorageService fileStorageService,
             ILogger<ExecutionsController> logger)
             : base(logger)
         {
             _executionService = executionService;
+            _fileStorageService = fileStorageService;
         }
 
         #region Basic CRUD Operations
@@ -1032,6 +1035,237 @@ namespace TeiasMongoAPI.API.Controllers
             {
                 return await _executionService.GetCleanupReportAsync(cancellationToken);
             }, "Get cleanup report");
+        }
+
+        #endregion
+
+        #region Execution File Operations
+
+        /// <summary>
+        /// List all output files from an execution
+        /// </summary>
+        [HttpGet("{id}/files/list")]
+        [RequirePermission(UserPermissions.ViewExecutionResults)]
+        public async Task<ActionResult<ApiResponse<ExecutionFileListResponseDto>>> ListExecutionFiles(
+            string id,
+            CancellationToken cancellationToken = default)
+        {
+            var objectIdResult = ParseObjectId(id);
+            if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            return await ExecuteAsync(async () =>
+            {
+                // Get execution details to extract programId and versionId
+                var execution = await _executionService.GetByIdAsync(id, cancellationToken);
+                
+                // Get files using FileStorageService
+                var files = await _fileStorageService.ListVersionFilesAsync(
+                    execution.ProgramId, 
+                    execution.VersionId, 
+                    cancellationToken);
+
+                // Transform to hierarchical structure
+                var executionFiles = files.Select(f => new ExecutionFileDto
+                {
+                    Path = f.Path,
+                    Name = System.IO.Path.GetFileName(f.Path),
+                    IsDirectory = false,
+                    Size = f.Size,
+                    ParentPath = System.IO.Path.GetDirectoryName(f.Path) ?? string.Empty
+                }).ToList();
+
+                return new ExecutionFileListResponseDto
+                {
+                    ExecutionId = id,
+                    Files = BuildHierarchicalStructure(executionFiles),
+                    TotalFiles = files.Count,
+                    TotalSize = files.Sum(f => f.Size),
+                };
+            }, $"List files for execution {id}");
+        }
+
+        /// <summary>
+        /// Download a specific output file from an execution
+        /// </summary>
+        [HttpGet("{id}/files/download/{*filePath}")]
+        [RequirePermission(UserPermissions.ViewExecutionResults)]
+        public async Task<ActionResult<ApiResponse<VersionFileDetailDto>>> DownloadExecutionFile(
+            string id,
+            string filePath,
+            CancellationToken cancellationToken = default)
+        {
+            var objectIdResult = ParseObjectId(id);
+            if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                return ValidationError<VersionFileDetailDto>("File path is required");
+            }
+
+            return await ExecuteAsync(async () =>
+            {
+                // Get execution details to extract programId and versionId
+                var execution = await _executionService.GetByIdAsync(id, cancellationToken);
+                
+                // Get file using FileStorageService
+                return await _fileStorageService.GetFileAsync(
+                    execution.ProgramId,
+                    execution.VersionId,
+                    filePath,
+                    cancellationToken);
+            }, $"Download file {filePath} for execution {id}");
+        }
+
+        /// <summary>
+        /// Download all output files from an execution as a ZIP archive
+        /// </summary>
+        [HttpGet("{id}/files/download-all")]
+        [RequirePermission(UserPermissions.ViewExecutionResults)]
+        public async Task<IActionResult> DownloadAllExecutionFiles(
+            string id,
+            [FromQuery] bool includeMetadata = false,
+            [FromQuery] string compressionLevel = "optimal",
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var objectIdResult = ParseObjectId(id);
+                if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+                // Get execution details to extract programId and versionId
+                var execution = await _executionService.GetByIdAsync(id, cancellationToken);
+                
+                // Download all files using FileStorageService
+                var result = await _fileStorageService.DownloadAllVersionFilesAsync(
+                    execution.ProgramId,
+                    execution.VersionId,
+                    includeMetadata,
+                    compressionLevel,
+                    cancellationToken);
+
+                return File(
+                    result.ZipContent,
+                    "application/zip",
+                    $"execution-{id}-output-files.zip");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error downloading all files for execution {ExecutionId}", id);
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Data = null
+                });
+            }
+        }
+
+        /// <summary>
+        /// Download selected output files from an execution as a ZIP archive
+        /// </summary>
+        [HttpPost("{id}/files/bulk-download")]
+        [RequirePermission(UserPermissions.ViewExecutionResults)]
+        public async Task<IActionResult> BulkDownloadExecutionFiles(
+            string id,
+            [FromBody] BulkDownloadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var objectIdResult = ParseObjectId(id);
+                if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+                if (request?.FilePaths == null || !request.FilePaths.Any())
+                {
+                    return BadRequest(new ErrorResponse { Message = "At least one file path is required" });
+                }
+
+                // Validate model state
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ModelState);
+                }
+
+                // Get execution details to extract programId and versionId
+                var execution = await _executionService.GetByIdAsync(id, cancellationToken);
+                
+                // Bulk download files using FileStorageService
+                var result = await _fileStorageService.BulkDownloadFilesAsync(
+                    execution.ProgramId,
+                    execution.VersionId,
+                    request.FilePaths,
+                    request.IncludeMetadata,
+                    request.CompressionLevel ?? "optimal",
+                    cancellationToken);
+
+                return File(
+                    result.ZipContent,
+                    "application/zip",
+                    $"execution-{id}-selected-files.zip");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error bulk downloading files for execution {ExecutionId}", id);
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Data = null
+                });
+            }
+        }
+
+        private List<ExecutionFileDto> BuildHierarchicalStructure(List<ExecutionFileDto> flatFiles)
+        {
+            var directories = new Dictionary<string, ExecutionFileDto>();
+            var rootFiles = new List<ExecutionFileDto>();
+
+            // Create directory structure
+            foreach (var file in flatFiles)
+            {
+                if (string.IsNullOrEmpty(file.ParentPath))
+                {
+                    rootFiles.Add(file);
+                    continue;
+                }
+
+                var pathParts = file.ParentPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                var currentPath = "";
+                
+                for (int i = 0; i < pathParts.Length; i++)
+                {
+                    currentPath = i == 0 ? pathParts[i] : $"{currentPath}/{pathParts[i]}";
+                    
+                    if (!directories.ContainsKey(currentPath))
+                    {
+                        directories[currentPath] = new ExecutionFileDto
+                        {
+                            Path = currentPath,
+                            Name = pathParts[i],
+                            IsDirectory = true,
+                            Size = 0,
+                            ParentPath = i == 0 ? string.Empty : string.Join("/", pathParts.Take(i)),
+                            Children = new List<ExecutionFileDto>()
+                        };
+                    }
+                }
+            }
+
+            // Add files to their parent directories
+            foreach (var file in flatFiles.Concat(directories.Values))
+            {
+                if (string.IsNullOrEmpty(file.ParentPath))
+                {
+                    if (!rootFiles.Contains(file))
+                        rootFiles.Add(file);
+                }
+                else if (directories.ContainsKey(file.ParentPath))
+                {
+                    directories[file.ParentPath].Children!.Add(file);
+                }
+            }
+
+            return rootFiles;
         }
 
         #endregion
