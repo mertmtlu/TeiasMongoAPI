@@ -383,7 +383,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
 
                 var outputsPath = Path.Combine(actualExecutionDirectory, "outputs");
-                var fullFilePath = Path.Combine(outputsPath, filePath.Replace('/', Path.DirectorySeparatorChar));
+                var fullFilePath = Path.Combine(outputsPath, System.Web.HttpUtility.UrlDecode(filePath));
 
                 if (!File.Exists(fullFilePath))
                 {
