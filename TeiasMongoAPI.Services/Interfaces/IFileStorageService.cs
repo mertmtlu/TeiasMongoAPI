@@ -49,6 +49,12 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<List<VersionFileDto>> ListExecutionFilesAsync(string programId, string versionId, string executionId, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Retrieves a specific execution output file with metadata.
+        /// Storage path: ./storage/{programId}/{versionId}/execution/{executionId}/outputs/{filePath}
+        /// </summary>
+        Task<VersionFileDetailDto> GetExecutionFileAsync(string programId, string versionId, string executionId, string filePath, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Deletes all files for a specific program version
         /// </summary>
         Task<bool> DeleteVersionFilesAsync(string programId, string versionId, CancellationToken cancellationToken = default);

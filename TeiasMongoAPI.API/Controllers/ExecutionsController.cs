@@ -1108,10 +1108,11 @@ namespace TeiasMongoAPI.API.Controllers
                 // Get execution details to extract programId and versionId
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
 
-                // Get file using FileStorageService
-                return await _fileStorageService.GetFileAsync(
+                // Get execution output file using the new method
+                return await _fileStorageService.GetExecutionFileAsync(
                     execution.ProgramId,
                     execution.VersionId,
+                    execution.Id,
                     filePath,
                     cancellationToken);
             }, $"Download file {filePath} for execution {id}");

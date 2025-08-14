@@ -369,6 +369,50 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
+        public async Task<VersionFileDetailDto> GetExecutionFileAsync(string programId, string versionId, string executionId, string filePath, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // Find the actual execution directory GUID since executionId is the database ID, not the directory name
+                var executionBasePath = Path.Combine(_settings.BasePath, programId, versionId, "execution");
+                var actualExecutionDirectory = await FindExecutionDirectoryAsync(executionBasePath, executionId, cancellationToken);
+                
+                if (string.IsNullOrEmpty(actualExecutionDirectory))
+                {
+                    throw new FileNotFoundException($"Execution directory not found for execution {executionId}");
+                }
+
+                var outputsPath = Path.Combine(actualExecutionDirectory, "outputs");
+                var fullFilePath = Path.Combine(outputsPath, filePath.Replace('/', Path.DirectorySeparatorChar));
+
+                if (!File.Exists(fullFilePath))
+                {
+                    throw new FileNotFoundException($"Execution file not found: {filePath}");
+                }
+
+                var fileInfo = new FileInfo(fullFilePath);
+                var content = await File.ReadAllBytesAsync(fullFilePath, cancellationToken);
+                var hash = CalculateFileHash(content);
+                var contentType = GetContentTypeFromExtension(Path.GetExtension(filePath));
+
+                return new VersionFileDetailDto
+                {
+                    Path = filePath,
+                    Content = content,
+                    Hash = hash,
+                    Size = fileInfo.Length,
+                    ContentType = contentType,
+                    FileType = DetermineFileType(filePath),
+                    StorageKey = $"{programId}_{versionId}_{executionId}_{filePath}"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get execution file {FilePath} for execution {ExecutionId}", filePath, executionId);
+                throw;
+            }
+        }
+
         /// <summary>
         /// Finds the actual execution directory by looking for metadata that contains the database execution ID
         /// </summary>
