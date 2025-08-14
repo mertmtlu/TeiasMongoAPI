@@ -1057,10 +1057,10 @@ namespace TeiasMongoAPI.API.Controllers
             {
                 // Get execution details to extract programId and versionId
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
-                
+
                 // Get execution files (runtime-generated files) instead of version files
                 var files = await _fileStorageService.ListExecutionFilesAsync(
-                    execution.ProgramId, 
+                    execution.ProgramId,
                     execution.VersionId,
                     execution.Id,
                     cancellationToken);
@@ -1070,7 +1070,7 @@ namespace TeiasMongoAPI.API.Controllers
                 {
                     Path = f.Path,
                     Name = System.IO.Path.GetFileName(f.Path),
-                    IsDirectory = false,
+                    IsDirectory = f.FileType == "directory",
                     Size = f.Size,
                     ParentPath = System.IO.Path.GetDirectoryName(f.Path) ?? string.Empty
                 }).ToList();
@@ -1107,7 +1107,7 @@ namespace TeiasMongoAPI.API.Controllers
             {
                 // Get execution details to extract programId and versionId
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
-                
+
                 // Get file using FileStorageService
                 return await _fileStorageService.GetFileAsync(
                     execution.ProgramId,
@@ -1135,7 +1135,7 @@ namespace TeiasMongoAPI.API.Controllers
 
                 // Get execution details to extract programId and versionId
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
-                
+
                 // Download all files using FileStorageService
                 var result = await _fileStorageService.DownloadAllVersionFilesAsync(
                     execution.ProgramId,
@@ -1189,7 +1189,7 @@ namespace TeiasMongoAPI.API.Controllers
 
                 // Get execution details to extract programId and versionId
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
-                
+
                 // Bulk download files using FileStorageService
                 var result = await _fileStorageService.BulkDownloadFilesAsync(
                     execution.ProgramId,
@@ -1216,57 +1216,129 @@ namespace TeiasMongoAPI.API.Controllers
             }
         }
 
-        private List<ExecutionFileDto> BuildHierarchicalStructure(List<ExecutionFileDto> flatFiles)
+        /// <summary>
+        /// Builds a hierarchical tree structure from a flat list of files and directories.
+        /// This version correctly handles mixed path separators ('/' and '\') and ensures
+        /// that any item acting as a parent is correctly marked as a directory.
+        /// </summary>
+        /// <param name="flatList">A flat list of ExecutionFileDto objects.</param>
+        /// <returns>A list of root-level files and directories, with children populated hierarchically.</returns>
+        private List<ExecutionFileDto> BuildHierarchicalStructure(List<ExecutionFileDto> flatList)
         {
-            var directories = new Dictionary<string, ExecutionFileDto>();
-            var rootFiles = new List<ExecutionFileDto>();
+            // A lookup to hold a single, unique DTO for each path. This prevents duplicates.
+            var lookup = new Dictionary<string, ExecutionFileDto>();
 
-            // Create directory structure
-            foreach (var file in flatFiles)
+            // --- Step 1: Normalize paths and populate the lookup with all items from the list ---
+            foreach (var item in flatList)
             {
-                if (string.IsNullOrEmpty(file.ParentPath))
-                {
-                    rootFiles.Add(file);
-                    continue;
-                }
+                // **CRITICAL FIX: Normalize path separators to handle both '\' and '/'**
+                item.Path = item.Path.Replace('\\', '/');
 
-                var pathParts = file.ParentPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                var currentPath = "";
-                
-                for (int i = 0; i < pathParts.Length; i++)
+                // Re-initialize children list to ensure it's not null
+                item.Children ??= new List<ExecutionFileDto>();
+
+                // Add or overwrite the item in the lookup. This ensures the lookup has the most
+                // complete version if an item is defined both implicitly and explicitly.
+                lookup[item.Path] = item;
+            }
+
+            // --- Step 2: Create placeholder directories for any parents that were not in the original list ---
+            // We iterate over a copy of the values because we might add new items to the lookup.
+            foreach (var item in lookup.Values.ToList())
+            {
+                var path = item.Path;
+                while (true)
                 {
-                    currentPath = i == 0 ? pathParts[i] : $"{currentPath}/{pathParts[i]}";
-                    
-                    if (!directories.ContainsKey(currentPath))
+                    var lastSlashIndex = path.LastIndexOf('/');
+                    if (lastSlashIndex == -1)
                     {
-                        directories[currentPath] = new ExecutionFileDto
+                        break; // We've reached the root
+                    }
+
+                    var parentPath = path.Substring(0, lastSlashIndex);
+                    if (string.IsNullOrEmpty(parentPath))
+                    {
+                        break;
+                    }
+
+                    // If the parent directory doesn't exist in our lookup, create a placeholder for it.
+                    if (!lookup.ContainsKey(parentPath))
+                    {
+                        var parentName = parentPath.Contains('/') ? parentPath.Substring(parentPath.LastIndexOf('/') + 1) : parentPath;
+                        lookup[parentPath] = new ExecutionFileDto
                         {
-                            Path = currentPath,
-                            Name = pathParts[i],
+                            Path = parentPath,
+                            Name = parentName,
                             IsDirectory = true,
-                            Size = 0,
-                            ParentPath = i == 0 ? string.Empty : string.Join("/", pathParts.Take(i)),
                             Children = new List<ExecutionFileDto>()
                         };
+                    }
+
+                    path = parentPath; // Move up to the next parent level
+                }
+            }
+
+            // --- Step 3: Link children to their parents and build the hierarchy ---
+            var rootNodes = new List<ExecutionFileDto>();
+            foreach (var item in lookup.Values)
+            {
+                var lastSlashIndex = item.Path.LastIndexOf('/');
+
+                if (lastSlashIndex == -1)
+                {
+                    // This is a root node
+                    rootNodes.Add(item);
+                }
+                else
+                {
+                    var parentPath = item.Path.Substring(0, lastSlashIndex);
+                    if (lookup.TryGetValue(parentPath, out var parentNode))
+                    {
+                        // **CRITICAL FIX: Ensure the parent is marked as a directory.**
+                        // This "promotes" a file to a directory if it has children.
+                        parentNode.IsDirectory = true;
+
+                        parentNode.Children.Add(item);
+                    }
+                    else
+                    {
+                        // This case should not happen because of Step 2, but is a good safeguard.
+                        // It means an item has a parent that couldn't be created.
+                        rootNodes.Add(item);
                     }
                 }
             }
 
-            // Add files to their parent directories
-            foreach (var file in flatFiles.Concat(directories.Values))
+            // --- Step 4: (Optional) Sort all children for a clean and predictable output ---
+            SortChildren(rootNodes);
+
+            return rootNodes;
+        }
+
+        /// <summary>
+        /// Optional helper to recursively sort all children lists.
+        /// Directories are sorted before files, then everything is sorted by name.
+        /// </summary>
+        private void SortChildren(List<ExecutionFileDto> nodes)
+        {
+            if (nodes == null || !nodes.Any())
             {
-                if (string.IsNullOrEmpty(file.ParentPath))
-                {
-                    if (!rootFiles.Contains(file))
-                        rootFiles.Add(file);
-                }
-                else if (directories.ContainsKey(file.ParentPath))
-                {
-                    directories[file.ParentPath].Children!.Add(file);
-                }
+                return;
             }
 
-            return rootFiles;
+            var sortedNodes = nodes
+                .OrderByDescending(n => n.IsDirectory) // Directories first
+                .ThenBy(n => n.Name, StringComparer.OrdinalIgnoreCase) // Then sort by name
+                .ToList();
+
+            nodes.Clear();
+            nodes.AddRange(sortedNodes);
+
+            // Recursively sort the children of each node
+            foreach (var node in nodes.Where(n => n.IsDirectory))
+            {
+                SortChildren(node.Children);
+            }
         }
 
         #endregion

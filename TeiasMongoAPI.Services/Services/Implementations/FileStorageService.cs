@@ -279,22 +279,29 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             try
             {
                 var files = new List<VersionFileDto>();
-                var executionPath = Path.Combine(_settings.BasePath, programId, versionId, "execution", executionId);
 
-                if (!Directory.Exists(executionPath))
+                // Find the actual execution directory GUID since executionId is the database ID, not the directory name
+                var executionBasePath = Path.Combine(_settings.BasePath, programId, versionId, "execution");
+                var actualExecutionDirectory = await FindExecutionDirectoryAsync(executionBasePath, executionId, cancellationToken);
+
+                if (string.IsNullOrEmpty(actualExecutionDirectory))
+                {
+                    _logger.LogWarning("No execution directory found for execution {ExecutionId}", executionId);
+                    return files;
+                }
+
+                var outputsPath = Path.Combine(actualExecutionDirectory, "outputs");
+
+                if (!Directory.Exists(outputsPath))
                 {
                     return files;
                 }
 
-                // Get all files in the execution directory, excluding generated/cache folders
-                var excludedFolders = new HashSet<string> { "__pycache__", "node_modules", ".git", ".vscode", "bin", "obj" };
-                var allFiles = Directory.GetFiles(executionPath, "*", SearchOption.AllDirectories)
-                    .Where(file => !excludedFolders.Any(excluded => 
-                        file.Contains(Path.DirectorySeparatorChar + excluded + Path.DirectorySeparatorChar) ||
-                        file.Contains(Path.DirectorySeparatorChar + excluded) ||
-                        file.StartsWith(Path.Combine(executionPath, excluded))))
-                    .ToArray();
+                // Get all files and directories in the outputs directory
+                var allFiles = Directory.GetFiles(outputsPath, "*", SearchOption.AllDirectories);
+                var allDirectories = Directory.GetDirectories(outputsPath, "*", SearchOption.AllDirectories);
 
+                // Process files
                 foreach (var file in allFiles)
                 {
                     try
@@ -302,8 +309,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         var fileInfo = new FileInfo(file);
                         if (fileInfo.Exists)
                         {
-                            var relativePath = Path.GetRelativePath(executionPath, file);
-                            
+                            var relativePath = Path.GetRelativePath(outputsPath, file);
+
                             // Read file content to calculate hash (similar to how version files work)
                             var content = await File.ReadAllBytesAsync(file, cancellationToken);
                             var hash = CalculateFileHash(content);
@@ -325,13 +332,102 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     }
                 }
 
+                // Process directories
+                foreach (var directory in allDirectories)
+                {
+                    try
+                    {
+                        var dirInfo = new DirectoryInfo(directory);
+                        if (dirInfo.Exists)
+                        {
+                            var relativePath = Path.GetRelativePath(outputsPath, directory);
+
+                            files.Add(new VersionFileDto
+                            {
+                                Path = relativePath.Replace('\\', '/'), // Normalize path separators
+                                StorageKey = $"{programId}_{versionId}_{executionId}_dir_{relativePath}",
+                                Hash = string.Empty, // Directories don't have content hash
+                                Size = 0, // Directories don't have size
+                                FileType = "directory",
+                                ContentType = "application/x-directory"
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to process execution directory {DirectoryPath}", directory);
+                    }
+                }
+
                 return files.OrderBy(f => f.Path).ToList();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to list execution files for program {ProgramId}, version {VersionId}, execution {ExecutionId}", 
+                _logger.LogError(ex, "Failed to list execution files for program {ProgramId}, version {VersionId}, execution {ExecutionId}",
                     programId, versionId, executionId);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Finds the actual execution directory by looking for metadata that contains the database execution ID
+        /// </summary>
+        private async Task<string?> FindExecutionDirectoryAsync(string executionBasePath, string executionId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (!Directory.Exists(executionBasePath))
+                {
+                    return null;
+                }
+
+                var executionDirectories = Directory.GetDirectories(executionBasePath);
+
+                foreach (var directory in executionDirectories)
+                {
+                    // Check for metadata files that might contain the database execution ID
+                    var logsPath = Path.Combine(directory, "logs");
+                    if (Directory.Exists(logsPath))
+                    {
+                        var metadataFiles = Directory.GetFiles(logsPath, "*metadata*.json", SearchOption.TopDirectoryOnly);
+
+                        foreach (var metadataFile in metadataFiles)
+                        {
+                            try
+                            {
+                                var metadata = await File.ReadAllTextAsync(metadataFile, cancellationToken);
+                                // Check if this metadata contains our execution ID
+                                if (metadata.Contains(executionId))
+                                {
+                                    return directory;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to read metadata file {MetadataFile}", metadataFile);
+                            }
+                        }
+                    }
+                }
+
+                // Fallback: if no metadata found, try the most recent directory (last execution)
+                if (executionDirectories.Length > 0)
+                {
+                    var mostRecentDirectory = executionDirectories
+                        .OrderByDescending(dir => Directory.GetCreationTime(dir))
+                        .FirstOrDefault();
+
+                    _logger.LogWarning("No metadata found for execution {ExecutionId}, using most recent directory {Directory}",
+                        executionId, mostRecentDirectory);
+                    return mostRecentDirectory;
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to find execution directory for execution {ExecutionId}", executionId);
+                return null;
             }
         }
 
@@ -580,10 +676,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         {
                             var fileContent = await GetFileContentAsync(programId, versionId, filePath, cancellationToken);
                             var entry = archive.CreateEntry(filePath, GetCompressionLevel(compressionLevel));
-                            
+
                             using var entryStream = entry.Open();
                             await entryStream.WriteAsync(fileContent, cancellationToken);
-                            
+
                             result.IncludedFiles.Add(filePath);
                             result.TotalSize += fileContent.Length;
                             result.FileCount++;
@@ -596,7 +692,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                                     var metadata = await GetFileMetadataAsync(storageKey, cancellationToken);
                                     var metadataJson = System.Text.Json.JsonSerializer.Serialize(metadata, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
                                     var metadataEntry = archive.CreateEntry($"_metadata/{filePath}.metadata.json", GetCompressionLevel(compressionLevel));
-                                    
+
                                     using var metadataStream = metadataEntry.Open();
                                     using var writer = new StreamWriter(metadataStream);
                                     await writer.WriteAsync(metadataJson);
@@ -617,7 +713,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
 
                 result.ZipContent = memoryStream.ToArray();
-                
+
                 _logger.LogInformation("Bulk download completed for program {ProgramId}, version {VersionId}: {FileCount} files, {TotalSize} bytes",
                     programId, versionId, result.FileCount, result.TotalSize);
 
@@ -636,7 +732,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 var allFiles = await ListVersionFilesAsync(programId, versionId, cancellationToken);
                 var filePaths = allFiles.Select(f => f.Path).ToList();
-                
+
                 return await BulkDownloadFilesAsync(programId, versionId, filePaths, includeMetadata, compressionLevel, cancellationToken);
             }
             catch (Exception ex)
