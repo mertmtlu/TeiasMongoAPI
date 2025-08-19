@@ -20,6 +20,7 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine();
             sb.AppendLine("from typing import Optional, List, Dict, Any, Union");
             sb.AppendLine("import json");
+            sb.AppendLine("import os");
             sb.AppendLine("import re");
             sb.AppendLine("import sys");
             sb.AppendLine();
@@ -496,26 +497,37 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine();
 
             sb.AppendLine("    def _validate_file_data(self, file_data: Dict[str, Any], max_size: int, accepted_types: List[str]):");
-            sb.AppendLine("        \"\"\"Validate individual file data structure\"\"\"");
+            sb.AppendLine("        \"\"\"Validate individual file data structure - supports both old and new formats\"\"\"");
             sb.AppendLine("        if not isinstance(file_data, dict):");
             sb.AppendLine("            raise ValueError('File data must be a dictionary')");
             sb.AppendLine();
-            sb.AppendLine("        required_fields = ['attachmentId', 'fileName', 'fileSize', 'contentType']");
-            sb.AppendLine("        for field in required_fields:");
-            sb.AppendLine("            if field not in file_data:");
-            sb.AppendLine("                raise ValueError(f'File data missing required field: {field}')");
+            sb.AppendLine("        # Detect format: new format has 'filename' and 'content', old format has 'attachmentId' and 'fileName'");
+            sb.AppendLine("        is_new_format = 'filename' in file_data and 'content' in file_data");
+            sb.AppendLine("        is_old_format = 'attachmentId' in file_data and 'fileName' in file_data");
+            sb.AppendLine();
+            sb.AppendLine("        if not is_new_format and not is_old_format:");
+            sb.AppendLine("            raise ValueError('File data must contain either (filename + content) or (attachmentId + fileName)')");
+            sb.AppendLine();
+            sb.AppendLine("        # Get filename and file size based on format");
+            sb.AppendLine("        if is_new_format:");
+            sb.AppendLine("            file_name = file_data.get('filename', '')");
+            sb.AppendLine("            file_size = file_data.get('fileSize', 0)");
+            sb.AppendLine("            content_type = file_data.get('contentType', '')");
+            sb.AppendLine("            has_content = bool(file_data.get('content', ''))");
+            sb.AppendLine("        else:");
+            sb.AppendLine("            file_name = file_data.get('fileName', '')");
+            sb.AppendLine("            file_size = file_data.get('fileSize', 0)");
+            sb.AppendLine("            content_type = file_data.get('contentType', '')");
+            sb.AppendLine("            has_content = file_data.get('uploaded', False)");
             sb.AppendLine();
             sb.AppendLine("        # Validate file size");
-            sb.AppendLine("        file_size = file_data.get('fileSize', 0)");
             sb.AppendLine("        if file_size > max_size:");
             sb.AppendLine("            max_mb = max_size / (1024 * 1024)");
             sb.AppendLine("            actual_mb = file_size / (1024 * 1024)");
-            sb.AppendLine("            raise ValueError(f'File {file_data.get(\"fileName\")} is {actual_mb:.1f}MB, maximum allowed is {max_mb:.1f}MB')");
+            sb.AppendLine("            raise ValueError(f'File {file_name} is {actual_mb:.1f}MB, maximum allowed is {max_mb:.1f}MB')");
             sb.AppendLine();
             sb.AppendLine("        # Validate file type");
             sb.AppendLine("        if accepted_types and '*/*' not in accepted_types:");
-            sb.AppendLine("            content_type = file_data.get('contentType', '')");
-            sb.AppendLine("            file_name = file_data.get('fileName', '')");
             sb.AppendLine("            file_extension = '.' + file_name.split('.')[-1].lower() if '.' in file_name else ''");
             sb.AppendLine("            ");
             sb.AppendLine("            type_valid = False");
@@ -539,9 +551,12 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("            if not type_valid:");
             sb.AppendLine("                raise ValueError(f'File type {content_type} not allowed for {file_name}. Accepted types: {accepted_types}')");
             sb.AppendLine();
-            sb.AppendLine("        # Check if file was uploaded successfully");
-            sb.AppendLine("        if not file_data.get('uploaded', False):");
-            sb.AppendLine("            raise ValueError(f'File {file_data.get(\"fileName\")} was not uploaded successfully')");
+            sb.AppendLine("        # Check if file has content (uploaded successfully or has content data)");
+            sb.AppendLine("        if not has_content:");
+            sb.AppendLine("            if is_new_format:");
+            sb.AppendLine("                raise ValueError(f'File {file_name} has no content data')");
+            sb.AppendLine("            else:");
+            sb.AppendLine("                raise ValueError(f'File {file_name} was not uploaded successfully')");
             sb.AppendLine();
 
             // Add helper method to check if element is a table
@@ -722,6 +737,51 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("            params[current_key.strip()] = self.parse_value(current_value.strip())");
             sb.AppendLine();
             sb.AppendLine("        return params");
+            sb.AppendLine();
+
+            // Input file access methods
+            sb.AppendLine("    def get_input_files(self) -> List[str]:");
+            sb.AppendLine("        \"\"\"Get list of all input file names available in the input directory\"\"\"");
+            sb.AppendLine("        input_dir = os.path.join(os.getcwd(), 'input')");
+            sb.AppendLine("        if not os.path.exists(input_dir):");
+            sb.AppendLine("            return []");
+            sb.AppendLine("        return [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]");
+            sb.AppendLine();
+
+            sb.AppendLine("    def get_input_file(self, filename: str) -> str:");
+            sb.AppendLine("        \"\"\"Get full absolute path to input file by name\"\"\"");
+            sb.AppendLine("        input_dir = os.path.join(os.getcwd(), 'input')");
+            sb.AppendLine("        file_path = os.path.join(input_dir, filename)");
+            sb.AppendLine("        if not os.path.exists(file_path):");
+            sb.AppendLine("            raise FileNotFoundError(f'Input file not found: {filename}')");
+            sb.AppendLine("        return file_path");
+            sb.AppendLine();
+
+            sb.AppendLine("    def get_input_file_path(self, filename: str) -> str:");
+            sb.AppendLine("        \"\"\"Get relative path to input file from project directory\"\"\"");
+            sb.AppendLine("        input_dir = os.path.join(os.getcwd(), 'input')");
+            sb.AppendLine("        file_path = os.path.join(input_dir, filename)");
+            sb.AppendLine("        if not os.path.exists(file_path):");
+            sb.AppendLine("            raise FileNotFoundError(f'Input file not found: {filename}')");
+            sb.AppendLine("        return os.path.join('input', filename)");
+            sb.AppendLine();
+
+            sb.AppendLine("    def has_input_file(self, filename: str) -> bool:");
+            sb.AppendLine("        \"\"\"Check if specific input file exists\"\"\"");
+            sb.AppendLine("        input_dir = os.path.join(os.getcwd(), 'input')");
+            sb.AppendLine("        file_path = os.path.join(input_dir, filename)");
+            sb.AppendLine("        return os.path.exists(file_path) and os.path.isfile(file_path)");
+            sb.AppendLine();
+
+            sb.AppendLine("    def read_input_file(self, filename: str, mode: str = 'r', encoding: str = 'utf-8') -> Union[str, bytes]:");
+            sb.AppendLine("        \"\"\"Read input file contents. Use mode='rb' for binary files\"\"\"");
+            sb.AppendLine("        file_path = self.get_input_file(filename)");
+            sb.AppendLine("        if 'b' in mode:");
+            sb.AppendLine("            with open(file_path, mode) as f:");
+            sb.AppendLine("                return f.read()");
+            sb.AppendLine("        else:");
+            sb.AppendLine("            with open(file_path, mode, encoding=encoding) as f:");
+            sb.AppendLine("                return f.read()");
             sb.AppendLine();
 
             // Validate method

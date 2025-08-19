@@ -112,11 +112,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         break;
                 }
 
-                // Extract input files if present
+                // Extract input files from both old format (inputFiles array) and new format (direct parameters)
                 if (dto.Parameters.ContainsKey("inputFiles"))
                 {
                     dto.InputFiles = ExtractInputFiles(dto.Parameters["inputFiles"]);
                 }
+                
+                // NEW: Extract files from direct parameter format (filename + content)
+                dto.InputFiles.AddRange(ExtractFilesFromParameters(dto.Parameters));
             }
             catch (Exception ex)
             {
@@ -200,6 +203,81 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to extract input files");
+                return new List<InputFileDto>();
+            }
+        }
+
+        private List<InputFileDto> ExtractFilesFromParameters(Dictionary<string, object> parameters)
+        {
+            try
+            {
+                var inputFiles = new List<InputFileDto>();
+                
+                foreach (var kvp in parameters)
+                {
+                    // Check if this parameter looks like a file object (has filename and content)
+                    if (kvp.Value is Dictionary<string, object> fileDict)
+                    {
+                        if (fileDict.ContainsKey("filename") && fileDict.ContainsKey("content"))
+                        {
+                            var filename = fileDict.GetValueOrDefault("filename", "").ToString() ?? "";
+                            var content = fileDict.GetValueOrDefault("content", "").ToString() ?? "";
+                            var contentType = fileDict.GetValueOrDefault("contentType", "application/octet-stream").ToString() ?? "application/octet-stream";
+                            var fileSize = Convert.ToInt64(fileDict.GetValueOrDefault("fileSize", 0));
+
+                            if (!string.IsNullOrEmpty(filename) && !string.IsNullOrEmpty(content))
+                            {
+                                inputFiles.Add(new InputFileDto
+                                {
+                                    Name = filename,
+                                    Content = content,
+                                    ContentType = contentType,
+                                    Size = fileSize
+                                });
+
+                                _logger.LogDebug("Extracted file from parameters: {FileName} ({Size} bytes)", filename, fileSize);
+                            }
+                        }
+                    }
+                    // Handle JSON elements that might contain file data
+                    else if (kvp.Value is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
+                    {
+                        try
+                        {
+                            var fileDictonary = JsonSerializer.Deserialize<Dictionary<string, object>>(jsonElement.GetRawText());
+                            if (fileDictonary?.ContainsKey("filename") == true && fileDictonary?.ContainsKey("content") == true)
+                            {
+                                var filename = fileDictonary.GetValueOrDefault("filename", "").ToString() ?? "";
+                                var content = fileDictonary.GetValueOrDefault("content", "").ToString() ?? "";
+                                var contentType = fileDictonary.GetValueOrDefault("contentType", "application/octet-stream").ToString() ?? "application/octet-stream";
+                                var fileSize = Convert.ToInt64(fileDictonary.GetValueOrDefault("fileSize", 0));
+
+                                if (!string.IsNullOrEmpty(filename) && !string.IsNullOrEmpty(content))
+                                {
+                                    inputFiles.Add(new InputFileDto
+                                    {
+                                        Name = filename,
+                                        Content = content,
+                                        ContentType = contentType,
+                                        Size = fileSize
+                                    });
+
+                                    _logger.LogDebug("Extracted file from JSON parameters: {FileName} ({Size} bytes)", filename, fileSize);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "Failed to parse JSON element as file data for parameter {ParameterName}", kvp.Key);
+                        }
+                    }
+                }
+                
+                return inputFiles;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to extract files from parameters");
                 return new List<InputFileDto>();
             }
         }
