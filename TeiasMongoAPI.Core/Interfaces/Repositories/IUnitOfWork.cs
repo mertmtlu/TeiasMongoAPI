@@ -20,6 +20,7 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         IWorkflowRepository Workflows { get; }
         IWorkflowExecutionRepository WorkflowExecutions { get; }
         IUIInteractionRepository UIInteractions { get; }
+        IRemoteAppRepository RemoteApps { get; }
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
         Task BeginTransactionAsync(CancellationToken cancellationToken = default);

@@ -207,6 +207,7 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IExecutionService, ExecutionService>();
             builder.Services.AddScoped<IDeploymentService, DeploymentService>();
             builder.Services.AddScoped<IProjectExecutionEngine, ProjectExecutionEngine>();
+            builder.Services.AddScoped<IRemoteAppService, RemoteAppService>();
 
             builder.Services.AddScoped<IProjectLanguageRunner, CSharpProjectRunner>();
             builder.Services.AddScoped<IProjectLanguageRunner, JavaProjectRunner>();

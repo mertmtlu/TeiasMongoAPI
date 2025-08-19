@@ -1,0 +1,307 @@
+using AutoMapper;
+using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
+using TeiasMongoAPI.Core.Interfaces.Repositories;
+using TeiasMongoAPI.Core.Models.Collaboration;
+using TeiasMongoAPI.Core.Models.KeyModels;
+using TeiasMongoAPI.Services.DTOs.Request.Pagination;
+using TeiasMongoAPI.Services.DTOs.Request.RemoteApp;
+using TeiasMongoAPI.Services.DTOs.Response.Common;
+using TeiasMongoAPI.Services.DTOs.Response.RemoteApp;
+using TeiasMongoAPI.Services.Interfaces;
+using TeiasMongoAPI.Services.Services.Base;
+
+namespace TeiasMongoAPI.Services.Services.Implementations
+{
+    public class RemoteAppService : BaseService, IRemoteAppService
+    {
+        public RemoteAppService(
+            IUnitOfWork unitOfWork,
+            IMapper mapper,
+            ILogger<RemoteAppService> logger)
+            : base(unitOfWork, mapper, logger)
+        {
+        }
+
+        public async Task<PagedResponse<RemoteAppListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        {
+            var remoteApps = await _unitOfWork.RemoteApps.GetAllAsync(cancellationToken);
+            var remoteAppsList = remoteApps.ToList();
+            
+            var pagedItems = ApplyPagination(remoteAppsList, pagination);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+
+            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+        }
+
+        public async Task<RemoteAppDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
+
+            var dto = _mapper.Map<RemoteAppDetailDto>(remoteApp);
+
+            // Populate assigned user details
+            if (remoteApp.AssignedUsers.Any())
+            {
+                var users = await _unitOfWork.Users.GetByIdsAsync(remoteApp.AssignedUsers, cancellationToken);
+                dto.AssignedUsers = users.Select(u => new RemoteAppAssignedUserDto
+                {
+                    UserId = u._ID.ToString(),
+                    Username = u.Username,
+                    FullName = u.FullName,
+                    Email = u.Email
+                }).ToList();
+            }
+
+            // Populate creator name
+            if (ObjectId.TryParse(remoteApp.Creator, out var creatorObjectId))
+            {
+                var creator = await _unitOfWork.Users.GetByIdAsync(creatorObjectId, cancellationToken);
+                if (creator != null)
+                {
+                    dto.CreatorName = creator.FullName;
+                }
+            }
+
+            return dto;
+        }
+
+        public async Task<RemoteAppDto> CreateAsync(RemoteAppCreateDto dto, string creatorId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(creatorId, out var creatorObjectId))
+                throw new ArgumentException("Invalid creator ID format", nameof(creatorId));
+
+            // Validate name uniqueness
+            if (!await _unitOfWork.RemoteApps.IsNameUniqueAsync(dto.Name, cancellationToken: cancellationToken))
+                throw new InvalidOperationException($"Remote app with name '{dto.Name}' already exists");
+
+            var remoteApp = _mapper.Map<RemoteApp>(dto);
+            remoteApp.Creator = creatorId;
+            remoteApp.CreatedAt = DateTime.UtcNow;
+
+            // Convert assigned user IDs to ObjectIds
+            if (dto.AssignedUserIds.Any())
+            {
+                var userObjectIds = new List<ObjectId>();
+                foreach (var userId in dto.AssignedUserIds)
+                {
+                    if (ObjectId.TryParse(userId, out var userObjectId))
+                    {
+                        // Verify user exists
+                        var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
+                        if (user != null)
+                        {
+                            userObjectIds.Add(userObjectId);
+                        }
+                    }
+                }
+                remoteApp.AssignedUsers = userObjectIds;
+            }
+
+            var createdRemoteApp = await _unitOfWork.RemoteApps.CreateAsync(remoteApp, cancellationToken);
+            return _mapper.Map<RemoteAppDto>(createdRemoteApp);
+        }
+
+        public async Task<RemoteAppDto> UpdateAsync(string id, RemoteAppUpdateDto dto, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            var existingRemoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (existingRemoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
+
+            // Validate name uniqueness if name is being updated
+            if (!string.IsNullOrEmpty(dto.Name) && dto.Name != existingRemoteApp.Name)
+            {
+                if (!await _unitOfWork.RemoteApps.IsNameUniqueAsync(dto.Name, objectId, cancellationToken))
+                    throw new InvalidOperationException($"Remote app with name '{dto.Name}' already exists");
+            }
+
+            // Update fields
+            if (!string.IsNullOrEmpty(dto.Name))
+                existingRemoteApp.Name = dto.Name;
+            
+            if (dto.Description != null)
+                existingRemoteApp.Description = dto.Description;
+            
+            if (!string.IsNullOrEmpty(dto.Url))
+                existingRemoteApp.Url = dto.Url;
+            
+            if (dto.IsPublic.HasValue)
+                existingRemoteApp.IsPublic = dto.IsPublic.Value;
+
+            // Update assigned users if provided
+            if (dto.AssignedUserIds != null)
+            {
+                var userObjectIds = new List<ObjectId>();
+                foreach (var userId in dto.AssignedUserIds)
+                {
+                    if (ObjectId.TryParse(userId, out var userObjectId))
+                    {
+                        // Verify user exists
+                        var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
+                        if (user != null)
+                        {
+                            userObjectIds.Add(userObjectId);
+                        }
+                    }
+                }
+                existingRemoteApp.AssignedUsers = userObjectIds;
+            }
+
+            existingRemoteApp.ModifiedAt = DateTime.UtcNow;
+
+            await _unitOfWork.RemoteApps.UpdateAsync(objectId, existingRemoteApp, cancellationToken);
+            return _mapper.Map<RemoteAppDto>(existingRemoteApp);
+        }
+
+        public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            return await _unitOfWork.RemoteApps.DeleteAsync(objectId, cancellationToken);
+        }
+
+        public async Task<PagedResponse<RemoteAppListDto>> GetByCreatorAsync(string creatorId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        {
+            var remoteApps = await _unitOfWork.RemoteApps.GetByCreatorAsync(creatorId, cancellationToken);
+            var remoteAppsList = remoteApps.ToList();
+            
+            var pagedItems = ApplyPagination(remoteAppsList, pagination);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+
+            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+        }
+
+        public async Task<PagedResponse<RemoteAppListDto>> GetByStatusAsync(string status, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        {
+            var remoteApps = await _unitOfWork.RemoteApps.GetByStatusAsync(status, cancellationToken);
+            var remoteAppsList = remoteApps.ToList();
+            
+            var pagedItems = ApplyPagination(remoteAppsList, pagination);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+
+            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+        }
+
+        public async Task<PagedResponse<RemoteAppListDto>> GetUserAccessibleAppsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(userId, out var userObjectId))
+                throw new ArgumentException("Invalid user ID format", nameof(userId));
+
+            var remoteApps = await _unitOfWork.RemoteApps.GetUserAccessibleAppsAsync(userObjectId, cancellationToken);
+            var remoteAppsList = remoteApps.ToList();
+            
+            var pagedItems = ApplyPagination(remoteAppsList, pagination);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+
+            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+        }
+
+        public async Task<PagedResponse<RemoteAppListDto>> GetPublicAppsAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        {
+            var remoteApps = await _unitOfWork.RemoteApps.GetPublicAppsAsync(cancellationToken);
+            var remoteAppsList = remoteApps.ToList();
+            
+            var pagedItems = ApplyPagination(remoteAppsList, pagination);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+
+            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+        }
+
+        public async Task<bool> AssignUserAsync(string remoteAppId, string userId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(remoteAppId, out var remoteAppObjectId))
+                throw new ArgumentException("Invalid remote app ID format", nameof(remoteAppId));
+
+            if (!ObjectId.TryParse(userId, out var userObjectId))
+                throw new ArgumentException("Invalid user ID format", nameof(userId));
+
+            // Verify user exists
+            var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
+            if (user == null)
+                throw new KeyNotFoundException($"User with ID {userId} not found");
+
+            return await _unitOfWork.RemoteApps.AddUserAssignmentAsync(remoteAppObjectId, userObjectId, cancellationToken);
+        }
+
+        public async Task<bool> UnassignUserAsync(string remoteAppId, string userId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(remoteAppId, out var remoteAppObjectId))
+                throw new ArgumentException("Invalid remote app ID format", nameof(remoteAppId));
+
+            if (!ObjectId.TryParse(userId, out var userObjectId))
+                throw new ArgumentException("Invalid user ID format", nameof(userId));
+
+            return await _unitOfWork.RemoteApps.RemoveUserAssignmentAsync(remoteAppObjectId, userObjectId, cancellationToken);
+        }
+
+        public async Task<bool> IsUserAssignedAsync(string remoteAppId, string userId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(remoteAppId, out var remoteAppObjectId))
+                throw new ArgumentException("Invalid remote app ID format", nameof(remoteAppId));
+
+            if (!ObjectId.TryParse(userId, out var userObjectId))
+                throw new ArgumentException("Invalid user ID format", nameof(userId));
+
+            return await _unitOfWork.RemoteApps.IsUserAssignedAsync(remoteAppObjectId, userObjectId, cancellationToken);
+        }
+
+        public async Task<bool> UpdateStatusAsync(string id, string status, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
+
+            remoteApp.Status = status;
+            remoteApp.ModifiedAt = DateTime.UtcNow;
+
+            await _unitOfWork.RemoteApps.UpdateAsync(objectId, remoteApp, cancellationToken);
+            return true;
+        }
+
+        public async Task<bool> ValidateNameUniqueAsync(string name, string? excludeId = null, CancellationToken cancellationToken = default)
+        {
+            ObjectId? excludeObjectId = null;
+            if (!string.IsNullOrEmpty(excludeId))
+            {
+                if (!ObjectId.TryParse(excludeId, out var objectId))
+                    throw new ArgumentException("Invalid exclude ID format", nameof(excludeId));
+                excludeObjectId = objectId;
+            }
+
+            return await _unitOfWork.RemoteApps.IsNameUniqueAsync(name, excludeObjectId, cancellationToken);
+        }
+
+        private PagedResult<T> ApplyPagination<T>(List<T> items, PaginationRequestDto pagination)
+        {
+            var totalCount = items.Count;
+            var skip = (pagination.PageNumber - 1) * pagination.PageSize;
+            var pagedItems = items.Skip(skip).Take(pagination.PageSize).ToList();
+
+            return new PagedResult<T>(pagedItems, totalCount);
+        }
+
+        private class PagedResult<T>
+        {
+            public List<T> Items { get; }
+            public int TotalCount { get; }
+
+            public PagedResult(List<T> items, int totalCount)
+            {
+                Items = items;
+                TotalCount = totalCount;
+            }
+        }
+    }
+}

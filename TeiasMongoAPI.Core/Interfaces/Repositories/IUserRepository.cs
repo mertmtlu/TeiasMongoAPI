@@ -13,6 +13,7 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         Task<IEnumerable<User>> GetByRoleAsync(string role, CancellationToken cancellationToken = default);
         Task<IEnumerable<User>> GetActiveUsersAsync(CancellationToken cancellationToken = default);
         Task<IEnumerable<User>> GetByClientIdAsync(ObjectId clientId, CancellationToken cancellationToken = default);
+        Task<IEnumerable<User>> GetByIdsAsync(IEnumerable<ObjectId> userIds, CancellationToken cancellationToken = default);
         Task<bool> EmailExistsAsync(string email, CancellationToken cancellationToken = default);
         Task<bool> UsernameExistsAsync(string username, CancellationToken cancellationToken = default);
         Task<bool> UpdateLastLoginAsync(ObjectId userId, DateTime loginDate, CancellationToken cancellationToken = default);

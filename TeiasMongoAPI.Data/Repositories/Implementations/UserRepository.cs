@@ -72,6 +72,17 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 .ToListAsync(cancellationToken);
         }
 
+        public async Task<IEnumerable<User>> GetByIdsAsync(IEnumerable<ObjectId> userIds, CancellationToken cancellationToken = default)
+        {
+            var userIdsList = userIds.ToList();
+            if (!userIdsList.Any())
+                return new List<User>();
+
+            return await _context.Users
+                .Find(u => userIdsList.Contains(u._ID))
+                .ToListAsync(cancellationToken);
+        }
+
         public async Task<bool> EmailExistsAsync(string email, CancellationToken cancellationToken = default)
         {
             var count = await _context.Users
