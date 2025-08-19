@@ -91,24 +91,56 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             try
             {
+                // Log the actual parameter type for debugging
+                _logger.LogDebug("Processing parameters of type: {ParameterType}, Value: {ParameterValue}",
+                    parameters?.GetType().FullName ?? "null", parameters?.ToString() ?? "null");
+
+
                 // Handle different parameter types
                 switch (parameters)
                 {
                     case BsonDocument bsonDoc:
+                        _logger.LogDebug("Processing BsonDocument parameters");
                         dto.Parameters = ConvertBsonToJsonSafe(bsonDoc);
                         break;
-                        
+
                     case Dictionary<string, object> dict:
+                        _logger.LogDebug("Processing Dictionary<string, object> parameters");
                         dto.Parameters = ConvertDictionaryToJsonSafe(dict);
                         break;
-                        
+
                     case string jsonString when !string.IsNullOrEmpty(jsonString):
+                        _logger.LogDebug("Processing string JSON parameters");
                         dto.Parameters = JsonSerializer.Deserialize<Dictionary<string, object>>(jsonString) ?? new();
                         break;
-                        
+
+                    case JsonElement jsonElement when jsonElement.ValueKind == JsonValueKind.Object:
+                        _logger.LogDebug("Processing JsonElement parameters");
+                        dto.Parameters = JsonSerializer.Deserialize<Dictionary<string, object>>(jsonElement.GetRawText()) ?? new();
+                        break;
+
                     default:
-                        _logger.LogWarning("Unknown parameter type: {ParameterType}", parameters?.GetType().Name ?? "null");
-                        dto.Parameters = new Dictionary<string, object>();
+                        _logger.LogWarning("Unknown parameter type: {ParameterType}, attempting JSON deserialization from string", parameters?.GetType().FullName ?? "null");
+
+                        // Try to convert to string and then deserialize as JSON
+                        var paramString = parameters?.ToString();
+                        if (!string.IsNullOrEmpty(paramString))
+                        {
+                            try
+                            {
+                                dto.Parameters = JsonSerializer.Deserialize<Dictionary<string, object>>(paramString) ?? new();
+                                _logger.LogDebug("Successfully parsed unknown type as JSON string");
+                            }
+                            catch (JsonException jsonEx)
+                            {
+                                _logger.LogError(jsonEx, "Failed to parse unknown parameter type as JSON");
+                                dto.Parameters = new Dictionary<string, object>();
+                            }
+                        }
+                        else
+                        {
+                            dto.Parameters = new Dictionary<string, object>();
+                        }
                         break;
                 }
 
@@ -117,9 +149,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     dto.InputFiles = ExtractInputFiles(dto.Parameters["inputFiles"]);
                 }
-                
+
                 // NEW: Extract files from direct parameter format (filename + content)
-                dto.InputFiles.AddRange(ExtractFilesFromParameters(dto.Parameters));
+                var extractedFiles = ExtractFilesFromParameters(dto.Parameters);
+                _logger.LogDebug("Extracted {FileCount} files from parameters for execution {ExecutionId}", extractedFiles.Count, executionId);
+                dto.InputFiles.AddRange(extractedFiles);
             }
             catch (Exception ex)
             {
@@ -250,7 +284,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                                 var filename = fileDictonary.GetValueOrDefault("filename", "").ToString() ?? "";
                                 var content = fileDictonary.GetValueOrDefault("content", "").ToString() ?? "";
                                 var contentType = fileDictonary.GetValueOrDefault("contentType", "application/octet-stream").ToString() ?? "application/octet-stream";
-                                var fileSize = Convert.ToInt64(fileDictonary.GetValueOrDefault("fileSize", 0));
+                                var baseFileSize = fileDictonary.GetValueOrDefault("fileSize", 0).ToString();
+
+
+                                var fileSize = Convert.ToInt64(baseFileSize);
 
                                 if (!string.IsNullOrEmpty(filename) && !string.IsNullOrEmpty(content))
                                 {
