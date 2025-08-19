@@ -108,6 +108,13 @@ namespace TeiasMongoAPI.Services.Helpers
                 return;
             }
 
+            // Handle file_input elements specifically
+            if (elementType == "file_input")
+            {
+                GenerateFileInputProperties(sb, element);
+                return;
+            }
+
             // Property getter
             sb.AppendLine($"    @property");
             sb.AppendLine($"    def {elementName}(self) -> {GetPythonType(elementType)}:");
@@ -133,6 +140,124 @@ namespace TeiasMongoAPI.Services.Helpers
             }
             GenerateValidation(sb, elementType, element);
             sb.AppendLine($"        self._values['{elementName}'] = value");
+            sb.AppendLine();
+        }
+
+        private static void GenerateFileInputProperties(StringBuilder sb, Dictionary<string, object>? element)
+        {
+            if (element == null) return;
+
+            var elementName = element.TryGetValue("name", out var name) ? name?.ToString() ?? "" : "";
+            var elementLabel = element.TryGetValue("label", out var label) ? label?.ToString() ?? "" : "";
+            var placeholder = element.TryGetValue("placeholder", out var ph) ? ph?.ToString() ?? "" : "";
+            var required = element.TryGetValue("required", out var req) && (req is bool b ? b : bool.TryParse(req?.ToString(), out b) && b);
+
+            // Get file input configuration
+            var fileInputConfig = element.TryGetValue("fileInputConfig", out var configObj) ?
+                JsonSerializer.Deserialize<Dictionary<string, object>>(configObj.ToString()) : null;
+
+            var multiple = fileInputConfig?.TryGetValue("multiple", out var multipleObj) == true &&
+                (multipleObj is bool m ? m : bool.TryParse(multipleObj?.ToString(), out m) && m);
+
+            var maxFileSize = fileInputConfig?.TryGetValue("maxFileSize", out var sizeObj) == true ?
+                (sizeObj is int s ? s : int.TryParse(sizeObj?.ToString(), out s) ? s : 10485760) : 10485760;
+
+            var acceptedFileTypes = fileInputConfig?.TryGetValue("acceptedFileTypes", out var typesObj) == true ?
+                JsonSerializer.Deserialize<IEnumerable<object>>(typesObj.ToString())?.Select(t => t?.ToString() ?? "").ToList() ?? new List<string>() :
+                new List<string>();
+
+            // Property getter
+            sb.AppendLine($"    @property");
+            sb.AppendLine($"    def {elementName}(self) -> {(multiple ? "Optional[List[Dict[str, Any]]]" : "Optional[Dict[str, Any]]")}:");
+            sb.AppendLine($"        \"\"\"");
+            sb.AppendLine($"        {elementLabel}");
+            if (!string.IsNullOrEmpty(placeholder))
+            {
+                sb.AppendLine($"        Placeholder: {placeholder}");
+            }
+            sb.AppendLine($"        Type: file_input");
+            sb.AppendLine($"        Multiple files: {multiple}");
+            sb.AppendLine($"        Max file size: {maxFileSize / (1024 * 1024)}MB");
+            if (acceptedFileTypes.Any())
+            {
+                sb.AppendLine($"        Accepted types: {string.Join(", ", acceptedFileTypes)}");
+            }
+            sb.AppendLine($"        Required: {required}");
+            sb.AppendLine($"        \"\"\"");
+            sb.AppendLine($"        return self._values.get('{elementName}', {(multiple ? "[]" : "None")})");
+            sb.AppendLine();
+
+            // Property setter
+            sb.AppendLine($"    @{elementName}.setter");
+            sb.AppendLine($"    def {elementName}(self, value: {(multiple ? "Optional[List[Dict[str, Any]]]" : "Optional[Dict[str, Any]]")}):");
+
+            if (required)
+            {
+                if (multiple)
+                {
+                    sb.AppendLine($"        if not value or len(value) == 0:");
+                    sb.AppendLine($"            raise ValueError('{elementLabel} is required')");
+                }
+                else
+                {
+                    sb.AppendLine($"        if value is None:");
+                    sb.AppendLine($"            raise ValueError('{elementLabel} is required')");
+                }
+            }
+
+            // File validation
+            sb.AppendLine($"        if value is not None:");
+            if (multiple)
+            {
+                sb.AppendLine($"            if not isinstance(value, list):");
+                sb.AppendLine($"                raise ValueError('File input value must be a list when multiple=True')");
+                sb.AppendLine($"            for file_data in value:");
+                var acceptedTypesString = acceptedFileTypes.Any()
+                    ? "[" + string.Join(", ", acceptedFileTypes.Select(t => $"'{t}'")) + "]"
+                    : "[]";
+                sb.AppendLine($"                self._validate_file_data(file_data, {maxFileSize}, {acceptedTypesString})");
+            }
+            else
+            {
+                sb.AppendLine($"            if isinstance(value, list):");
+                sb.AppendLine($"                raise ValueError('File input value must not be a list when multiple=False')");
+                var acceptedTypesString = acceptedFileTypes.Any()
+                    ? "[" + string.Join(", ", acceptedFileTypes.Select(t => $"'{t}'")) + "]"
+                    : "[]";
+                sb.AppendLine($"            self._validate_file_data(value, {maxFileSize}, {acceptedTypesString})");
+            }
+
+            sb.AppendLine($"        self._values['{elementName}'] = value");
+            sb.AppendLine();
+
+            // Helper methods for file properties
+            sb.AppendLine($"    def get_{elementName}_files(self) -> List[Dict[str, Any]]:");
+            sb.AppendLine($"        \"\"\"Get all files for {elementName} as a list\"\"\"");
+            sb.AppendLine($"        value = self.{elementName}");
+            sb.AppendLine($"        if value is None:");
+            sb.AppendLine($"            return []");
+            sb.AppendLine($"        elif isinstance(value, list):");
+            sb.AppendLine($"            return value");
+            sb.AppendLine($"        else:");
+            sb.AppendLine($"            return [value]");
+            sb.AppendLine();
+
+            sb.AppendLine($"    def get_{elementName}_file_names(self) -> List[str]:");
+            sb.AppendLine($"        \"\"\"Get file names for {elementName}\"\"\"");
+            sb.AppendLine($"        files = self.get_{elementName}_files()");
+            sb.AppendLine($"        return [f.get('fileName', 'Unknown') for f in files]");
+            sb.AppendLine();
+
+            sb.AppendLine($"    def get_{elementName}_total_size(self) -> int:");
+            sb.AppendLine($"        \"\"\"Get total size of all files for {elementName} in bytes\"\"\"");
+            sb.AppendLine($"        files = self.get_{elementName}_files()");
+            sb.AppendLine($"        return sum(f.get('fileSize', 0) for f in files)");
+            sb.AppendLine();
+
+            sb.AppendLine($"    def has_{elementName}_files(self) -> bool:");
+            sb.AppendLine($"        \"\"\"Check if {elementName} has any files\"\"\"");
+            sb.AppendLine($"        files = self.get_{elementName}_files()");
+            sb.AppendLine($"        return len(files) > 0");
             sb.AppendLine();
         }
 
@@ -368,6 +493,55 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("            else:");
             sb.AppendLine("                # Regular element");
             sb.AppendLine("                self._values[key] = value");
+            sb.AppendLine();
+
+            sb.AppendLine("    def _validate_file_data(self, file_data: Dict[str, Any], max_size: int, accepted_types: List[str]):");
+            sb.AppendLine("        \"\"\"Validate individual file data structure\"\"\"");
+            sb.AppendLine("        if not isinstance(file_data, dict):");
+            sb.AppendLine("            raise ValueError('File data must be a dictionary')");
+            sb.AppendLine();
+            sb.AppendLine("        required_fields = ['attachmentId', 'fileName', 'fileSize', 'contentType']");
+            sb.AppendLine("        for field in required_fields:");
+            sb.AppendLine("            if field not in file_data:");
+            sb.AppendLine("                raise ValueError(f'File data missing required field: {field}')");
+            sb.AppendLine();
+            sb.AppendLine("        # Validate file size");
+            sb.AppendLine("        file_size = file_data.get('fileSize', 0)");
+            sb.AppendLine("        if file_size > max_size:");
+            sb.AppendLine("            max_mb = max_size / (1024 * 1024)");
+            sb.AppendLine("            actual_mb = file_size / (1024 * 1024)");
+            sb.AppendLine("            raise ValueError(f'File {file_data.get(\"fileName\")} is {actual_mb:.1f}MB, maximum allowed is {max_mb:.1f}MB')");
+            sb.AppendLine();
+            sb.AppendLine("        # Validate file type");
+            sb.AppendLine("        if accepted_types and '*/*' not in accepted_types:");
+            sb.AppendLine("            content_type = file_data.get('contentType', '')");
+            sb.AppendLine("            file_name = file_data.get('fileName', '')");
+            sb.AppendLine("            file_extension = '.' + file_name.split('.')[-1].lower() if '.' in file_name else ''");
+            sb.AppendLine("            ");
+            sb.AppendLine("            type_valid = False");
+            sb.AppendLine("            for accepted_type in accepted_types:");
+            sb.AppendLine("                if accepted_type.startswith('.'):");
+            sb.AppendLine("                    # File extension check");
+            sb.AppendLine("                    if file_extension == accepted_type.lower():");
+            sb.AppendLine("                        type_valid = True");
+            sb.AppendLine("                        break");
+            sb.AppendLine("                elif accepted_type.endswith('/*'):");
+            sb.AppendLine("                    # MIME type wildcard check");
+            sb.AppendLine("                    base_type = accepted_type.split('/')[0]");
+            sb.AppendLine("                    if content_type.startswith(base_type + '/'):");
+            sb.AppendLine("                        type_valid = True");
+            sb.AppendLine("                        break");
+            sb.AppendLine("                elif accepted_type == content_type:");
+            sb.AppendLine("                    # Exact MIME type match");
+            sb.AppendLine("                    type_valid = True");
+            sb.AppendLine("                    break");
+            sb.AppendLine("            ");
+            sb.AppendLine("            if not type_valid:");
+            sb.AppendLine("                raise ValueError(f'File type {content_type} not allowed for {file_name}. Accepted types: {accepted_types}')");
+            sb.AppendLine();
+            sb.AppendLine("        # Check if file was uploaded successfully");
+            sb.AppendLine("        if not file_data.get('uploaded', False):");
+            sb.AppendLine("            raise ValueError(f'File {file_data.get(\"fileName\")} was not uploaded successfully')");
             sb.AppendLine();
 
             // Add helper method to check if element is a table
@@ -639,7 +813,7 @@ namespace TeiasMongoAPI.Services.Helpers
                 "dropdown" => "Optional[str]",
                 "checkbox" => "Optional[bool]",
                 "radio" => "Optional[str]",
-                "file_input" => "Optional[str]",
+                "file_input" => "Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]", // Updated
                 "date_input" => "Optional[str]",
                 "slider" => "Optional[Union[int, float]]",
                 "multi_select" => "Optional[List[str]]",
@@ -656,6 +830,18 @@ namespace TeiasMongoAPI.Services.Helpers
                 placeholder = placeholderValue.ToString() ?? "";
             }
 
+            // Check for file input multiple configuration
+            if (elementType == "file_input")
+            {
+                var fileInputConfig = element?.TryGetValue("fileInputConfig", out var configObj) == true ?
+                    JsonSerializer.Deserialize<Dictionary<string, object>>(configObj.ToString()) : null;
+
+                var multiple = fileInputConfig?.TryGetValue("multiple", out var multipleObj) == true &&
+                    (multipleObj is bool m ? m : bool.TryParse(multipleObj?.ToString(), out m) && m);
+
+                return multiple ? "[]" : "None";
+            }
+
             return elementType switch
             {
                 "text_input" => !string.IsNullOrEmpty(placeholder) ? $"'{placeholder}'" : "None",
@@ -664,7 +850,6 @@ namespace TeiasMongoAPI.Services.Helpers
                 "dropdown" => "None",
                 "checkbox" => "False",
                 "radio" => "None",
-                "file_input" => "None",
                 "date_input" => "None",
                 "slider" => "None",
                 "multi_select" => "[]",
@@ -701,6 +886,9 @@ namespace TeiasMongoAPI.Services.Helpers
                 case "multi_select":
                     sb.AppendLine($"        if value is not None and not isinstance(value, list):");
                     sb.AppendLine($"            raise ValueError('Value must be a list')");
+                    break;
+                case "file_input":
+                    // File input validation is handled in GenerateFileInputProperties
                     break;
             }
         }

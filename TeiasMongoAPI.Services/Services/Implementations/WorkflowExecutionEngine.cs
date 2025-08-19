@@ -2236,7 +2236,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             foreach (var kvp in uiOutputData)
             {
                 inputData.Data[$"{kvp.Key}"] = BsonValue.Create(kvp.Value);
-                break;
+                //break;
             }
 
             // Generate WorkflowInputs.py content
@@ -2533,7 +2533,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 _logger.LogInformation("Looking up UI components for program {ProgramId} (Name: {ProgramName})", program._ID, program.Name);
 
                 // Get program version (assuming current version if not specified)
-                var version = await _unitOfWork.Versions.GetLatestVersionForProgramAsync(program._ID, cancellationToken);
+                //var version = await _unitOfWork.Versions.GetLatestVersionForProgramAsync(program._ID, cancellationToken);
+
+                var version = (await _unitOfWork.UiComponents.GetByProgramIdAsync(program._ID, cancellationToken)).MaxBy(v => v.CreatedAt);
                 if (version == null)
                 {
                     _logger.LogWarning("No version found for program {ProgramId} (Name: {ProgramName})", program._ID, program.Name);

@@ -33,7 +33,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
             {
                 // For now, we'll get all pending interactions
                 // In a real implementation, you'd filter by user permissions based on workflow execution
-                var filter = Builders<UIInteraction>.Filter.In(x => x.Status, 
+                var filter = Builders<UIInteraction>.Filter.In(x => x.Status,
                     new[] { UIInteractionStatus.Pending, UIInteractionStatus.InProgress });
 
                 var interactions = await _collection
@@ -56,7 +56,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
             try
             {
                 var filter = Builders<UIInteraction>.Filter.Eq(x => x.WorkflowExecutionId, workflowExecutionId);
-                
+
                 return await _collection
                     .Find(filter)
                     .SortBy(x => x.CreatedAt)
@@ -108,8 +108,14 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                     {
                         if (kvp.Value is JsonElement jsonElement)
                         {
-
-                            convertedOutputData[kvp.Key] = BsonDocument.Parse(jsonElement.ToString());
+                            try
+                            {
+                                convertedOutputData[kvp.Key] = BsonDocument.Parse(jsonElement.ToString());
+                            }
+                            catch
+                            {
+                                convertedOutputData[kvp.Key] = jsonElement.ToString();
+                            }
                         }
                         //else
                         //{
@@ -133,7 +139,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         {
             try
             {
-                var filter = Builders<UIInteraction>.Filter.In(x => x.Status, 
+                var filter = Builders<UIInteraction>.Filter.In(x => x.Status,
                     new[] { UIInteractionStatus.Pending, UIInteractionStatus.InProgress });
 
                 return await _collection
