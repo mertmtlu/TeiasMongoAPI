@@ -19,19 +19,19 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         public async Task<IEnumerable<RemoteApp>> GetByCreatorAsync(string creatorId, CancellationToken cancellationToken = default)
         {
             var filter = Builders<RemoteApp>.Filter.Eq(x => x.Creator, creatorId);
-            return await _context.Database.GetCollection<RemoteApp>("remoteApps").Find(filter).ToListAsync(cancellationToken);
+            return await _collection.Find(filter).ToListAsync(cancellationToken);
         }
 
         public async Task<IEnumerable<RemoteApp>> GetByStatusAsync(string status, CancellationToken cancellationToken = default)
         {
             var filter = Builders<RemoteApp>.Filter.Eq(x => x.Status, status);
-            return await _context.Database.GetCollection<RemoteApp>("remoteApps").Find(filter).ToListAsync(cancellationToken);
+            return await _collection.Find(filter).ToListAsync(cancellationToken);
         }
 
         public async Task<IEnumerable<RemoteApp>> GetPublicAppsAsync(CancellationToken cancellationToken = default)
         {
             var filter = Builders<RemoteApp>.Filter.Eq(x => x.IsPublic, true);
-            return await _context.Database.GetCollection<RemoteApp>("remoteApps").Find(filter).ToListAsync(cancellationToken);
+            return await _collection.Find(filter).ToListAsync(cancellationToken);
         }
 
         public async Task<IEnumerable<RemoteApp>> GetUserAccessibleAppsAsync(ObjectId userId, CancellationToken cancellationToken = default)
@@ -40,7 +40,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 Builders<RemoteApp>.Filter.Eq(x => x.IsPublic, true),
                 Builders<RemoteApp>.Filter.AnyEq(x => x.AssignedUsers, userId)
             );
-            return await _context.Database.GetCollection<RemoteApp>("remoteApps").Find(filter).ToListAsync(cancellationToken);
+            return await _collection.Find(filter).ToListAsync(cancellationToken);
         }
 
         public async Task<bool> IsNameUniqueAsync(string name, ObjectId? excludeId = null, CancellationToken cancellationToken = default)
@@ -53,7 +53,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 filter &= filterBuilder.Ne(x => x._ID, excludeId.Value);
             }
 
-            var count = await _context.Database.GetCollection<RemoteApp>("remoteApps").CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+            var count = await _collection.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
             return count == 0;
         }
 
@@ -64,7 +64,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 Builders<RemoteApp>.Filter.AnyEq(x => x.AssignedUsers, userId)
             );
 
-            var count = await _context.Database.GetCollection<RemoteApp>("remoteApps").CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+            var count = await _collection.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
             return count > 0;
         }
 
@@ -75,7 +75,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 .AddToSet(x => x.AssignedUsers, userId)
                 .Set(x => x.ModifiedAt, DateTime.UtcNow);
 
-            var result = await _context.Database.GetCollection<RemoteApp>("remoteApps").UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+            var result = await _collection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
             return result.ModifiedCount > 0;
         }
 
@@ -86,7 +86,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 .Pull(x => x.AssignedUsers, userId)
                 .Set(x => x.ModifiedAt, DateTime.UtcNow);
 
-            var result = await _context.Database.GetCollection<RemoteApp>("remoteApps").UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
+            var result = await _collection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
             return result.ModifiedCount > 0;
         }
     }

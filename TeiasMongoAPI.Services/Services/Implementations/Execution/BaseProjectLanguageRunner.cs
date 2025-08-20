@@ -256,6 +256,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
                 foreach (var kvp in parametersDict)
                 {
+                    if (kvp.Key.StartsWith("file_input")) continue;
                     if (kvp.Value is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
                     {
                         // Check if this might be a table element (nested object structure)
@@ -266,6 +267,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                             // This is a table element - flatten it
                             foreach (var cellKvp in nestedDict)
                             {
+                                if (cellKvp.Key == "content") continue;
                                 var cellKey = $"{kvp.Key}_{cellKvp.Key}";
                                 processedParameters[cellKey] = cellKvp.Value;
                             }

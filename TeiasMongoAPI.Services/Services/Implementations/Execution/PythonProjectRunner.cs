@@ -272,7 +272,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     }
                     else
                     {
-                        arguments += $" '{context.Parameters.ToString()}'";
+                        var objectParameters = JsonSerializer.Serialize( processedParams);
+                        arguments += $" '{objectParameters.ToString()}'";
                     }
                 }
 

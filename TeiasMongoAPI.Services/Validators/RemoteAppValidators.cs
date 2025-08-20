@@ -12,7 +12,7 @@ namespace TeiasMongoAPI.Services.Validators
                 .WithMessage("Remote app name is required.")
                 .Length(1, 200)
                 .WithMessage("Remote app name must be between 1 and 200 characters.")
-                .Matches(@"^[a-zA-Z0-9\s\-_.()]+$")
+                .Matches(@"^[\p{L}\p{N}\s\-_.()]+$")
                 .WithMessage("Remote app name can only contain letters, numbers, spaces, hyphens, underscores, dots and parentheses.");
 
             RuleFor(x => x.Description)
@@ -60,7 +60,7 @@ namespace TeiasMongoAPI.Services.Validators
             RuleFor(x => x.Name)
                 .Length(1, 200)
                 .WithMessage("Remote app name must be between 1 and 200 characters.")
-                .Matches(@"^[a-zA-Z0-9\s\-_.()]+$")
+                .Matches(@"^[\p{L}\p{N}\s\-_.()]+$")
                 .WithMessage("Remote app name can only contain letters, numbers, spaces, hyphens, underscores, dots and parentheses.")
                 .When(x => !string.IsNullOrEmpty(x.Name));
 
