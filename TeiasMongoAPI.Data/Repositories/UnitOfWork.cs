@@ -26,6 +26,7 @@ namespace TeiasMongoAPI.Data.Repositories
         private IWorkflowExecutionRepository? _workflowExecutions;
         private IUIInteractionRepository? _uiInteractions;
         private IRemoteAppRepository? _remoteApps;
+        private IIconRepository? _icons;
 
         public UnitOfWork(MongoDbContext context)
         {
@@ -47,6 +48,7 @@ namespace TeiasMongoAPI.Data.Repositories
         public IWorkflowExecutionRepository WorkflowExecutions => _workflowExecutions ??= new WorkflowExecutionRepository(_context);
         public IUIInteractionRepository UIInteractions => _uiInteractions ??= new UIInteractionRepository(_context);
         public IRemoteAppRepository RemoteApps => _remoteApps ??= new RemoteAppRepository(_context);
+        public IIconRepository Icons => _icons ??= new IconRepository(_context);
 
         public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {

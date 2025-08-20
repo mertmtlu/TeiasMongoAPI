@@ -11,6 +11,7 @@ using TeiasMongoAPI.Core.Models.Configuration;
 using TeiasMongoAPI.Data.Configuration;
 using TeiasMongoAPI.Data.Context;
 using TeiasMongoAPI.Data.Repositories;
+using TeiasMongoAPI.Data.Repositories.Implementations;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Services.Mappings;
@@ -184,6 +185,7 @@ namespace TeiasMongoAPI.API
 
             // Register Repositories
             builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+            builder.Services.AddScoped<IIconRepository, IconRepository>();
 
             // Register Security Services
             builder.Services.AddSingleton<IPasswordHashingService, PasswordHashingService>();
@@ -197,6 +199,7 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IBuildingService, BuildingService>();
             builder.Services.AddScoped<IBlockService, BlockService>();
             builder.Services.AddScoped<IAlternativeTMService, AlternativeTMService>();
+            builder.Services.AddScoped<IIconService, IconService>();
 
             // Register Collaborative Project Services 
             builder.Services.AddScoped<IVersionService, VersionService>();
