@@ -29,7 +29,10 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
             var indexModels = new[]
             {
                 new CreateIndexModel<Icon>(entityTypeIndex),
-                new CreateIndexModel<Icon>(entityCompositeIndex, new CreateIndexOptions { Unique = true }),
+                new CreateIndexModel<Icon>(entityCompositeIndex, new CreateIndexOptions
+                {
+                    Unique = true
+                }),
                 new CreateIndexModel<Icon>(creatorIndex),
                 new CreateIndexModel<Icon>(activeIndex)
             };
@@ -101,12 +104,9 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 Builders<Icon>.Filter.Eq(x => x.EntityType, entityType),
                 Builders<Icon>.Filter.Eq(x => x.EntityId, entityId)
             );
-            var update = Builders<Icon>.Update
-                .Set(x => x.IsActive, false)
-                .Set(x => x.ModifiedAt, DateTime.UtcNow);
 
-            var result = await _collection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
-            return result.ModifiedCount > 0;
+            var result = await _collection.DeleteOneAsync(filter, cancellationToken);
+            return result.DeletedCount > 0;
         }
 
         public async Task<long> GetCountByEntityTypeAsync(IconEntityType entityType, CancellationToken cancellationToken = default)

@@ -155,6 +155,21 @@ namespace TeiasMongoAPI.API.Controllers
         }
 
         /// <summary>
+        /// Get remote apps by current user
+        /// </summary>
+        [HttpGet("by-current-user")]
+        [RequirePermission(UserPermissions.ViewPrograms)]
+        public async Task<ActionResult<ApiResponse<PagedResponse<RemoteAppListDto>>>> GetByCurrentUser(
+            [FromQuery] PaginationRequestDto pagination,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _remoteAppService.GetByCreatorAsync(CurrentUserId.ToString(), pagination, cancellationToken);
+            }, $"Get remote apps by creator {CurrentUserId}");
+        }
+
+        /// <summary>
         /// Get remote apps by status (active, inactive, etc.)
         /// </summary>
         [HttpGet("by-status/{status}")]

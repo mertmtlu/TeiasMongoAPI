@@ -55,9 +55,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             icon.Creator = creator;
 
             var createdIcon = await _iconRepository.CreateAsync(icon, cancellationToken);
-            
+
             var responseDto = _mapper.Map<IconResponseDto>(createdIcon);
-            
+
             CacheIcon(responseDto);
             InvalidateEntityCache(createDto.EntityType, entityObjectId);
 
@@ -68,7 +68,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<IconResponseDto?> GetIconByIdAsync(ObjectId iconId, CancellationToken cancellationToken = default)
         {
             var cacheKey = $"{CacheKeyPrefix}{iconId}";
-            
+
             if (_cache.TryGetValue(cacheKey, out IconResponseDto? cachedIcon))
             {
                 _logger.LogDebug("Icon {IconId} retrieved from cache", iconId);
@@ -91,7 +91,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<IconResponseDto?> GetIconByEntityAsync(IconEntityType entityType, ObjectId entityId, CancellationToken cancellationToken = default)
         {
             var cacheKey = $"{EntityCacheKeyPrefix}{entityType}_{entityId}";
-            
+
             if (_cache.TryGetValue(cacheKey, out IconResponseDto? cachedIcon))
             {
                 _logger.LogDebug("Icon for entity {EntityType}:{EntityId} retrieved from cache", entityType, entityId);
@@ -115,7 +115,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<IEnumerable<IconResponseDto>> GetIconsByEntityTypeAsync(IconEntityType entityType, CancellationToken cancellationToken = default)
         {
             _logger.LogDebug("Retrieving icons for entity type: {EntityType}", entityType);
-            
+
             var icons = await _iconRepository.GetByEntityTypeAsync(entityType, cancellationToken);
             var responseDtos = _mapper.Map<IEnumerable<IconResponseDto>>(icons);
 
@@ -130,7 +130,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<IEnumerable<IconResponseDto>> GetIconsByEntityIdsAsync(IconEntityType entityType, IEnumerable<ObjectId> entityIds, CancellationToken cancellationToken = default)
         {
             _logger.LogDebug("Retrieving icons for {Count} entities of type {EntityType}", entityIds.Count(), entityType);
-            
+
             var icons = await _iconRepository.GetByEntityIdsAsync(entityType, entityIds, cancellationToken);
             var responseDtos = _mapper.Map<IEnumerable<IconResponseDto>>(icons);
 
@@ -149,7 +149,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<IEnumerable<IconResponseDto>> GetIconsByIdsAsync(IEnumerable<ObjectId> iconIds, CancellationToken cancellationToken = default)
         {
             _logger.LogDebug("Retrieving {Count} icons by IDs", iconIds.Count());
-            
+
             var icons = await _iconRepository.GetByIconIdsAsync(iconIds, cancellationToken);
             var responseDtos = _mapper.Map<IEnumerable<IconResponseDto>>(icons);
 
@@ -186,7 +186,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             var responseDto = _mapper.Map<IconResponseDto>(existingIcon);
-            
+
             InvalidateIconCache(iconId);
             InvalidateEntityCache(existingIcon.EntityType, existingIcon.EntityId);
             CacheIcon(responseDto);
@@ -211,7 +211,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             var deleteResult = await _iconRepository.DeleteAsync(iconId, cancellationToken);
-            
+
             if (deleteResult)
             {
                 InvalidateIconCache(iconId);
@@ -224,26 +224,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<bool> DeleteIconByEntityAsync(IconEntityType entityType, ObjectId entityId, string userId, CancellationToken cancellationToken = default)
         {
-            _logger.LogInformation("Deleting icon for entity {EntityType}:{EntityId}", entityType, entityId);
+            _logger.LogInformation("Attempting to delete icon for entity {EntityType}:{EntityId}", entityType, entityId);
 
             var existingIcon = await _iconRepository.GetByEntityAsync(entityType, entityId, cancellationToken);
             if (existingIcon == null)
             {
+                _logger.LogWarning("No active icon found for entity {EntityType}:{EntityId}", entityType, entityId);
                 return false;
             }
 
             if (existingIcon.Creator != userId)
             {
+                _logger.LogWarning("User {UserId} attempted to delete icon created by {Creator}", userId, existingIcon.Creator);
                 throw new UnauthorizedAccessException("Only the creator can delete the icon");
             }
 
+            _logger.LogInformation("Found active icon {IconId}, proceeding with deletion", existingIcon._ID);
             var deleteResult = await _iconRepository.DeleteByEntityAsync(entityType, entityId, cancellationToken);
-            
+
             if (deleteResult)
             {
                 InvalidateIconCache(existingIcon._ID);
                 InvalidateEntityCache(entityType, entityId);
-                _logger.LogInformation("Icon for entity {EntityType}:{EntityId} deleted successfully", entityType, entityId);
+                _logger.LogInformation("Successfully deleted icon {IconId} for entity {EntityType}:{EntityId}", existingIcon._ID, entityType, entityId);
+            }
+            else
+            {
+                _logger.LogError("Repository reported failure deleting icon for entity {EntityType}:{EntityId} - this should not happen", entityType, entityId);
             }
 
             return deleteResult;
@@ -252,7 +259,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<IEnumerable<IconResponseDto>> GetUserIconsAsync(string creator, CancellationToken cancellationToken = default)
         {
             _logger.LogDebug("Retrieving icons for creator: {Creator}", creator);
-            
+
             var icons = await _iconRepository.GetByCreatorAsync(creator, cancellationToken);
             return _mapper.Map<IEnumerable<IconResponseDto>>(icons);
         }

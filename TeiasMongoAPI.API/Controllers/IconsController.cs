@@ -71,8 +71,8 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpGet("entity/{entityType}/{entityId}")]
         public async Task<ActionResult<ApiResponse<IconResponseDto>>> GetIconByEntity(IconEntityType entityType, string entityId, CancellationToken cancellationToken = default)
         {
-            var parseResult = ParseObjectId(entityId, "entityId");
-            if (parseResult != null) return parseResult.Result;
+            //var parseResult = ParseObjectId(entityId, "entityId");
+            //if (parseResult != null) return parseResult.Result;
             
             if (!ObjectId.TryParse(entityId, out var objectId))
                 return ValidationError<IconResponseDto>("Invalid entity ID format");
@@ -151,9 +151,6 @@ namespace TeiasMongoAPI.API.Controllers
         {
             var validationResult = ValidateModelState<IconResponseDto>();
             if (validationResult != null) return validationResult;
-
-            var parseResult = ParseObjectId(id);
-            if (parseResult != null) return parseResult.Result;
             
             if (!ObjectId.TryParse(id, out var objectId))
                 return ValidationError<IconResponseDto>("Invalid ID format");
@@ -179,9 +176,6 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpDelete("{id}")]
         public async Task<ActionResult<ApiResponse<object>>> DeleteIcon(string id, CancellationToken cancellationToken = default)
         {
-            var parseResult = ParseObjectId(id);
-            if (parseResult != null) return parseResult.Result;
-            
             if (!ObjectId.TryParse(id, out var objectId))
                 return ValidationError<object>("Invalid ID format");
 
@@ -206,9 +200,6 @@ namespace TeiasMongoAPI.API.Controllers
         [HttpDelete("entity/{entityType}/{entityId}")]
         public async Task<ActionResult<ApiResponse<object>>> DeleteIconByEntity(IconEntityType entityType, string entityId, CancellationToken cancellationToken = default)
         {
-            var parseResult = ParseObjectId(entityId, "entityId");
-            if (parseResult != null) return parseResult.Result;
-            
             if (!ObjectId.TryParse(entityId, out var objectId))
                 return ValidationError<object>("Invalid entity ID format");
 

@@ -38,7 +38,8 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         {
             var filter = Builders<RemoteApp>.Filter.Or(
                 Builders<RemoteApp>.Filter.Eq(x => x.IsPublic, true),
-                Builders<RemoteApp>.Filter.AnyEq(x => x.AssignedUsers, userId)
+                Builders<RemoteApp>.Filter.AnyEq(x => x.AssignedUsers, userId),
+                Builders<RemoteApp>.Filter.Eq(x => x.Creator, userId.ToString())
             );
             return await _collection.Find(filter).ToListAsync(cancellationToken);
         }
