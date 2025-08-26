@@ -55,5 +55,9 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
 
         // Latest Active Component for Python UI Generation
         Task<UiComponent?> GetLatestActiveByProgramAsync(ObjectId programId, CancellationToken cancellationToken = default);
+        
+        // Batch operations for performance
+        Task<Dictionary<string, int>> GetComponentCountsByProgramIdsAsync(IEnumerable<ObjectId> programIds, CancellationToken cancellationToken = default);
+        Task<Dictionary<string, string?>> GetNewestComponentTypesByProgramIdsAsync(IEnumerable<ObjectId> programIds, CancellationToken cancellationToken = default);
     }
 }

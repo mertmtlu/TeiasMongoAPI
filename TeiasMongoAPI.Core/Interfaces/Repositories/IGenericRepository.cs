@@ -1,5 +1,6 @@
 ﻿using MongoDB.Bson;
 using System.Linq.Expressions;
+using TeiasMongoAPI.Core.Interfaces.Specifications;
 using TeiasMongoAPI.Core.Models.Base;
 
 namespace TeiasMongoAPI.Core.Interfaces.Repositories
@@ -17,5 +18,8 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         // Additional methods that might be useful
         Task<long> CountAsync(Expression<Func<T, bool>>? filter = null, CancellationToken cancellationToken = default);
         Task<T> FindOneAsync(Expression<Func<T, bool>> filter, CancellationToken cancellationToken = default);
+        
+        // Specification pattern method
+        Task<(IReadOnlyList<T> Items, long TotalCount)> FindWithSpecificationAsync(ISpecification<T> spec, CancellationToken cancellationToken = default);
     }
 }

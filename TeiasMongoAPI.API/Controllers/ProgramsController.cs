@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using TeiasMongoAPI.API.Attributes;
 using TeiasMongoAPI.API.Controllers.Base;
+using TeiasMongoAPI.Core.Models.DTOs;
 using TeiasMongoAPI.Core.Models.KeyModels;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
@@ -219,11 +220,11 @@ namespace TeiasMongoAPI.API.Controllers
         }
 
         /// <summary>
-        /// Get programs accessible to current user based on permissions
+        /// Get programs accessible to current user based on permissions with aggregated data
         /// </summary>
         [HttpGet("user-accessible")]
         [RequirePermission(UserPermissions.ViewPrograms)]
-        public async Task<ActionResult<ApiResponse<PagedResponse<ProgramListDto>>>> GetUserAccessiblePrograms(
+        public async Task<ActionResult<ApiResponse<PagedResponse<ProgramSummaryDto>>>> GetUserAccessiblePrograms(
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
         {

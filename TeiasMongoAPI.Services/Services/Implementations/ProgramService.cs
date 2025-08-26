@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
+using TeiasMongoAPI.Core.Models.DTOs;
 using TeiasMongoAPI.Core.Models.KeyModels;
 using TeiasMongoAPI.Data.Repositories;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
@@ -11,6 +12,8 @@ using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Specifications;
+using Version = TeiasMongoAPI.Core.Models.Collaboration.Version;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -368,10 +371,80 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await CreatePagedResponse(programs, pagination);
         }
 
-        public async Task<PagedResponse<ProgramListDto>> GetUserAccessibleProgramsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<ProgramSummaryDto>> GetUserAccessibleProgramsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var programs = await _unitOfWork.Programs.GetUserAccessibleProgramsAsync(userId, cancellationToken);
-            return await CreatePagedResponse(programs, pagination);
+            // Step 1: Use Specification Pattern for database-level pagination
+            var spec = new ProgramByUserSpecification(userId, pagination);
+            var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
+            
+            if (!programs.Any())
+            {
+                return new PagedResponse<ProgramSummaryDto>(new List<ProgramSummaryDto>(), pagination.PageNumber, pagination.PageSize, (int)totalCount);
+            }
+
+            // Step 2: Extract program IDs and current version IDs for batch queries
+            var programIds = programs.Select(p => p._ID).ToList();
+            var currentVersionIds = programs
+                .Where(p => !string.IsNullOrEmpty(p.CurrentVersion))
+                .Select(p => ParseObjectId(p.CurrentVersion!))
+                .ToList();
+
+            // Step 3: Perform batch queries to avoid N+1 problem
+            var versionCountsTask = _unitOfWork.Versions.GetVersionCountsByProgramIdsAsync(programIds, cancellationToken);
+            var currentVersionsTask = currentVersionIds.Any() 
+                ? _unitOfWork.Versions.GetVersionsByIdsAsync(currentVersionIds, cancellationToken)
+                : Task.FromResult(new List<Version>());
+            var componentCountsTask = _unitOfWork.UiComponents.GetComponentCountsByProgramIdsAsync(programIds, cancellationToken);
+            var newestComponentTypesTask = _unitOfWork.UiComponents.GetNewestComponentTypesByProgramIdsAsync(programIds, cancellationToken);
+
+            // Wait for all batch queries to complete
+            await Task.WhenAll(versionCountsTask, currentVersionsTask, componentCountsTask, newestComponentTypesTask);
+
+            var versionCounts = await versionCountsTask;
+            var currentVersionsList = await currentVersionsTask;
+            var componentCounts = await componentCountsTask;
+            var newestComponentTypes = await newestComponentTypesTask;
+
+            // Create lookup dictionary for current versions by ID for O(1) access
+            var currentVersionsLookup = currentVersionsList.ToDictionary(v => v._ID.ToString(), v => v);
+
+            // Step 4: Map programs to ProgramSummaryDto with aggregated data
+            var summaryDtos = programs.Select(program =>
+            {
+                var programId = program._ID.ToString();
+                Version? currentVersion = null;
+                
+                // Look up current version using the CurrentVersion ID
+                if (!string.IsNullOrEmpty(program.CurrentVersion) && 
+                    currentVersionsLookup.TryGetValue(program.CurrentVersion, out currentVersion))
+                {
+                    // Current version found
+                }
+
+                return new ProgramSummaryDto
+                {
+                    Id = programId,
+                    Name = program.Name,
+                    Description = program.Description,
+                    Language = program.Language,
+                    Type = program.Type,
+                    CreatedAt = program.CreatedAt,
+                    Status = program.Status,
+                    CurrentVersion = currentVersion != null ? new VersionInfoDto
+                    {
+                        Id = currentVersion._ID.ToString(),
+                        VersionNumber = currentVersion.VersionNumber,
+                        CreatedAt = currentVersion.CreatedAt,
+                        Status = currentVersion.Status,
+                        CreatedBy = currentVersion.CreatedBy
+                    } : null,
+                    VersionCount = versionCounts.GetValueOrDefault(programId, 0),
+                    ComponentCount = componentCounts.GetValueOrDefault(programId, 0),
+                    NewestComponentType = newestComponentTypes.GetValueOrDefault(programId)
+                };
+            }).ToList();
+
+            return new PagedResponse<ProgramSummaryDto>(summaryDtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<ProgramListDto>> GetGroupAccessibleProgramsAsync(string groupId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)

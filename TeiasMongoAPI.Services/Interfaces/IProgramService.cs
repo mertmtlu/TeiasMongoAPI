@@ -1,4 +1,5 @@
 ﻿using MongoDB.Bson;
+using TeiasMongoAPI.Core.Models.DTOs;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
@@ -21,7 +22,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<PagedResponse<ProgramListDto>> GetByStatusAsync(string status, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<ProgramListDto>> GetByTypeAsync(string type, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<ProgramListDto>> GetByLanguageAsync(string language, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<PagedResponse<ProgramListDto>> GetUserAccessibleProgramsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<PagedResponse<ProgramSummaryDto>> GetUserAccessibleProgramsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<ProgramListDto>> GetGroupAccessibleProgramsAsync(string groupId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
 
         // Status Management

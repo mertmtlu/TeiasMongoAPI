@@ -20,5 +20,8 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         Task<bool> RemoveFileAsync(ObjectId id, string filePath, CancellationToken cancellationToken = default);
         Task<IEnumerable<VersionFile>> GetFilesByVersionIdAsync(ObjectId versionId, CancellationToken cancellationToken = default);
         Task<VersionFile?> GetFileByPathAsync(ObjectId versionId, string filePath, CancellationToken cancellationToken = default);
+        
+        Task<Dictionary<string, int>> GetVersionCountsByProgramIdsAsync(IEnumerable<ObjectId> programIds, CancellationToken cancellationToken = default);
+        Task<List<Version>> GetVersionsByIdsAsync(IEnumerable<ObjectId> versionIds, CancellationToken cancellationToken = default);
     }
 }

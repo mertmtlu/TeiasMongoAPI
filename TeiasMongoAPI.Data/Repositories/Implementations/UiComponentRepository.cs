@@ -377,5 +377,92 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         }
 
         #endregion
+
+        #region Batch Operations for Performance
+
+        public async Task<Dictionary<string, int>> GetComponentCountsByProgramIdsAsync(IEnumerable<ObjectId> programIds, CancellationToken cancellationToken = default)
+        {
+            var programIdsList = programIds.ToList();
+            if (!programIdsList.Any())
+                return new Dictionary<string, int>();
+
+            var pipeline = new BsonDocument[]
+            {
+                new BsonDocument("$match", new BsonDocument("ProgramId", new BsonDocument("$in", new BsonArray(programIdsList)))),
+                new BsonDocument("$group", new BsonDocument
+                {
+                    { "_id", "$ProgramId" },
+                    { "count", new BsonDocument("$sum", 1) }
+                })
+            };
+
+            var cursor = await _collection.AggregateAsync<BsonDocument>(pipeline, cancellationToken: cancellationToken);
+            var results = await cursor.ToListAsync(cancellationToken);
+
+            var componentCounts = new Dictionary<string, int>();
+            
+            // Initialize all program IDs with 0 count
+            foreach (var programId in programIdsList)
+            {
+                componentCounts[programId.ToString()] = 0;
+            }
+
+            // Update with actual counts from the aggregation
+            foreach (var result in results)
+            {
+                var programId = result["_id"].AsObjectId.ToString();
+                var count = result["count"].AsInt32;
+                componentCounts[programId] = count;
+            }
+
+            return componentCounts;
+        }
+
+        public async Task<Dictionary<string, string?>> GetNewestComponentTypesByProgramIdsAsync(IEnumerable<ObjectId> programIds, CancellationToken cancellationToken = default)
+        {
+            var programIdsList = programIds.ToList();
+            if (!programIdsList.Any())
+                return new Dictionary<string, string?>();
+
+            var pipeline = new BsonDocument[]
+            {
+                new BsonDocument("$match", new BsonDocument("ProgramId", new BsonDocument("$in", new BsonArray(programIdsList)))),
+                new BsonDocument("$sort", new BsonDocument
+                {
+                    { "ProgramId", 1 },
+                    { "CreatedAt", -1 }
+                }),
+                new BsonDocument("$group", new BsonDocument
+                {
+                    { "_id", "$ProgramId" },
+                    { "newestComponentType", new BsonDocument("$first", "$Type") }
+                })
+            };
+
+            var cursor = await _collection.AggregateAsync<BsonDocument>(pipeline, cancellationToken: cancellationToken);
+            var results = await cursor.ToListAsync(cancellationToken);
+
+            var newestComponentTypes = new Dictionary<string, string?>();
+            
+            // Initialize all program IDs with null
+            foreach (var programId in programIdsList)
+            {
+                newestComponentTypes[programId.ToString()] = null;
+            }
+
+            // Update with actual newest component types from the aggregation
+            foreach (var result in results)
+            {
+                var programId = result["_id"].AsObjectId.ToString();
+                var componentType = result.Contains("newestComponentType") && !result["newestComponentType"].IsBsonNull 
+                    ? result["newestComponentType"].AsString 
+                    : null;
+                newestComponentTypes[programId] = componentType;
+            }
+
+            return newestComponentTypes;
+        }
+
+        #endregion
     }
 }

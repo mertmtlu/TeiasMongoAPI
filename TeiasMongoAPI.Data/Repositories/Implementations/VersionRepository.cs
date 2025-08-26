@@ -143,5 +143,57 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
             var files = await GetFilesByVersionIdAsync(versionId, cancellationToken);
             return files.FirstOrDefault(f => f.Path == filePath);
         }
+
+        public async Task<Dictionary<string, int>> GetVersionCountsByProgramIdsAsync(IEnumerable<ObjectId> programIds, CancellationToken cancellationToken = default)
+        {
+            var programIdsList = programIds.ToList();
+            if (!programIdsList.Any())
+                return new Dictionary<string, int>();
+
+            var pipeline = new BsonDocument[]
+            {
+                new BsonDocument("$match", new BsonDocument("ProgramId", new BsonDocument("$in", new BsonArray(programIdsList)))),
+                new BsonDocument("$group", new BsonDocument
+                {
+                    { "_id", "$ProgramId" },
+                    { "count", new BsonDocument("$sum", 1) }
+                })
+            };
+
+            var collection = _context.Database.GetCollection<Version>("versions");
+            var cursor = await collection.AggregateAsync<BsonDocument>(pipeline, cancellationToken: cancellationToken);
+            var results = await cursor.ToListAsync(cancellationToken);
+
+            var versionCounts = new Dictionary<string, int>();
+            
+            // Initialize all program IDs with 0 count
+            foreach (var programId in programIdsList)
+            {
+                versionCounts[programId.ToString()] = 0;
+            }
+
+            // Update with actual counts from the aggregation
+            foreach (var result in results)
+            {
+                var programId = result["_id"].AsObjectId.ToString();
+                var count = result["count"].AsInt32;
+                versionCounts[programId] = count;
+            }
+
+            return versionCounts;
+        }
+
+        public async Task<List<Version>> GetVersionsByIdsAsync(IEnumerable<ObjectId> versionIds, CancellationToken cancellationToken = default)
+        {
+            var versionIdsList = versionIds.ToList();
+            if (!versionIdsList.Any())
+                return new List<Version>();
+
+            var filter = Builders<Version>.Filter.In(v => v._ID, versionIdsList);
+            
+            return await _context.Database.GetCollection<Version>("versions")
+                .Find(filter)
+                .ToListAsync(cancellationToken);
+        }
     }
 }
