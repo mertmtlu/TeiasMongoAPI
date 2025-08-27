@@ -10,6 +10,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Building;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Specifications;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -48,18 +49,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<BuildingListResponseDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var buildings = await _unitOfWork.Buildings.GetAllAsync(cancellationToken);
-            var buildingsList = buildings.ToList();
-
-            // Apply pagination
-            var totalCount = buildingsList.Count;
-            var paginatedBuildings = buildingsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
+            // Use Specification Pattern for database-level pagination
+            var spec = new AllBuildingsSpecification(pagination);
+            var (buildings, totalCount) = await _unitOfWork.Buildings.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = new List<BuildingListResponseDto>();
-            foreach (var building in paginatedBuildings)
+            foreach (var building in buildings)
             {
                 var dto = _mapper.Map<BuildingListResponseDto>(building);
 
@@ -70,78 +65,38 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<BuildingListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<BuildingListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<BuildingListResponseDto>> GetByTmIdAsync(string tmId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             var tmObjectId = ParseObjectId(tmId);
-            var buildings = await _unitOfWork.Buildings.GetByTmIdAsync(tmObjectId, cancellationToken);
-            var buildingsList = buildings.ToList();
-
-            // Apply pagination
-            var totalCount = buildingsList.Count;
-            var paginatedBuildings = buildingsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
+            
+            // Use Specification Pattern for database-level pagination
+            var spec = new BuildingsByTmSpecification(tmObjectId, pagination);
+            var (buildings, totalCount) = await _unitOfWork.Buildings.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = new List<BuildingListResponseDto>();
             var tm = await _unitOfWork.TMs.GetByIdAsync(tmObjectId, cancellationToken);
 
-            foreach (var building in paginatedBuildings)
+            foreach (var building in buildings)
             {
                 var dto = _mapper.Map<BuildingListResponseDto>(building);
                 dto.TmName = tm?.Name ?? "Unknown";
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<BuildingListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<BuildingListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<BuildingListResponseDto>> SearchAsync(BuildingSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var allBuildings = await _unitOfWork.Buildings.GetAllAsync(cancellationToken);
-            var filteredBuildings = allBuildings.AsQueryable();
-
-            // Apply filters
-            if (!string.IsNullOrEmpty(searchDto.Name))
-            {
-                filteredBuildings = filteredBuildings.Where(b => b.Name.Contains(searchDto.Name, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.TmId))
-            {
-                var tmId = ParseObjectId(searchDto.TmId);
-                filteredBuildings = filteredBuildings.Where(b => b.TmID == tmId);
-            }
-
-            if (searchDto.Type.HasValue)
-            {
-                filteredBuildings = filteredBuildings.Where(b => b.Type == searchDto.Type.Value);
-            }
-
-            if (searchDto.InScopeOfMETU.HasValue)
-            {
-                filteredBuildings = filteredBuildings.Where(b => b.InScopeOfMETU == searchDto.InScopeOfMETU.Value);
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.ReportName))
-            {
-                filteredBuildings = filteredBuildings.Where(b => b.ReportName.Contains(searchDto.ReportName, StringComparison.OrdinalIgnoreCase));
-            }
-
-            var buildingsList = filteredBuildings.ToList();
-
-            // Apply pagination
-            var totalCount = buildingsList.Count;
-            var paginatedBuildings = buildingsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
+            // Use Specification Pattern for database-level pagination and filtering
+            var spec = new BuildingSearchSpecification(searchDto, pagination);
+            var (buildings, totalCount) = await _unitOfWork.Buildings.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = new List<BuildingListResponseDto>();
-            foreach (var building in paginatedBuildings)
+            foreach (var building in buildings)
             {
                 var dto = _mapper.Map<BuildingListResponseDto>(building);
 
@@ -152,7 +107,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<BuildingListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<BuildingListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<BuildingResponseDto> CreateAsync(BuildingCreateDto dto, CancellationToken cancellationToken = default)

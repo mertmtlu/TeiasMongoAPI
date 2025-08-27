@@ -9,6 +9,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Specifications;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -34,8 +35,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<WorkflowListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            // MODIFICATION: Add comprehensive performance logging
-            //using var activity = System.Diagnostics.Activity.StartActivity("GetAllWorkflows");
             var totalStopwatch = System.Diagnostics.Stopwatch.StartNew();
             
             _logger.LogInformation("Starting GetAllWorkflows, page {PageNumber}, size {PageSize}", 
@@ -43,38 +42,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             try
             {
-                // Step 1: Database query with pagination
-                var dbTimer = System.Diagnostics.Stopwatch.StartNew();
-                var workflows = await _unitOfWork.Workflows.GetWorkflowsWithPaginationAsync(
-                    (pagination.PageNumber - 1) * pagination.PageSize,
-                    pagination.PageSize,
-                    cancellationToken: cancellationToken);
-                dbTimer.Stop();
+                // Use Specification Pattern for database-level pagination
+                var spec = new AllWorkflowsSpecification(pagination);
+                var (workflows, totalCount) = await _unitOfWork.Workflows.FindWithSpecificationAsync(spec, cancellationToken);
                 
-                _logger.LogInformation("Database query completed in {ElapsedMs}ms, returned {WorkflowCount} workflows", 
-                    dbTimer.ElapsedMilliseconds, workflows.Count());
+                _logger.LogInformation("Specification query completed in {ElapsedMs}ms, returned {WorkflowCount} workflows, total count: {TotalCount}", 
+                    totalStopwatch.ElapsedMilliseconds, workflows.Count, totalCount);
 
-                // Step 2: Count query
-                var countTimer = System.Diagnostics.Stopwatch.StartNew();
-                var totalCount = await _unitOfWork.Workflows.CountAsync(cancellationToken: cancellationToken);
-                countTimer.Stop();
-                
-                _logger.LogInformation("Count query completed in {ElapsedMs}ms, total: {TotalCount}", 
-                    countTimer.ElapsedMilliseconds, totalCount);
-
-                // Step 3: DTO mapping
-                var mappingTimer = System.Diagnostics.Stopwatch.StartNew();
+                // Map to DTOs
                 var workflowDtos = workflows.Select(w => MapToListDto(w)).ToList();
-                mappingTimer.Stop();
-                
-                _logger.LogInformation("DTO mapping completed in {ElapsedMs}ms, {DtoCount} DTOs created", 
-                    mappingTimer.ElapsedMilliseconds, workflowDtos.Count);
 
                 totalStopwatch.Stop();
-                _logger.LogInformation("GetAllWorkflows completed successfully in {TotalElapsedMs}ms - " +
-                    "Database: {DbMs}ms, Count: {CountMs}ms, Mapping: {MappingMs}ms",
-                    totalStopwatch.ElapsedMilliseconds, dbTimer.ElapsedMilliseconds, 
-                    countTimer.ElapsedMilliseconds, mappingTimer.ElapsedMilliseconds);
+                _logger.LogInformation("GetAllWorkflows completed successfully in {TotalElapsedMs}ms",
+                    totalStopwatch.ElapsedMilliseconds);
 
                 return new PagedResponse<WorkflowListDto>(
                     workflowDtos,
@@ -209,58 +189,62 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<WorkflowListDto>> GetWorkflowsByUserAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var workflows = await _unitOfWork.Workflows.GetWorkflowsByUserAsync(userId, cancellationToken);
-            var pagedWorkflows = workflows.Skip(pagination.PageNumber * pagination.PageSize).Take(pagination.PageSize);
+            // Use Specification Pattern for database-level pagination
+            var spec = new WorkflowsByUserSpecification(userId, pagination);
+            var (workflows, totalCount) = await _unitOfWork.Workflows.FindWithSpecificationAsync(spec, cancellationToken);
 
-            var workflowDtos = pagedWorkflows.Select(w => MapToListDto(w)).ToList();
+            var workflowDtos = workflows.Select(w => MapToListDto(w)).ToList();
 
             return new PagedResponse<WorkflowListDto>(
                 workflowDtos,
                 pagination.PageNumber,
                 pagination.PageSize,
-                workflows.Count());
+                (int)totalCount);
         }
 
         public async Task<PagedResponse<WorkflowListDto>> GetWorkflowsByStatusAsync(WorkflowStatus status, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var workflows = await _unitOfWork.Workflows.GetWorkflowsByStatusAsync(status, cancellationToken);
-            var pagedWorkflows = workflows.Skip(pagination.PageNumber * pagination.PageSize).Take(pagination.PageSize);
+            // Use Specification Pattern for database-level pagination
+            var spec = new WorkflowsByStatusSpecification(status, pagination);
+            var (workflows, totalCount) = await _unitOfWork.Workflows.FindWithSpecificationAsync(spec, cancellationToken);
 
-            var workflowDtos = pagedWorkflows.Select(w => MapToListDto(w)).ToList();
+            var workflowDtos = workflows.Select(w => MapToListDto(w)).ToList();
 
             return new PagedResponse<WorkflowListDto>(
                 workflowDtos,
                 pagination.PageNumber,
                 pagination.PageSize,
-                workflows.Count());
+                (int)totalCount);
         }
 
         public async Task<PagedResponse<WorkflowListDto>> SearchWorkflowsAsync(string searchTerm, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var workflows = await _unitOfWork.Workflows.SearchWorkflowsAsync(searchTerm, cancellationToken);
-            var pagedWorkflows = workflows.Skip(pagination.PageNumber * pagination.PageSize).Take(pagination.PageSize);
+            // Use Specification Pattern for database-level pagination
+            var spec = new WorkflowSearchSpecification(searchTerm, pagination);
+            var (workflows, totalCount) = await _unitOfWork.Workflows.FindWithSpecificationAsync(spec, cancellationToken);
 
-            var workflowDtos = pagedWorkflows.Select(w => MapToListDto(w)).ToList();
+            var workflowDtos = workflows.Select(w => MapToListDto(w)).ToList();
 
             return new PagedResponse<WorkflowListDto>(
                 workflowDtos,
                 pagination.PageNumber,
                 pagination.PageSize,
-                workflows.Count());
+                (int)totalCount);
         }
 
         public async Task<PagedResponse<WorkflowListDto>> GetWorkflowTemplatesAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var templates = await _unitOfWork.Workflows.GetWorkflowTemplatesAsync(cancellationToken);
-            var pagedTemplates = templates.Skip(pagination.PageNumber * pagination.PageSize).Take(pagination.PageSize);
+            // Use Specification Pattern for database-level pagination
+            var spec = new WorkflowTemplatesSpecification(pagination);
+            var (templates, totalCount) = await _unitOfWork.Workflows.FindWithSpecificationAsync(spec, cancellationToken);
 
-            var templateDtos = pagedTemplates.Select(w => MapToListDto(w)).ToList();
+            var templateDtos = templates.Select(w => MapToListDto(w)).ToList();
 
             return new PagedResponse<WorkflowListDto>(
                 templateDtos,
                 pagination.PageNumber,
                 pagination.PageSize,
-                templates.Count());
+                (int)totalCount);
         }
 
         public async Task<WorkflowDetailDto> CloneWorkflowAsync(string workflowId, WorkflowCloneDto cloneDto, CancellationToken cancellationToken = default)
@@ -437,16 +421,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<WorkflowListDto>> GetWorkflowsByTagAsync(string tag, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var workflows = await _unitOfWork.Workflows.GetWorkflowsByTagAsync(tag, cancellationToken);
-            var pagedWorkflows = workflows.Skip(pagination.PageNumber * pagination.PageSize).Take(pagination.PageSize);
+            // Use Specification Pattern for database-level pagination
+            var spec = new WorkflowsByTagSpecification(tag, pagination);
+            var (workflows, totalCount) = await _unitOfWork.Workflows.FindWithSpecificationAsync(spec, cancellationToken);
 
-            var workflowDtos = pagedWorkflows.Select(w => MapToListDto(w)).ToList();
+            var workflowDtos = workflows.Select(w => MapToListDto(w)).ToList();
 
             return new PagedResponse<WorkflowListDto>(
                 workflowDtos,
                 pagination.PageNumber,
                 pagination.PageSize,
-                workflows.Count());
+                (int)totalCount);
         }
 
         public async Task<bool> AddNodeToWorkflowAsync(string workflowId, WorkflowNodeCreateDto nodeDto, CancellationToken cancellationToken = default)

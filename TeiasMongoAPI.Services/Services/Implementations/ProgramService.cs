@@ -126,89 +126,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<ProgramListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var programs = await _unitOfWork.Programs.GetAllAsync(cancellationToken);
-            var programsList = programs.ToList();
+            // Use Specification Pattern for database-level pagination
+            var spec = new AllProgramsSpecification(pagination);
+            var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
-            // Apply pagination
-            var totalCount = programsList.Count;
-            var paginatedPrograms = programsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
+            var dtos = _mapper.Map<List<ProgramListDto>>(programs);
 
-            var dtos = _mapper.Map<List<ProgramListDto>>(paginatedPrograms);
-
-            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<ProgramListDto>> SearchAsync(ProgramSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var allPrograms = await _unitOfWork.Programs.GetAllAsync(cancellationToken);
-            var filteredPrograms = allPrograms.AsQueryable();
+            // Use Specification Pattern for database-level pagination and filtering
+            var spec = new ProgramSearchSpecification(searchDto, pagination);
+            var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
-            // Apply filters
-            if (!string.IsNullOrEmpty(searchDto.Name))
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.Name.Contains(searchDto.Name, StringComparison.OrdinalIgnoreCase));
-            }
+            var dtos = _mapper.Map<List<ProgramListDto>>(programs);
 
-            if (!string.IsNullOrEmpty(searchDto.Description))
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.Description.Contains(searchDto.Description, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.Type))
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.Type == searchDto.Type);
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.Language))
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.Language == searchDto.Language);
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.UiType))
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.UiType == searchDto.UiType);
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.Creator))
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.Creator == searchDto.Creator);
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.Status))
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.Status == searchDto.Status);
-            }
-
-            if (searchDto.DeploymentType.HasValue)
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.DeploymentInfo != null && p.DeploymentInfo.DeploymentType == searchDto.DeploymentType.Value);
-            }
-
-            if (searchDto.CreatedFrom.HasValue)
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.CreatedAt >= searchDto.CreatedFrom.Value);
-            }
-
-            if (searchDto.CreatedTo.HasValue)
-            {
-                filteredPrograms = filteredPrograms.Where(p => p.CreatedAt <= searchDto.CreatedTo.Value);
-            }
-
-            var programsList = filteredPrograms.ToList();
-
-            // Apply pagination
-            var totalCount = programsList.Count;
-            var paginatedPrograms = programsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<ProgramListDto>>(paginatedPrograms);
-
-            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<ProgramDto> CreateAsync(ProgramCreateDto dto, ObjectId? userId, CancellationToken cancellationToken = default)
@@ -349,26 +284,42 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<ProgramListDto>> GetByCreatorAsync(string creatorId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var programs = await _unitOfWork.Programs.GetByCreatorAsync(creatorId, cancellationToken);
-            return await CreatePagedResponse(programs, pagination);
+            // Use Specification Pattern for database-level pagination
+            var spec = new ProgramsByCreatorSpecification(creatorId, pagination);
+            var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
+
+            var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<ProgramListDto>> GetByStatusAsync(string status, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var programs = await _unitOfWork.Programs.GetByStatusAsync(status, cancellationToken);
-            return await CreatePagedResponse(programs, pagination);
+            // Use Specification Pattern for database-level pagination
+            var spec = new ProgramsByStatusSpecification(status, pagination);
+            var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
+
+            var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<ProgramListDto>> GetByTypeAsync(string type, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var programs = await _unitOfWork.Programs.GetByTypeAsync(type, cancellationToken);
-            return await CreatePagedResponse(programs, pagination);
+            // Use Specification Pattern for database-level pagination
+            var spec = new ProgramsByTypeSpecification(type, pagination);
+            var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
+
+            var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<ProgramListDto>> GetByLanguageAsync(string language, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var programs = await _unitOfWork.Programs.GetByLanguageAsync(language, cancellationToken);
-            return await CreatePagedResponse(programs, pagination);
+            // Use Specification Pattern for database-level pagination
+            var spec = new ProgramsByLanguageSpecification(language, pagination);
+            var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
+
+            var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<ProgramSummaryDto>> GetUserAccessibleProgramsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
@@ -499,8 +450,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<ProgramListDto>> GetGroupAccessibleProgramsAsync(string groupId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var programs = await _unitOfWork.Programs.GetGroupAccessibleProgramsAsync(groupId, cancellationToken);
-            return await CreatePagedResponse(programs, pagination);
+            // Use Specification Pattern for database-level pagination
+            var spec = new GroupAccessibleProgramsSpecification(groupId, pagination);
+            var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
+
+            var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         #endregion
@@ -939,18 +894,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Private Helper Methods
 
-        private async Task<PagedResponse<ProgramListDto>> CreatePagedResponse(IEnumerable<Program> programs, PaginationRequestDto pagination)
-        {
-            var programsList = programs.ToList();
-            var totalCount = programsList.Count;
-            var paginatedPrograms = programsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<ProgramListDto>>(paginatedPrograms);
-            return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
-        }
 
         private static bool ValidateAccessLevel(string userAccessLevel, string requiredAccessLevel)
         {

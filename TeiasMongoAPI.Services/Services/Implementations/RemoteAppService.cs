@@ -10,6 +10,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.DTOs.Response.RemoteApp;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Specifications;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
 {
@@ -25,13 +26,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<RemoteAppListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var remoteApps = await _unitOfWork.RemoteApps.GetAllAsync(cancellationToken);
-            var remoteAppsList = remoteApps.ToList();
-            
-            var pagedItems = ApplyPagination(remoteAppsList, pagination);
-            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+            var spec = new AllRemoteAppsSpecification(pagination);
+            var (remoteApps, totalCount) = await _unitOfWork.RemoteApps.FindWithSpecificationAsync(spec, cancellationToken);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(remoteApps);
 
-            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+            return new PagedResponse<RemoteAppListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<RemoteAppDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
@@ -171,24 +170,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<RemoteAppListDto>> GetByCreatorAsync(string creatorId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var remoteApps = await _unitOfWork.RemoteApps.GetByCreatorAsync(creatorId, cancellationToken);
-            var remoteAppsList = remoteApps.ToList();
-            
-            var pagedItems = ApplyPagination(remoteAppsList, pagination);
-            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+            var spec = new RemoteAppsByCreatorSpecification(creatorId, pagination);
+            var (remoteApps, totalCount) = await _unitOfWork.RemoteApps.FindWithSpecificationAsync(spec, cancellationToken);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(remoteApps);
 
-            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+            return new PagedResponse<RemoteAppListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<RemoteAppListDto>> GetByStatusAsync(string status, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var remoteApps = await _unitOfWork.RemoteApps.GetByStatusAsync(status, cancellationToken);
-            var remoteAppsList = remoteApps.ToList();
-            
-            var pagedItems = ApplyPagination(remoteAppsList, pagination);
-            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+            var spec = new RemoteAppsByStatusSpecification(status, pagination);
+            var (remoteApps, totalCount) = await _unitOfWork.RemoteApps.FindWithSpecificationAsync(spec, cancellationToken);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(remoteApps);
 
-            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+            return new PagedResponse<RemoteAppListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<RemoteAppListDto>> GetUserAccessibleAppsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
@@ -196,24 +191,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (!ObjectId.TryParse(userId, out var userObjectId))
                 throw new ArgumentException("Invalid user ID format", nameof(userId));
 
-            var remoteApps = await _unitOfWork.RemoteApps.GetUserAccessibleAppsAsync(userObjectId, cancellationToken);
-            var remoteAppsList = remoteApps.ToList();
-            
-            var pagedItems = ApplyPagination(remoteAppsList, pagination);
-            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+            var spec = new RemoteAppsUserAccessibleSpecification(userObjectId, pagination);
+            var (remoteApps, totalCount) = await _unitOfWork.RemoteApps.FindWithSpecificationAsync(spec, cancellationToken);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(remoteApps);
 
-            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+            return new PagedResponse<RemoteAppListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<RemoteAppListDto>> GetPublicAppsAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var remoteApps = await _unitOfWork.RemoteApps.GetPublicAppsAsync(cancellationToken);
-            var remoteAppsList = remoteApps.ToList();
-            
-            var pagedItems = ApplyPagination(remoteAppsList, pagination);
-            var dtos = _mapper.Map<List<RemoteAppListDto>>(pagedItems.Items);
+            var spec = new RemoteAppsPublicSpecification(pagination);
+            var (remoteApps, totalCount) = await _unitOfWork.RemoteApps.FindWithSpecificationAsync(spec, cancellationToken);
+            var dtos = _mapper.Map<List<RemoteAppListDto>>(remoteApps);
 
-            return new PagedResponse<RemoteAppListDto>(dtos, pagedItems.TotalCount, pagination.PageNumber, pagination.PageSize);
+            return new PagedResponse<RemoteAppListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<bool> AssignUserAsync(string remoteAppId, string userId, CancellationToken cancellationToken = default)
@@ -283,25 +274,5 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await _unitOfWork.RemoteApps.IsNameUniqueAsync(name, excludeObjectId, cancellationToken);
         }
 
-        private PagedResult<T> ApplyPagination<T>(List<T> items, PaginationRequestDto pagination)
-        {
-            var totalCount = items.Count;
-            var skip = (pagination.PageNumber - 1) * pagination.PageSize;
-            var pagedItems = items.Skip(skip).Take(pagination.PageSize).ToList();
-
-            return new PagedResult<T>(pagedItems, totalCount);
-        }
-
-        private class PagedResult<T>
-        {
-            public List<T> Items { get; }
-            public int TotalCount { get; }
-
-            public PagedResult(List<T> items, int totalCount)
-            {
-                Items = items;
-                TotalCount = totalCount;
-            }
-        }
     }
 }

@@ -13,6 +13,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Execution;
+using TeiasMongoAPI.Services.Specifications;
 using TeiasMongoAPI.Services.Services.Base;
 using ExecutionModel = TeiasMongoAPI.Core.Models.Collaboration.Execution;
 
@@ -123,108 +124,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<ExecutionListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var executions = await _unitOfWork.Executions.GetAllAsync(cancellationToken);
-            var executionsList = executions.ToList();
+            // Use Specification Pattern for database-level pagination
+            var spec = new AllExecutionsSpecification(pagination);
+            var (executions, totalCount) = await _unitOfWork.Executions.FindWithSpecificationAsync(spec, cancellationToken);
 
-            // Apply pagination
-            var totalCount = executionsList.Count;
-            var paginatedExecutions = executionsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
+            var dtos = await MapExecutionListDtosAsync(executions.ToList(), cancellationToken);
 
-            var dtos = await MapExecutionListDtosAsync(paginatedExecutions, cancellationToken);
-
-            return new PagedResponse<ExecutionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<ExecutionListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<ExecutionListDto>> SearchAsync(ExecutionSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var allExecutions = await _unitOfWork.Executions.GetAllAsync(cancellationToken);
-            var filteredExecutions = allExecutions.AsQueryable();
+            // Use Specification Pattern for database-level pagination and filtering
+            var spec = new ExecutionSearchSpecification(searchDto, pagination);
+            var (executions, totalCount) = await _unitOfWork.Executions.FindWithSpecificationAsync(spec, cancellationToken);
 
-            // Apply filters
-            if (!string.IsNullOrEmpty(searchDto.ProgramId))
-            {
-                var programObjectId = ParseObjectId(searchDto.ProgramId);
-                filteredExecutions = filteredExecutions.Where(e => e.ProgramId == programObjectId);
-            }
+            var dtos = await MapExecutionListDtosAsync(executions.ToList(), cancellationToken);
 
-            if (!string.IsNullOrEmpty(searchDto.VersionId))
-            {
-                var versionObjectId = ParseObjectId(searchDto.VersionId);
-                filteredExecutions = filteredExecutions.Where(e => e.VersionId == versionObjectId);
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.UserId))
-            {
-                filteredExecutions = filteredExecutions.Where(e => e.UserId == searchDto.UserId);
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.Status))
-            {
-                filteredExecutions = filteredExecutions.Where(e => e.Status == searchDto.Status);
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.ExecutionType))
-            {
-                filteredExecutions = filteredExecutions.Where(e => e.ExecutionType == searchDto.ExecutionType);
-            }
-
-            if (searchDto.StartedFrom.HasValue)
-            {
-                filteredExecutions = filteredExecutions.Where(e => e.StartedAt >= searchDto.StartedFrom.Value);
-            }
-
-            if (searchDto.StartedTo.HasValue)
-            {
-                filteredExecutions = filteredExecutions.Where(e => e.StartedAt <= searchDto.StartedTo.Value);
-            }
-
-            if (searchDto.CompletedFrom.HasValue)
-            {
-                filteredExecutions = filteredExecutions.Where(e => e.CompletedAt >= searchDto.CompletedFrom.Value);
-            }
-
-            if (searchDto.CompletedTo.HasValue)
-            {
-                filteredExecutions = filteredExecutions.Where(e => e.CompletedAt <= searchDto.CompletedTo.Value);
-            }
-
-            if (searchDto.ExitCodeFrom.HasValue)
-            {
-                filteredExecutions = filteredExecutions.Where(e => e.Results.ExitCode >= searchDto.ExitCodeFrom.Value);
-            }
-
-            if (searchDto.ExitCodeTo.HasValue)
-            {
-                filteredExecutions = filteredExecutions.Where(e => e.Results.ExitCode <= searchDto.ExitCodeTo.Value);
-            }
-
-            if (searchDto.HasErrors.HasValue)
-            {
-                if (searchDto.HasErrors.Value)
-                {
-                    filteredExecutions = filteredExecutions.Where(e => !string.IsNullOrEmpty(e.Results.Error) || e.Results.ExitCode != 0);
-                }
-                else
-                {
-                    filteredExecutions = filteredExecutions.Where(e => string.IsNullOrEmpty(e.Results.Error) && e.Results.ExitCode == 0);
-                }
-            }
-
-            var executionsList = filteredExecutions.ToList();
-
-            // Apply pagination
-            var totalCount = executionsList.Count;
-            var paginatedExecutions = executionsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = await MapExecutionListDtosAsync(paginatedExecutions, cancellationToken);
-
-            return new PagedResponse<ExecutionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<ExecutionListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -1802,6 +1719,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         private async Task<PagedResponse<ExecutionListDto>> CreatePagedExecutionResponse(IEnumerable<ExecutionModel> executions, PaginationRequestDto pagination, CancellationToken cancellationToken)
         {
+            // This method is now deprecated in favor of Specification Pattern
+            // Convert the enumerable to list and manually apply pagination for backward compatibility
             var executionsList = executions.ToList();
             var totalCount = executionsList.Count;
             var paginatedExecutions = executionsList

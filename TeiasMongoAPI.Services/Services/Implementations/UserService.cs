@@ -10,6 +10,7 @@ using TeiasMongoAPI.Services.DTOs.Response.User;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Services.Base;
 using TeiasMongoAPI.Services.Security;
+using TeiasMongoAPI.Services.Specifications;
 using Microsoft.Extensions.Logging;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
@@ -72,91 +73,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<UserListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var users = await _unitOfWork.Users.GetAllAsync(cancellationToken);
-            var usersList = users.ToList();
+            // Use Specification Pattern for database-level pagination
+            var spec = new AllUsersSpecification(pagination);
+            var (users, totalCount) = await _unitOfWork.Users.FindWithSpecificationAsync(spec, cancellationToken);
 
-            // Apply pagination
-            var totalCount = usersList.Count;
-            var paginatedUsers = usersList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
+            var dtos = _mapper.Map<List<UserListDto>>(users);
 
-            var dtos = _mapper.Map<List<UserListDto>>(paginatedUsers);
-
-            return new PagedResponse<UserListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<UserListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<PagedResponse<UserListDto>> SearchAsync(UserSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var allUsers = await _unitOfWork.Users.GetAllAsync(cancellationToken);
-            var filteredUsers = allUsers.AsQueryable();
+            // Use Specification Pattern for database-level pagination and filtering
+            var spec = new UserSearchSpecification(searchDto, pagination);
+            var (users, totalCount) = await _unitOfWork.Users.FindWithSpecificationAsync(spec, cancellationToken);
 
-            // Apply filters
-            if (!string.IsNullOrEmpty(searchDto.Email))
-            {
-                filteredUsers = filteredUsers.Where(u => u.Email.Contains(searchDto.Email, StringComparison.OrdinalIgnoreCase));
-            }
+            var dtos = _mapper.Map<List<UserListDto>>(users);
 
-            if (!string.IsNullOrEmpty(searchDto.Username))
-            {
-                filteredUsers = filteredUsers.Where(u => u.Username.Contains(searchDto.Username, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.FirstName))
-            {
-                filteredUsers = filteredUsers.Where(u => u.FirstName.Contains(searchDto.FirstName, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (!string.IsNullOrEmpty(searchDto.LastName))
-            {
-                filteredUsers = filteredUsers.Where(u => u.LastName.Contains(searchDto.LastName, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (searchDto.Roles?.Any() == true)
-            {
-                filteredUsers = filteredUsers.Where(u => u.Roles.Any(r => searchDto.Roles.Contains(r)));
-            }
-
-            if (searchDto.IsActive.HasValue)
-            {
-                filteredUsers = filteredUsers.Where(u => u.IsActive == searchDto.IsActive.Value);
-            }
-
-            // Removed: IsEmailVerified filter
-
-            if (searchDto.CreatedFrom.HasValue)
-            {
-                filteredUsers = filteredUsers.Where(u => u.CreatedDate >= searchDto.CreatedFrom.Value);
-            }
-
-            if (searchDto.CreatedTo.HasValue)
-            {
-                filteredUsers = filteredUsers.Where(u => u.CreatedDate <= searchDto.CreatedTo.Value);
-            }
-
-            if (searchDto.LastLoginFrom.HasValue)
-            {
-                filteredUsers = filteredUsers.Where(u => u.LastLoginDate >= searchDto.LastLoginFrom.Value);
-            }
-
-            if (searchDto.LastLoginTo.HasValue)
-            {
-                filteredUsers = filteredUsers.Where(u => u.LastLoginDate <= searchDto.LastLoginTo.Value);
-            }
-
-            var usersList = filteredUsers.ToList();
-
-            // Apply pagination
-            var totalCount = usersList.Count;
-            var paginatedUsers = usersList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
-
-            var dtos = _mapper.Map<List<UserListDto>>(paginatedUsers);
-
-            return new PagedResponse<UserListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<UserListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<UserDto> CreateAsync(UserRegisterDto dto, CancellationToken cancellationToken = default)

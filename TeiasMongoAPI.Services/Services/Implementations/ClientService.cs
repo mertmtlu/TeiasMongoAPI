@@ -7,6 +7,7 @@ using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Client;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Specifications;
 using Microsoft.Extensions.Logging;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
@@ -40,18 +41,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<ClientListResponseDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var clients = await _unitOfWork.Clients.GetAllAsync(cancellationToken);
-            var clientsList = clients.ToList();
-
-            // Apply pagination
-            var totalCount = clientsList.Count;
-            var paginatedClients = clientsList
-                .Skip((pagination.PageNumber - 1) * pagination.PageSize)
-                .Take(pagination.PageSize)
-                .ToList();
+            // Use Specification Pattern for database-level pagination
+            var spec = new AllClientsSpecification(pagination);
+            var (clients, totalCount) = await _unitOfWork.Clients.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = new List<ClientListResponseDto>();
-            foreach (var client in paginatedClients)
+            foreach (var client in clients)
             {
                 var dto = _mapper.Map<ClientListResponseDto>(client);
 
@@ -71,7 +66,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dtos.Add(dto);
             }
 
-            return new PagedResponse<ClientListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
+            return new PagedResponse<ClientListResponseDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
         public async Task<ClientResponseDto> CreateAsync(ClientCreateDto dto, CancellationToken cancellationToken = default)
