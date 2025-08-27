@@ -34,20 +34,60 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<WorkflowListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            var workflows = await _unitOfWork.Workflows.GetWorkflowsWithPaginationAsync(
-                (pagination.PageNumber - 1) * pagination.PageSize,
-                pagination.PageSize,
-                cancellationToken: cancellationToken);
+            // MODIFICATION: Add comprehensive performance logging
+            //using var activity = System.Diagnostics.Activity.StartActivity("GetAllWorkflows");
+            var totalStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            
+            _logger.LogInformation("Starting GetAllWorkflows, page {PageNumber}, size {PageSize}", 
+                pagination.PageNumber, pagination.PageSize);
 
-            var totalCount = await _unitOfWork.Workflows.CountAsync(cancellationToken: cancellationToken);
+            try
+            {
+                // Step 1: Database query with pagination
+                var dbTimer = System.Diagnostics.Stopwatch.StartNew();
+                var workflows = await _unitOfWork.Workflows.GetWorkflowsWithPaginationAsync(
+                    (pagination.PageNumber - 1) * pagination.PageSize,
+                    pagination.PageSize,
+                    cancellationToken: cancellationToken);
+                dbTimer.Stop();
+                
+                _logger.LogInformation("Database query completed in {ElapsedMs}ms, returned {WorkflowCount} workflows", 
+                    dbTimer.ElapsedMilliseconds, workflows.Count());
 
-            var workflowDtos = workflows.Select(w => MapToListDto(w)).ToList();
+                // Step 2: Count query
+                var countTimer = System.Diagnostics.Stopwatch.StartNew();
+                var totalCount = await _unitOfWork.Workflows.CountAsync(cancellationToken: cancellationToken);
+                countTimer.Stop();
+                
+                _logger.LogInformation("Count query completed in {ElapsedMs}ms, total: {TotalCount}", 
+                    countTimer.ElapsedMilliseconds, totalCount);
 
-            return new PagedResponse<WorkflowListDto>(
-                workflowDtos,
-                pagination.PageNumber,
-                pagination.PageSize,
-                (int)totalCount);
+                // Step 3: DTO mapping
+                var mappingTimer = System.Diagnostics.Stopwatch.StartNew();
+                var workflowDtos = workflows.Select(w => MapToListDto(w)).ToList();
+                mappingTimer.Stop();
+                
+                _logger.LogInformation("DTO mapping completed in {ElapsedMs}ms, {DtoCount} DTOs created", 
+                    mappingTimer.ElapsedMilliseconds, workflowDtos.Count);
+
+                totalStopwatch.Stop();
+                _logger.LogInformation("GetAllWorkflows completed successfully in {TotalElapsedMs}ms - " +
+                    "Database: {DbMs}ms, Count: {CountMs}ms, Mapping: {MappingMs}ms",
+                    totalStopwatch.ElapsedMilliseconds, dbTimer.ElapsedMilliseconds, 
+                    countTimer.ElapsedMilliseconds, mappingTimer.ElapsedMilliseconds);
+
+                return new PagedResponse<WorkflowListDto>(
+                    workflowDtos,
+                    pagination.PageNumber,
+                    pagination.PageSize,
+                    (int)totalCount);
+            }
+            catch (Exception ex)
+            {
+                totalStopwatch.Stop();
+                _logger.LogError(ex, "GetAllWorkflows failed after {ElapsedMs}ms", totalStopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         public async Task<WorkflowDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)

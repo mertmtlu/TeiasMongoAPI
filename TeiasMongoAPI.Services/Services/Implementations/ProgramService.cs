@@ -373,78 +373,128 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<ProgramSummaryDto>> GetUserAccessibleProgramsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            // Step 1: Use Specification Pattern for database-level pagination
-            var spec = new ProgramByUserSpecification(userId, pagination);
-            var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
+            // MODIFICATION: Add comprehensive performance logging
+            //using var activity = System.Diagnostics.Activity.StartActivity("GetUserAccessiblePrograms");
+            var totalStopwatch = System.Diagnostics.Stopwatch.StartNew();
             
-            if (!programs.Any())
+            _logger.LogInformation("Starting GetUserAccessiblePrograms for user {UserId}, page {PageNumber}, size {PageSize}", 
+                userId, pagination.PageNumber, pagination.PageSize);
+            
+            try
             {
-                return new PagedResponse<ProgramSummaryDto>(new List<ProgramSummaryDto>(), pagination.PageNumber, pagination.PageSize, (int)totalCount);
-            }
-
-            // Step 2: Extract program IDs and current version IDs for batch queries
-            var programIds = programs.Select(p => p._ID).ToList();
-            var currentVersionIds = programs
-                .Where(p => !string.IsNullOrEmpty(p.CurrentVersion))
-                .Select(p => ParseObjectId(p.CurrentVersion!))
-                .ToList();
-
-            // Step 3: Perform batch queries to avoid N+1 problem
-            var versionCountsTask = _unitOfWork.Versions.GetVersionCountsByProgramIdsAsync(programIds, cancellationToken);
-            var currentVersionsTask = currentVersionIds.Any() 
-                ? _unitOfWork.Versions.GetVersionsByIdsAsync(currentVersionIds, cancellationToken)
-                : Task.FromResult(new List<Version>());
-            var componentCountsTask = _unitOfWork.UiComponents.GetComponentCountsByProgramIdsAsync(programIds, cancellationToken);
-            var newestComponentTypesTask = _unitOfWork.UiComponents.GetNewestComponentTypesByProgramIdsAsync(programIds, cancellationToken);
-
-            // Wait for all batch queries to complete
-            await Task.WhenAll(versionCountsTask, currentVersionsTask, componentCountsTask, newestComponentTypesTask);
-
-            var versionCounts = await versionCountsTask;
-            var currentVersionsList = await currentVersionsTask;
-            var componentCounts = await componentCountsTask;
-            var newestComponentTypes = await newestComponentTypesTask;
-
-            // Create lookup dictionary for current versions by ID for O(1) access
-            var currentVersionsLookup = currentVersionsList.ToDictionary(v => v._ID.ToString(), v => v);
-
-            // Step 4: Map programs to ProgramSummaryDto with aggregated data
-            var summaryDtos = programs.Select(program =>
-            {
-                var programId = program._ID.ToString();
-                Version? currentVersion = null;
+                // Step 1: Use Specification Pattern for database-level pagination
+                var specTimer = System.Diagnostics.Stopwatch.StartNew();
+                var spec = new ProgramByUserSpecification(userId, pagination);
+                var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
+                specTimer.Stop();
                 
-                // Look up current version using the CurrentVersion ID
-                if (!string.IsNullOrEmpty(program.CurrentVersion) && 
-                    currentVersionsLookup.TryGetValue(program.CurrentVersion, out currentVersion))
+                _logger.LogInformation("Specification query completed in {ElapsedMs}ms, returned {ProgramCount} programs, total count: {TotalCount}", 
+                    specTimer.ElapsedMilliseconds, programs.Count(), totalCount);
+                
+                if (!programs.Any())
                 {
-                    // Current version found
+                    totalStopwatch.Stop();
+                    _logger.LogInformation("No programs found for user {UserId}, total time: {ElapsedMs}ms", 
+                        userId, totalStopwatch.ElapsedMilliseconds);
+                    return new PagedResponse<ProgramSummaryDto>(new List<ProgramSummaryDto>(), pagination.PageNumber, pagination.PageSize, (int)totalCount);
                 }
 
-                return new ProgramSummaryDto
-                {
-                    Id = programId,
-                    Name = program.Name,
-                    Description = program.Description,
-                    Language = program.Language,
-                    Type = program.Type,
-                    CreatedAt = program.CreatedAt,
-                    Status = program.Status,
-                    CurrentVersion = currentVersion != null ? new VersionInfoDto
-                    {
-                        Id = currentVersion._ID.ToString(),
-                        VersionNumber = currentVersion.VersionNumber,
-                        CreatedAt = currentVersion.CreatedAt,
-                        Status = currentVersion.Status,
-                        CreatedBy = currentVersion.CreatedBy
-                    } : null,
-                    VersionCount = versionCounts.GetValueOrDefault(programId, 0),
-                    ComponentCount = componentCounts.GetValueOrDefault(programId, 0),
-                    NewestComponentType = newestComponentTypes.GetValueOrDefault(programId)
-                };
-            }).ToList();
+                // Step 2: Extract program IDs and current version IDs for batch queries
+                var extractionTimer = System.Diagnostics.Stopwatch.StartNew();
+                var programIds = programs.Select(p => p._ID).ToList();
+                var currentVersionIds = programs
+                    .Where(p => !string.IsNullOrEmpty(p.CurrentVersion))
+                    .Select(p => ParseObjectId(p.CurrentVersion!))
+                    .ToList();
+                extractionTimer.Stop();
+                
+                _logger.LogInformation("ID extraction completed in {ElapsedMs}ms, {ProgramIdCount} program IDs, {VersionIdCount} version IDs", 
+                    extractionTimer.ElapsedMilliseconds, programIds.Count, currentVersionIds.Count);
 
-            return new PagedResponse<ProgramSummaryDto>(summaryDtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
+                // Step 3: Perform batch queries to avoid N+1 problem
+                var batchTimer = System.Diagnostics.Stopwatch.StartNew();
+                var versionCountsTask = _unitOfWork.Versions.GetVersionCountsByProgramIdsAsync(programIds, cancellationToken);
+                var currentVersionsTask = currentVersionIds.Any() 
+                    ? _unitOfWork.Versions.GetVersionsByIdsAsync(currentVersionIds, cancellationToken)
+                    : Task.FromResult(new List<Version>());
+                var componentCountsTask = _unitOfWork.UiComponents.GetComponentCountsByProgramIdsAsync(programIds, cancellationToken);
+                var newestComponentTypesTask = _unitOfWork.UiComponents.GetNewestComponentTypesByProgramIdsAsync(programIds, cancellationToken);
+
+                // Wait for all batch queries to complete
+                await Task.WhenAll(versionCountsTask, currentVersionsTask, componentCountsTask, newestComponentTypesTask);
+                batchTimer.Stop();
+                
+                _logger.LogInformation("All batch queries completed in {ElapsedMs}ms", batchTimer.ElapsedMilliseconds);
+
+                var versionCounts = await versionCountsTask;
+                var currentVersionsList = await currentVersionsTask;
+                var componentCounts = await componentCountsTask;
+                var newestComponentTypes = await newestComponentTypesTask;
+
+                // Step 4: Create lookup dictionary for current versions by ID for O(1) access
+                var lookupTimer = System.Diagnostics.Stopwatch.StartNew();
+                var currentVersionsLookup = currentVersionsList.ToDictionary(v => v._ID.ToString(), v => v);
+                lookupTimer.Stop();
+                
+                _logger.LogInformation("Version lookup dictionary created in {ElapsedMs}ms, {LookupCount} entries", 
+                    lookupTimer.ElapsedMilliseconds, currentVersionsLookup.Count);
+
+                // Step 5: Map programs to ProgramSummaryDto with aggregated data
+                var mappingTimer = System.Diagnostics.Stopwatch.StartNew();
+                var summaryDtos = programs.Select(program =>
+                {
+                    var programId = program._ID.ToString();
+                    Version? currentVersion = null;
+                    
+                    // Look up current version using the CurrentVersion ID
+                    if (!string.IsNullOrEmpty(program.CurrentVersion) && 
+                        currentVersionsLookup.TryGetValue(program.CurrentVersion, out currentVersion))
+                    {
+                        // Current version found
+                    }
+
+                    return new ProgramSummaryDto
+                    {
+                        Id = programId,
+                        Name = program.Name,
+                        Description = program.Description,
+                        Language = program.Language,
+                        Type = program.Type,
+                        CreatedAt = program.CreatedAt,
+                        Status = program.Status,
+                        CurrentVersion = currentVersion != null ? new VersionInfoDto
+                        {
+                            Id = currentVersion._ID.ToString(),
+                            VersionNumber = currentVersion.VersionNumber,
+                            CreatedAt = currentVersion.CreatedAt,
+                            Status = currentVersion.Status,
+                            CreatedBy = currentVersion.CreatedBy
+                        } : null,
+                        VersionCount = versionCounts.GetValueOrDefault(programId, 0),
+                        ComponentCount = componentCounts.GetValueOrDefault(programId, 0),
+                        NewestComponentType = newestComponentTypes.GetValueOrDefault(programId)
+                    };
+                }).ToList();
+                mappingTimer.Stop();
+                
+                _logger.LogInformation("DTO mapping completed in {ElapsedMs}ms, {DtoCount} DTOs created", 
+                    mappingTimer.ElapsedMilliseconds, summaryDtos.Count);
+
+                totalStopwatch.Stop();
+                _logger.LogInformation("GetUserAccessiblePrograms completed successfully in {TotalElapsedMs}ms - " +
+                    "Spec: {SpecMs}ms, Extraction: {ExtractionMs}ms, Batch: {BatchMs}ms, Lookup: {LookupMs}ms, Mapping: {MappingMs}ms",
+                    totalStopwatch.ElapsedMilliseconds, specTimer.ElapsedMilliseconds, extractionTimer.ElapsedMilliseconds,
+                    batchTimer.ElapsedMilliseconds, lookupTimer.ElapsedMilliseconds, mappingTimer.ElapsedMilliseconds);
+
+                return new PagedResponse<ProgramSummaryDto>(summaryDtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
+            }
+            catch (Exception ex)
+            {
+                totalStopwatch.Stop();
+                _logger.LogError(ex, "GetUserAccessiblePrograms failed after {ElapsedMs}ms for user {UserId}", 
+                    totalStopwatch.ElapsedMilliseconds, userId);
+                throw;
+            }
         }
 
         public async Task<PagedResponse<ProgramListDto>> GetGroupAccessibleProgramsAsync(string groupId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)

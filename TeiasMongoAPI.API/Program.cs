@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using MongoDB.Driver;
 using Serilog;
 using System.Text;
 using TeiasMongoAPI.API.Configuration;
@@ -12,6 +13,7 @@ using TeiasMongoAPI.Data.Configuration;
 using TeiasMongoAPI.Data.Context;
 using TeiasMongoAPI.Data.Repositories;
 using TeiasMongoAPI.Data.Repositories.Implementations;
+using TeiasMongoAPI.Data.Services; // MODIFICATION: Added for MongoDB index initializer
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Services.Mappings;
@@ -20,18 +22,37 @@ using TeiasMongoAPI.Services.Services.Implementations;
 using TeiasMongoAPI.Services.Services.Implementations.Execution;
 using TeiasMongoAPI.API.Hubs;
 using TeiasMongoAPI.API.Services;
+using MongoDB.Driver.Core.Configuration; // For CompressorConfiguration
+using MongoDB.Driver.Core.Connections;
+using MongoDB.Driver.Core.Compression;   // For CompressorType
 
 namespace TeiasMongoAPI.API
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args) // MODIFICATION: Changed to async Task
         {
             var builder = WebApplication.CreateBuilder(args);
 
-            // Configure Serilog
+            // MODIFICATION: Configure Serilog with async sinks for better performance
             builder.Host.UseSerilog((context, configuration) =>
-                configuration.ReadFrom.Configuration(context.Configuration));
+            {
+                configuration
+                    .ReadFrom.Configuration(context.Configuration)
+                    .WriteTo.Async(a => a.Console(outputTemplate: 
+                        "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"))
+                    .WriteTo.Async(a => a.File(
+                        path: "logs/log-.txt",
+                        rollingInterval: Serilog.RollingInterval.Day,
+                        rollOnFileSizeLimit: true,
+                        fileSizeLimitBytes: 10485760,
+                        retainedFileCountLimit: 30,
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] ({SourceContext}) {Message:lj}{NewLine}{Exception}"
+                        ), bufferSize: 65536) // MODIFICATION: Added buffer for better async performance
+                    .Enrich.FromLogContext()
+                    .Enrich.WithThreadId()
+                    .Enrich.WithMachineName();
+            });
 
             // Add services to the container.
             builder.Services.AddControllers()
@@ -124,10 +145,42 @@ namespace TeiasMongoAPI.API
                 //c.CustomSchemaIds(type => type.FullName?.Replace("+", "."));
             });
 
-            // Configure MongoDB
+            // MODIFICATION: Configure MongoDB with optimized connection settings
             builder.Services.Configure<MongoDbSettings>(
                 builder.Configuration.GetSection("MongoDbSettings"));
-            builder.Services.AddSingleton<MongoDbContext>();
+            
+            builder.Services.AddSingleton<IMongoClient>(serviceProvider =>
+            {
+                var settings = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<MongoDbSettings>>().Value;
+                var mongoUrl = MongoUrl.Create(settings.ConnectionString);
+                var mongoClientSettings = MongoClientSettings.FromUrl(mongoUrl);
+                
+                // MODIFICATION: Optimized connection pool settings for better performance
+                mongoClientSettings.MaxConnectionPoolSize = 100;                        // Maximum connections in pool
+                mongoClientSettings.MinConnectionPoolSize = 10;                         // Minimum connections to maintain
+                mongoClientSettings.MaxConnectionIdleTime = TimeSpan.FromMinutes(30);   // Close idle connections after 30 min
+                mongoClientSettings.ConnectTimeout = TimeSpan.FromSeconds(30);          // Connection timeout
+                mongoClientSettings.SocketTimeout = TimeSpan.FromSeconds(30);           // Socket timeout
+                mongoClientSettings.ServerSelectionTimeout = TimeSpan.FromSeconds(30);  // Server selection timeout
+                mongoClientSettings.WaitQueueTimeout = TimeSpan.FromSeconds(10);        // Wait queue timeout
+                mongoClientSettings.MaxConnectionLifeTime = TimeSpan.FromMinutes(30);   // Max connection lifetime
+
+                // MODIFICATION: Enable compression for better network performance
+                mongoClientSettings.Compressors = new[] { new CompressorConfiguration(CompressorType.ZStandard) };
+
+                // MODIFICATION: Enable read concern for better consistency
+                mongoClientSettings.ReadConcern = ReadConcern.Local;
+                
+                // MODIFICATION: Set write concern for better performance vs consistency balance
+                mongoClientSettings.WriteConcern = WriteConcern.WMajority.With(journal: true);
+                
+                return new MongoClient(mongoClientSettings);
+            });
+            
+            builder.Services.AddScoped<MongoDbContext>();
+
+            // MODIFICATION: Register MongoDB Index Initializer
+            builder.Services.AddMongoDbIndexInitializer();
 
             // Configure JWT
             builder.Services.Configure<JwtSettings>(
@@ -295,6 +348,17 @@ namespace TeiasMongoAPI.API
 
             var app = builder.Build();
 
+            // MODIFICATION: Initialize MongoDB indexes on startup for optimal performance
+            try
+            {
+                await app.Services.InitializeMongoDbIndexesAsync();
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail startup - indexes can be created later
+                app.Logger.LogError(ex, "Failed to initialize MongoDB indexes during startup");
+            }
+
             // Configure the HTTP request pipeline.
 
             // Use Serilog Request Logging
@@ -358,7 +422,7 @@ namespace TeiasMongoAPI.API
             });
 
             // Run the application
-            app.Run();
+            await app.RunAsync(); // MODIFICATION: Use RunAsync for consistency
         }
     }
 }
