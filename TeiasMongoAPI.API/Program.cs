@@ -179,14 +179,6 @@ namespace TeiasMongoAPI.API
             
             builder.Services.AddScoped<MongoDbContext>();
 
-            // Register IMongoDatabase for direct access
-            builder.Services.AddScoped<IMongoDatabase>(serviceProvider =>
-            {
-                var mongoClient = serviceProvider.GetRequiredService<IMongoClient>();
-                var settings = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<MongoDbSettings>>().Value;
-                return mongoClient.GetDatabase(settings.DatabaseName);
-            });
-
             // MODIFICATION: Register MongoDB Index Initializer
             builder.Services.AddMongoDbIndexInitializer();
 

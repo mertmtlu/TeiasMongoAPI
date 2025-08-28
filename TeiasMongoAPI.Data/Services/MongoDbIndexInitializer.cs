@@ -63,43 +63,43 @@ namespace TeiasMongoAPI.Data.Services
             {
                 // MODIFICATION: Index for user permissions lookup - critical for GetUserAccessiblePrograms
                 new CreateIndexModel<BsonDocument>(
-                    Builders<BsonDocument>.IndexKeys.Ascending("permissions.users.userId"),
+                    Builders<BsonDocument>.IndexKeys.Ascending("Permissions.Users.UserId"),
                     new CreateIndexOptions { Name = "idx_permissions_users_userId", Background = true }
                 ),
                 
                 // MODIFICATION: Index for status filtering
                 new CreateIndexModel<BsonDocument>(
-                    Builders<BsonDocument>.IndexKeys.Ascending("status"),
+                    Builders<BsonDocument>.IndexKeys.Ascending("Status"),
                     new CreateIndexOptions { Name = "idx_status", Background = true }
                 ),
                 
                 // MODIFICATION: Index for created date sorting
                 new CreateIndexModel<BsonDocument>(
-                    Builders<BsonDocument>.IndexKeys.Descending("createdAt"),
+                    Builders<BsonDocument>.IndexKeys.Descending("CreatedAt"),
                     new CreateIndexOptions { Name = "idx_createdAt", Background = true }
                 ),
                 
                 // MODIFICATION: Index for creator filtering
                 new CreateIndexModel<BsonDocument>(
-                    Builders<BsonDocument>.IndexKeys.Ascending("creatorId"),
+                    Builders<BsonDocument>.IndexKeys.Ascending("CreatorId"),
                     new CreateIndexOptions { Name = "idx_creatorId", Background = true }
                 ),
                 
                 // MODIFICATION: Index for name uniqueness check
                 new CreateIndexModel<BsonDocument>(
-                    Builders<BsonDocument>.IndexKeys.Ascending("name"),
+                    Builders<BsonDocument>.IndexKeys.Ascending("Name"),
                     new CreateIndexOptions { Name = "idx_name_unique", Unique = true, Background = true }
                 ),
                 
                 // MODIFICATION: Compound index for type and language filtering
                 new CreateIndexModel<BsonDocument>(
-                    Builders<BsonDocument>.IndexKeys.Ascending("type").Ascending("language"),
+                    Builders<BsonDocument>.IndexKeys.Ascending("Type").Ascending("Language"),
                     new CreateIndexOptions { Name = "idx_type_language", Background = true }
                 ),
                 
                 // MODIFICATION: Index for current version lookup
                 new CreateIndexModel<BsonDocument>(
-                    Builders<BsonDocument>.IndexKeys.Ascending("currentVersion"),
+                    Builders<BsonDocument>.IndexKeys.Ascending("CurrentVersion"),
                     new CreateIndexOptions { Name = "idx_currentVersion", Background = true }
                 )
             };
