@@ -58,7 +58,7 @@ namespace TeiasMongoAPI.Services.Specifications
 
             if (!string.IsNullOrEmpty(searchDto.Creator))
             {
-                var creatorCriteria = (Expression<Func<Program, bool>>)(p => p.Creator == searchDto.Creator);
+                var creatorCriteria = (Expression<Func<Program, bool>>)(p => p.CreatorId == searchDto.Creator);
                 criteria = CombineWithAnd(criteria, creatorCriteria);
             }
 

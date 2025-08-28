@@ -15,7 +15,7 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public string MainFile { get; set; } = string.Empty;  // Entry point
         public string UiType { get; set; } = string.Empty;  // web, desktop, console, custom
         public object UiConfiguration { get; set; } = new object();  // UI-specific settings
-        public string Creator { get; set; } = string.Empty;  // User ID
+        public string CreatorId { get; set; } = string.Empty;  // User ObjectId
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public string Status { get; set; } = "draft";  // draft, in_review, live
         public string? CurrentVersion { get; set; }  // Reference to version ID

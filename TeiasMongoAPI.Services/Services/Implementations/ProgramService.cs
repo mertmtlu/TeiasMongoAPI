@@ -44,6 +44,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             var dto = _mapper.Map<ProgramDetailDto>(program);
+            dto.Creator = await GetCreatorNameAsync(program.CreatorId, cancellationToken);
 
             // Get permissions
             var permissions = new List<ProgramPermissionDto>();
@@ -131,6 +132,23 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+            
+            // Populate creator names
+            var creatorIds = programs.Select(p => p.CreatorId).ToList();
+            var creatorNames = await GetCreatorNamesAsync(creatorIds, cancellationToken);
+            
+            foreach (var dto in dtos)
+            {
+                var program = programs.FirstOrDefault(p => p._ID.ToString() == dto.Id);
+                if (program != null && creatorNames.ContainsKey(program.CreatorId))
+                {
+                    dto.Creator = creatorNames[program.CreatorId];
+                }
+                else
+                {
+                    dto.Creator = "Unknown";
+                }
+            }
 
             return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
@@ -142,6 +160,23 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+            
+            // Populate creator names
+            var creatorIds = programs.Select(p => p.CreatorId).ToList();
+            var creatorNames = await GetCreatorNamesAsync(creatorIds, cancellationToken);
+            
+            foreach (var dto in dtos)
+            {
+                var program = programs.FirstOrDefault(p => p._ID.ToString() == dto.Id);
+                if (program != null && creatorNames.ContainsKey(program.CreatorId))
+                {
+                    dto.Creator = creatorNames[program.CreatorId];
+                }
+                else
+                {
+                    dto.Creator = "Unknown";
+                }
+            }
 
             return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
@@ -169,7 +204,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 };
 
                 program.Permissions.Users.Add(userPermission);
-                program.Creator = user.FullName;
+                program.CreatorId = user._ID.ToString();
 
                 _logger.LogInformation("Added {UserId} to {ProgramName} as admin", user.Username, program.Name);
             }
@@ -191,7 +226,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             createdProgram.CurrentVersion = createdVersion._ID.ToString();
             await _unitOfWork.Programs.UpdateAsync(createdProgram._ID, createdProgram, cancellationToken);
 
-            return _mapper.Map<ProgramDto>(createdProgram);
+            var resultDto = _mapper.Map<ProgramDto>(createdProgram);
+            resultDto.Creator = await GetCreatorNameAsync(createdProgram.CreatorId, cancellationToken);
+            return resultDto;
         }
 
         public async Task<ProgramDto> UpdateAsync(string id, ProgramUpdateDto dto, CancellationToken cancellationToken = default)
@@ -224,7 +261,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             _logger.LogInformation("Updated program {ProgramId}", id);
 
-            return _mapper.Map<ProgramDto>(existingProgram);
+            var resultDto = _mapper.Map<ProgramDto>(existingProgram);
+            resultDto.Creator = await GetCreatorNameAsync(existingProgram.CreatorId, cancellationToken);
+            return resultDto;
         }
 
         public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -289,6 +328,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+            
+            // Populate creator names
+            var creatorIds = programs.Select(p => p.CreatorId).ToList();
+            var creatorNames = await GetCreatorNamesAsync(creatorIds, cancellationToken);
+            
+            foreach (var dto in dtos)
+            {
+                var program = programs.FirstOrDefault(p => p._ID.ToString() == dto.Id);
+                if (program != null && creatorNames.ContainsKey(program.CreatorId))
+                {
+                    dto.Creator = creatorNames[program.CreatorId];
+                }
+                else
+                {
+                    dto.Creator = "Unknown";
+                }
+            }
+
             return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
@@ -299,6 +356,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+
+            // Populate creator names
+            var creatorIds = programs.Select(p => p.CreatorId).ToList();
+            var creatorNames = await GetCreatorNamesAsync(creatorIds, cancellationToken);
+
+            foreach (var dto in dtos)
+            {
+                var program = programs.FirstOrDefault(p => p._ID.ToString() == dto.Id);
+                if (program != null && creatorNames.ContainsKey(program.CreatorId))
+                {
+                    dto.Creator = creatorNames[program.CreatorId];
+                }
+                else
+                {
+                    dto.Creator = "Unknown";
+                }
+            }
+
             return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
@@ -309,6 +384,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+
+            // Populate creator names
+            var creatorIds = programs.Select(p => p.CreatorId).ToList();
+            var creatorNames = await GetCreatorNamesAsync(creatorIds, cancellationToken);
+
+            foreach (var dto in dtos)
+            {
+                var program = programs.FirstOrDefault(p => p._ID.ToString() == dto.Id);
+                if (program != null && creatorNames.ContainsKey(program.CreatorId))
+                {
+                    dto.Creator = creatorNames[program.CreatorId];
+                }
+                else
+                {
+                    dto.Creator = "Unknown";
+                }
+            }
+
             return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
@@ -319,6 +412,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+
+            // Populate creator names
+            var creatorIds = programs.Select(p => p.CreatorId).ToList();
+            var creatorNames = await GetCreatorNamesAsync(creatorIds, cancellationToken);
+
+            foreach (var dto in dtos)
+            {
+                var program = programs.FirstOrDefault(p => p._ID.ToString() == dto.Id);
+                if (program != null && creatorNames.ContainsKey(program.CreatorId))
+                {
+                    dto.Creator = creatorNames[program.CreatorId];
+                }
+                else
+                {
+                    dto.Creator = "Unknown";
+                }
+            }
+
             return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
@@ -455,6 +566,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = _mapper.Map<List<ProgramListDto>>(programs);
+
+            // Populate creator names
+            var creatorIds = programs.Select(p => p.CreatorId).ToList();
+            var creatorNames = await GetCreatorNamesAsync(creatorIds, cancellationToken);
+
+            foreach (var dto in dtos)
+            {
+                var program = programs.FirstOrDefault(p => p._ID.ToString() == dto.Id);
+                if (program != null && creatorNames.ContainsKey(program.CreatorId))
+                {
+                    dto.Creator = creatorNames[program.CreatorId];
+                }
+                else
+                {
+                    dto.Creator = "Unknown";
+                }
+            }
+
             return new PagedResponse<ProgramListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
@@ -551,7 +680,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dto.UserId, programId, dto.AccessLevel);
 
             var updatedProgram = await _unitOfWork.Programs.GetByIdAsync(objectId, cancellationToken);
-            return _mapper.Map<ProgramDto>(updatedProgram);
+            var resultDto = _mapper.Map<ProgramDto>(updatedProgram);
+            resultDto.Creator = await GetCreatorNameAsync(updatedProgram.CreatorId, cancellationToken);
+            return resultDto;
         }
 
         public async Task<bool> RemoveUserPermissionAsync(string programId, string userId, CancellationToken cancellationToken = default)
@@ -594,7 +725,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dto.UserId, programId, dto.AccessLevel);
 
             var updatedProgram = await _unitOfWork.Programs.GetByIdAsync(objectId, cancellationToken);
-            return _mapper.Map<ProgramDto>(updatedProgram);
+            var resultDto = _mapper.Map<ProgramDto>(updatedProgram);
+            resultDto.Creator = await GetCreatorNameAsync(updatedProgram.CreatorId, cancellationToken);
+            return resultDto;
         }
 
         public async Task<ProgramDto> AddGroupPermissionAsync(string programId, ProgramGroupPermissionDto dto, CancellationToken cancellationToken = default)
@@ -618,7 +751,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dto.GroupId, programId, dto.AccessLevel);
 
             var updatedProgram = await _unitOfWork.Programs.GetByIdAsync(objectId, cancellationToken);
-            return _mapper.Map<ProgramDto>(updatedProgram);
+            var resultDto = _mapper.Map<ProgramDto>(updatedProgram);
+            resultDto.Creator = await GetCreatorNameAsync(updatedProgram.CreatorId, cancellationToken);
+            return resultDto;
         }
 
         public async Task<bool> RemoveGroupPermissionAsync(string programId, string groupId, CancellationToken cancellationToken = default)
@@ -661,7 +796,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 dto.GroupId, programId, dto.AccessLevel);
 
             var updatedProgram = await _unitOfWork.Programs.GetByIdAsync(objectId, cancellationToken);
-            return _mapper.Map<ProgramDto>(updatedProgram);
+            var resultDto = _mapper.Map<ProgramDto>(updatedProgram);
+            resultDto.Creator = await GetCreatorNameAsync(updatedProgram.CreatorId, cancellationToken);
+            return resultDto;
         }
 
         public async Task<List<ProgramPermissionDto>> GetProgramPermissionsAsync(string programId, CancellationToken cancellationToken = default)
@@ -875,7 +1012,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Check if user is the creator
-            if (program.Creator == userId)
+            if (program.CreatorId == userId)
             {
                 return true;
             }
@@ -888,6 +1025,47 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             return false;
+        }
+
+        private async Task<string> GetCreatorNameAsync(string? creatorId, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(creatorId))
+            {
+                return "Unknown";
+            }
+
+            try
+            {
+                var user = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(creatorId), cancellationToken);
+                return user?.FullName ?? "Unknown";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to get creator name for CreatorId {CreatorId}", creatorId);
+                return "Unknown";
+            }
+        }
+
+        private async Task<Dictionary<string, string>> GetCreatorNamesAsync(IEnumerable<string> creatorIds, CancellationToken cancellationToken = default)
+        {
+            var result = new Dictionary<string, string>();
+            var uniqueCreatorIds = creatorIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
+
+            foreach (var creatorId in uniqueCreatorIds)
+            {
+                try
+                {
+                    var user = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(creatorId), cancellationToken);
+                    result[creatorId] = user?.FullName ?? "Unknown";
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get creator name for CreatorId {CreatorId}", creatorId);
+                    result[creatorId] = "Unknown";
+                }
+            }
+
+            return result;
         }
 
         #endregion

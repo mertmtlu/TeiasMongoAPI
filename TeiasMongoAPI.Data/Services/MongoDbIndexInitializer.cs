@@ -81,8 +81,8 @@ namespace TeiasMongoAPI.Data.Services
                 
                 // MODIFICATION: Index for creator filtering
                 new CreateIndexModel<BsonDocument>(
-                    Builders<BsonDocument>.IndexKeys.Ascending("creator"),
-                    new CreateIndexOptions { Name = "idx_creator", Background = true }
+                    Builders<BsonDocument>.IndexKeys.Ascending("creatorId"),
+                    new CreateIndexOptions { Name = "idx_creatorId", Background = true }
                 ),
                 
                 // MODIFICATION: Index for name uniqueness check

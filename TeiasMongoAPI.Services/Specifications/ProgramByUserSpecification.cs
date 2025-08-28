@@ -23,7 +23,7 @@ namespace TeiasMongoAPI.Services.Specifications
         private static Expression<Func<Program, bool>> CreateCriteria(string userId)
         {
             // Filter programs where user is creator OR has user permissions
-            return p => p.Creator == userId || 
+            return p => p.CreatorId == userId || 
                        p.Permissions.Users.Any(up => up.UserId == userId);
         }
     }

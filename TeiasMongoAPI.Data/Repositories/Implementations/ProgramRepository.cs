@@ -19,7 +19,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         public async Task<IEnumerable<Program>> GetByCreatorAsync(string creatorId, CancellationToken cancellationToken = default)
         {
             return await _context.Database.GetCollection<Program>("programs")
-                .Find(p => p.Creator == creatorId)
+                .Find(p => p.CreatorId == creatorId)
                 .ToListAsync(cancellationToken);
         }
 
@@ -47,7 +47,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         public async Task<IEnumerable<Program>> GetUserAccessibleProgramsAsync(string userId, CancellationToken cancellationToken = default)
         {
             var filter = Builders<Program>.Filter.Or(
-                Builders<Program>.Filter.Eq(p => p.Creator, userId),
+                Builders<Program>.Filter.Eq(p => p.CreatorId, userId),
                 Builders<Program>.Filter.ElemMatch(p => p.Permissions.Users,
                     Builders<UserPermission>.Filter.Eq(up => up.UserId, userId))
             );

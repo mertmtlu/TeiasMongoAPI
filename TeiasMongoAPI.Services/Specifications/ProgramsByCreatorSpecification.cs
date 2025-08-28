@@ -7,7 +7,7 @@ namespace TeiasMongoAPI.Services.Specifications
     public class ProgramsByCreatorSpecification : BaseSpecification<Program>
     {
         public ProgramsByCreatorSpecification(string creatorId, PaginationRequestDto pagination)
-            : base(p => p.Creator == creatorId)
+            : base(p => p.CreatorId == creatorId)
         {
             // Set default ordering by CreatedAt descending
             AddOrderByDescending(p => p.CreatedAt);
