@@ -11,7 +11,7 @@ namespace TeiasMongoAPI.Services.Interfaces
     {
         // Basic CRUD Operations
         Task<ProgramDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default);
-        Task<PagedResponse<ProgramListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<PagedResponse<ProgramListDto>> GetAllAsync(PaginationRequestDto pagination, ObjectId currentUserId, CancellationToken cancellationToken = default);
         Task<PagedResponse<ProgramListDto>> SearchAsync(ProgramSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<ProgramDto> CreateAsync(ProgramCreateDto dto, ObjectId? userId, CancellationToken cancellationToken = default);
         Task<ProgramDto> UpdateAsync(string id, ProgramUpdateDto dto, CancellationToken cancellationToken = default);

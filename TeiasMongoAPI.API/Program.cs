@@ -253,6 +253,7 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IBlockService, BlockService>();
             builder.Services.AddScoped<IAlternativeTMService, AlternativeTMService>();
             builder.Services.AddScoped<IIconService, IconService>();
+            builder.Services.AddScoped<IPermissionService, PermissionService>();
 
             // Register Collaborative Project Services 
             builder.Services.AddScoped<IVersionService, VersionService>();

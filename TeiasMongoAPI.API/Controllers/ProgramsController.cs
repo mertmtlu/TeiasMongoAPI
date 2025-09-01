@@ -24,13 +24,16 @@ namespace TeiasMongoAPI.API.Controllers
     public class ProgramsController : BaseController
     {
         private readonly IProgramService _programService;
+        private readonly IPermissionService _permissionService;
 
         public ProgramsController(
             IProgramService programService,
+            IPermissionService permissionService,
             ILogger<ProgramsController> logger)
             : base(logger)
         {
             _programService = programService;
+            _permissionService = permissionService;
         }
 
         #region Basic CRUD Operations
@@ -39,14 +42,17 @@ namespace TeiasMongoAPI.API.Controllers
         /// Get all programs with pagination
         /// </summary>
         [HttpGet]
-        [RequirePermission(UserPermissions.ViewPrograms)]
         public async Task<ActionResult<ApiResponse<PagedResponse<ProgramListDto>>>> GetAll(
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
         {
+            // New Permission Check
+            if (CurrentUserId == null) return Unauthorized<PagedResponse<ProgramListDto>>();
+            // End of New Permission Check
+
             return await ExecuteAsync(async () =>
             {
-                return await _programService.GetAllAsync(pagination, cancellationToken);
+                return await _programService.GetAllAsync(pagination, CurrentUserId.Value, cancellationToken);
             }, "Get all programs");
         }
 
@@ -54,13 +60,19 @@ namespace TeiasMongoAPI.API.Controllers
         /// Get program by ID with full details (excluding files - use VersionsController for files)
         /// </summary>
         [HttpGet("{id}")]
-        [RequirePermission(UserPermissions.ViewPrograms)]
         public async Task<ActionResult<ApiResponse<ProgramDetailDto>>> GetById(
             string id,
             CancellationToken cancellationToken = default)
         {
             var objectIdResult = ParseObjectId(id);
             if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            // New Permission Check
+            if (CurrentUserId == null) return Unauthorized<ProgramDetailDto>();
+
+            var canView = await _permissionService.CanViewProgramDetails(CurrentUserId.Value, objectIdResult.Value);
+            if (!canView) return Forbidden<ProgramDetailDto>("Access denied");
+            // End of New Permission Check
 
             return await ExecuteAsync(async () =>
             {
@@ -73,12 +85,18 @@ namespace TeiasMongoAPI.API.Controllers
         /// Note: This creates the program metadata only. Use VersionsController commit process to add files.
         /// </summary>
         [HttpPost]
-        [RequirePermission(UserPermissions.CreatePrograms)]
         [AuditLog("CreateProgram")]
         public async Task<ActionResult<ApiResponse<ProgramDto>>> Create(
             [FromBody] ProgramCreateDto dto,
             CancellationToken cancellationToken = default)
         {
+            // New Permission Check
+            if (CurrentUserId == null) return Unauthorized<ProgramDto>();
+
+            var canCreate = await _permissionService.CanCreateProgram(CurrentUserId.Value);
+            if (!canCreate) return Forbidden<ProgramDto>("Access denied");
+            // End of New Permission Check
+
             var validationResult = ValidateModelState<ProgramDto>();
             if (validationResult != null) return validationResult;
 
@@ -93,7 +111,6 @@ namespace TeiasMongoAPI.API.Controllers
         /// Note: File changes should be done through VersionsController commit process
         /// </summary>
         [HttpPut("{id}")]
-        [RequirePermission(UserPermissions.UpdatePrograms)]
         [AuditLog("UpdateProgram")]
         public async Task<ActionResult<ApiResponse<ProgramDto>>> Update(
             string id,
@@ -102,6 +119,13 @@ namespace TeiasMongoAPI.API.Controllers
         {
             var objectIdResult = ParseObjectId(id);
             if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            // New Permission Check
+            if (CurrentUserId == null) return Unauthorized<ProgramDto>();
+
+            var canEdit = await _permissionService.CanEditProgram(CurrentUserId.Value, objectIdResult.Value);
+            if (!canEdit) return Forbidden<ProgramDto>("Access denied");
+            // End of New Permission Check
 
             var validationResult = ValidateModelState<ProgramDto>();
             if (validationResult != null) return validationResult;
@@ -117,7 +141,6 @@ namespace TeiasMongoAPI.API.Controllers
         /// Note: This will also trigger cleanup of associated versions and files through service layer
         /// </summary>
         [HttpDelete("{id}")]
-        [RequirePermission(UserPermissions.DeletePrograms)]
         [AuditLog("DeleteProgram")]
         public async Task<ActionResult<ApiResponse<bool>>> Delete(
             string id,
@@ -125,6 +148,14 @@ namespace TeiasMongoAPI.API.Controllers
         {
             var objectIdResult = ParseObjectId(id);
             if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            // New Permission Check
+            if (CurrentUserId == null) return Unauthorized<bool>();
+
+            // Reusing CanEditProgram as this covers all modification permissions
+            var canDelete = await _permissionService.CanEditProgram(CurrentUserId.Value, objectIdResult.Value);
+            if (!canDelete) return Forbidden<bool>("Access denied");
+            // End of New Permission Check
 
             return await ExecuteAsync(async () =>
             {

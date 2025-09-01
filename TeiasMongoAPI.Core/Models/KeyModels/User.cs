@@ -1,6 +1,7 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using TeiasMongoAPI.Core.Models.Base;
+using TeiasMongoAPI.Core.Enums;
 
 namespace TeiasMongoAPI.Core.Models.KeyModels
 {
@@ -21,11 +22,9 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         [BsonElement("lastName")]
         public string LastName { get; set; } = string.Empty;
 
-        [BsonElement("roles")]
-        public List<string> Roles { get; set; } = new();
+        [BsonElement("role")]
+        public UserRole Role { get; set; }
 
-        [BsonElement("permissions")]
-        public List<string> Permissions { get; set; } = new();
 
         [BsonElement("isActive")]
         public bool IsActive { get; set; } = false;

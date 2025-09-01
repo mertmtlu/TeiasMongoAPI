@@ -6,6 +6,7 @@ using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Core.Models.DTOs;
 using TeiasMongoAPI.Core.Models.KeyModels;
 using TeiasMongoAPI.Data.Repositories;
+using TeiasMongoAPI.Services.DTOs.Permissions;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
@@ -20,15 +21,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
     public class ProgramService : BaseService, IProgramService
     {
         private readonly IDeploymentService _deploymentService;
+        private readonly IPermissionService _permissionService;
 
         public ProgramService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
             IDeploymentService deploymentService,
+            IPermissionService permissionService,
             ILogger<ProgramService> logger)
             : base(unitOfWork, mapper, logger)
         {
             _deploymentService = deploymentService;
+            _permissionService = permissionService;
         }
 
         #region Basic CRUD Operations
@@ -125,10 +129,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return dto;
         }
 
-        public async Task<PagedResponse<ProgramListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<ProgramListDto>> GetAllAsync(PaginationRequestDto pagination, ObjectId currentUserId, CancellationToken cancellationToken = default)
         {
-            // Use Specification Pattern for database-level pagination
-            var spec = new AllProgramsSpecification(pagination);
+            // Get user access details first
+            var accessDetails = await _permissionService.GetProgramAccessDetails(currentUserId);
+
+            // Handle access restrictions
+            if (accessDetails.AccessType == ProgramAccessType.None)
+            {
+                _logger.LogDebug("User {UserId} has no access to programs", currentUserId);
+                return new PagedResponse<ProgramListDto>(new List<ProgramListDto>(), pagination.PageNumber, pagination.PageSize, 0);
+            }
+
+            if (accessDetails.AccessType == ProgramAccessType.Specific && !accessDetails.AllowedProgramIds.Any())
+            {
+                _logger.LogDebug("User {UserId} has specific access but no allowed programs", currentUserId);
+                return new PagedResponse<ProgramListDto>(new List<ProgramListDto>(), pagination.PageNumber, pagination.PageSize, 0);
+            }
+
+            // Use Specification Pattern for database-level pagination with access filtering
+            ISpecification<Program> spec;
+            
+            if (accessDetails.AccessType == ProgramAccessType.All)
+            {
+                // User can see all programs
+                spec = new AllProgramsSpecification(pagination);
+                _logger.LogDebug("User {UserId} accessing all programs", currentUserId);
+            }
+            else
+            {
+                // User can only see specific programs - filter by allowed IDs
+                spec = new AllProgramsSpecification(pagination, accessDetails.AllowedProgramIds);
+                _logger.LogDebug("User {UserId} accessing {Count} allowed programs", currentUserId, accessDetails.AllowedProgramIds.Count);
+            }
+
             var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
 
             var dtos = _mapper.Map<List<ProgramListDto>>(programs);
