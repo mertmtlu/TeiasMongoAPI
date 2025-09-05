@@ -6,7 +6,7 @@
         public string? Username { get; set; }
         public string? FirstName { get; set; }
         public string? LastName { get; set; }
-        public List<string>? Roles { get; set; }
+        public string? Role { get; set; }
         public bool? IsActive { get; set; }
         public DateTime? CreatedFrom { get; set; }
         public DateTime? CreatedTo { get; set; }

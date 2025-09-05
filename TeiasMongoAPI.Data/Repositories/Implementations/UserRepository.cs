@@ -16,46 +16,100 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
             _context = context;
         }
 
+        public new async Task<User> GetByIdAsync(ObjectId id, CancellationToken cancellationToken = default)
+        {
+            var user = await base.GetByIdAsync(id, cancellationToken);
+            if (user != null)
+            {
+                user.MigrateFromLegacyRoles();
+            }
+            return user;
+        }
+
         public async Task<User> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
         {
-            return await _context.Users
+            var user = await _context.Users
                 .Find(u => u.Email == email)
                 .FirstOrDefaultAsync(cancellationToken);
+            
+            if (user != null)
+            {
+                user.MigrateFromLegacyRoles();
+            }
+            
+            return user;
         }
 
         public async Task<User> GetByUsernameAsync(string username, CancellationToken cancellationToken = default)
         {
-            return await _context.Users
+            var user = await _context.Users
                 .Find(u => u.Username == username)
                 .FirstOrDefaultAsync(cancellationToken);
+            
+            if (user != null)
+            {
+                user.MigrateFromLegacyRoles();
+            }
+            
+            return user;
         }
 
         public async Task<User> GetByEmailOrUsernameAsync(string emailOrUsername, CancellationToken cancellationToken = default)
         {
-            return await _context.Users
+            var user = await _context.Users
                 .Find(u => u.Email == emailOrUsername || u.Username == emailOrUsername)
                 .FirstOrDefaultAsync(cancellationToken);
+            
+            if (user != null)
+            {
+                user.MigrateFromLegacyRoles();
+            }
+            
+            return user;
         }
 
         public async Task<User> GetByRefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
         {
-            return await _context.Users
+            var user = await _context.Users
                 .Find(u => u.RefreshTokens.Any(rt => rt.Token == refreshToken))
                 .FirstOrDefaultAsync(cancellationToken);
+            
+            if (user != null)
+            {
+                user.MigrateFromLegacyRoles();
+            }
+            
+            return user;
         }
 
         public async Task<User> GetByPasswordResetTokenAsync(string resetToken, CancellationToken cancellationToken = default)
         {
-            return await _context.Users
+            var user = await _context.Users
                 .Find(u => u.PasswordResetToken == resetToken && u.PasswordResetTokenExpiry > DateTime.UtcNow)
                 .FirstOrDefaultAsync(cancellationToken);
+            
+            if (user != null)
+            {
+                user.MigrateFromLegacyRoles();
+            }
+            
+            return user;
         }
 
         public async Task<IEnumerable<User>> GetByRoleAsync(string role, CancellationToken cancellationToken = default)
         {
-            return await _context.Users
-                .Find(u => u.Roles.Contains(role))
+            // Search for users with either new single role or old multiple roles format
+            var users = await _context.Users
+                .Find(u => u.Role == role || (u.Roles != null && u.Roles.Contains(role)))
                 .ToListAsync(cancellationToken);
+            
+            // Migrate legacy roles for each user
+            foreach (var user in users)
+            {
+                user.MigrateFromLegacyRoles();
+            }
+            
+            return users;
         }
 
         public async Task<IEnumerable<User>> GetActiveUsersAsync(CancellationToken cancellationToken = default)

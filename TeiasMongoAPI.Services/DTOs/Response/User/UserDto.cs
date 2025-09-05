@@ -10,7 +10,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.User
         public string FirstName { get; set; } = string.Empty;
         public string LastName { get; set; } = string.Empty;
         public string FullName { get; set; } = string.Empty;
-        public List<string> Roles { get; set; } = new();
+        public string Role { get; set; } = string.Empty;
         public bool IsActive { get; set; }
         public DateTime? LastLoginDate { get; set; }
         public DateTime CreatedDate { get; set; }

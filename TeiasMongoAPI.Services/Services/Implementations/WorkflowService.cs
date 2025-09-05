@@ -111,6 +111,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Map updates to workflow
             _mapper.Map(updateDto, workflow);
             
+            // Handle IsPublic property update
+            if (updateDto.IsPublic.HasValue)
+            {
+                workflow.IsPublic = updateDto.IsPublic.Value;
+            }
+            
             var currentTime = DateTime.UtcNow;
             workflow.UpdatedAt = currentTime;
 
@@ -189,8 +195,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<PagedResponse<WorkflowListDto>> GetWorkflowsByUserAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
-            // Use Specification Pattern for database-level pagination
-            var spec = new WorkflowsByUserSpecification(userId, pagination);
+            // Use Specification Pattern for database-level pagination (includes public workflows)
+            var spec = new WorkflowsUserAccessibleSpecification(userId, pagination);
             var (workflows, totalCount) = await _unitOfWork.Workflows.FindWithSpecificationAsync(spec, cancellationToken);
 
             var workflowDtos = workflows.Select(w => MapToListDto(w)).ToList();
@@ -689,5 +695,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             return phases;
         }
+
     }
 }

@@ -168,7 +168,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Don't allow deletion of last admin
-            if (user.Roles.Contains(UserRoles.Admin))
+            if (user.Role == UserRoles.Admin)
             {
                 var adminUsers = await _unitOfWork.Users.GetByRoleAsync(UserRoles.Admin, cancellationToken);
                 if (adminUsers.Count() <= 1)
@@ -191,7 +191,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Don't allow removing admin role from last admin
-            if (user.Roles.Contains(UserRoles.Admin) && !dto.Roles.Contains(UserRoles.Admin))
+            if (user.Role == UserRoles.Admin && dto.Role != UserRoles.Admin)
             {
                 var adminUsers = await _unitOfWork.Users.GetByRoleAsync(UserRoles.Admin, cancellationToken);
                 if (adminUsers.Count() <= 1)
@@ -200,8 +200,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
             }
 
-            user.Roles = dto.Roles;
-            // Update permissions based on new roles
+            user.Role = dto.Role;
+            // Update permissions based on new role
             user.Permissions = RolePermissions.GetUserPermissions(user);
             user.ModifiedDate = DateTime.UtcNow;
 
@@ -326,7 +326,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             // Don't allow deactivating the last admin
-            if (user.Roles.Contains(UserRoles.Admin))
+            if (user.Role == UserRoles.Admin)
             {
                 var activeAdmins = await _unitOfWork.Users.GetByRoleAsync(UserRoles.Admin, cancellationToken);
                 activeAdmins = activeAdmins.Where(u => u.IsActive);

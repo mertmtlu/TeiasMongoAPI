@@ -223,7 +223,7 @@ namespace TeiasMongoAPI.API.Controllers
             [FromQuery] PaginationRequestDto pagination,
             CancellationToken cancellationToken = default)
         {
-            var searchDto = new UserSearchDto { Roles = new List<string> { role } };
+            var searchDto = new UserSearchDto { Role = role };
 
             return await ExecuteAsync(async () =>
             {
@@ -454,10 +454,10 @@ namespace TeiasMongoAPI.API.Controllers
             var roles = new List<string>
             {
                 UserRoles.Admin,
-                UserRoles.Manager,
-                UserRoles.Engineer,
-                UserRoles.Viewer,
-                UserRoles.Auditor
+                UserRoles.ExternalDev,
+                UserRoles.InternalDev,
+                UserRoles.ExternalUser,
+                UserRoles.InternalUser
             };
 
             return Success(roles, "Available roles retrieved");

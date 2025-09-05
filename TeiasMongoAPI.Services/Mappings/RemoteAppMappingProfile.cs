@@ -3,6 +3,7 @@ using MongoDB.Bson;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.RemoteApp;
 using TeiasMongoAPI.Services.DTOs.Response.RemoteApp;
+using TeiasMongoAPI.Services.Mappings;
 
 namespace TeiasMongoAPI.Services.Mappings
 {
@@ -49,14 +50,4 @@ namespace TeiasMongoAPI.Services.Mappings
         }
     }
 
-    public class StringToObjectIdConverter : ITypeConverter<string, ObjectId>
-    {
-        public ObjectId Convert(string source, ObjectId destination, ResolutionContext context)
-        {
-            if (string.IsNullOrEmpty(source))
-                return ObjectId.Empty;
-
-            return ObjectId.TryParse(source, out var objectId) ? objectId : ObjectId.Empty;
-        }
-    }
 }

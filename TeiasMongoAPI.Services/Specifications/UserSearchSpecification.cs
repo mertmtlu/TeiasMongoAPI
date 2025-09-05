@@ -50,10 +50,10 @@ namespace TeiasMongoAPI.Services.Specifications
                 criteria = CombineWithAnd(criteria, lastNameCriteria);
             }
 
-            if (searchDto.Roles?.Any() == true)
+            if (!string.IsNullOrEmpty(searchDto.Role))
             {
-                var rolesCriteria = (Expression<Func<User, bool>>)(u => u.Roles.Any(r => searchDto.Roles.Contains(r)));
-                criteria = CombineWithAnd(criteria, rolesCriteria);
+                var roleCriteria = (Expression<Func<User, bool>>)(u => u.Role == searchDto.Role);
+                criteria = CombineWithAnd(criteria, roleCriteria);
             }
 
             if (searchDto.IsActive.HasValue)

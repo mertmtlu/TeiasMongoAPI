@@ -18,8 +18,8 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Email, opt => opt.MapFrom(src => src.Email.ToLower()))
                 .ForMember(dest => dest.FirstName, opt => opt.MapFrom(src => src.FirstName ?? string.Empty))
                 .ForMember(dest => dest.LastName, opt => opt.MapFrom(src => src.LastName ?? string.Empty))
-                .ForMember(dest => dest.Roles, opt => opt.MapFrom(src => new List<string> { UserRoles.Viewer }))
-                .ForMember(dest => dest.Permissions, opt => opt.Ignore()) // Will be set based on roles in service
+                .ForMember(dest => dest.Role, opt => opt.MapFrom(src => UserRoles.ExternalUser))
+                .ForMember(dest => dest.Permissions, opt => opt.Ignore()) // Will be set based on role in service
                 .ForMember(dest => dest.IsActive, opt => opt.MapFrom(src => false))
                 // Removed: IsEmailVerified and EmailVerificationToken mappings
                 .ForMember(dest => dest.CreatedDate, opt => opt.MapFrom(src => DateTime.UtcNow))

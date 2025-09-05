@@ -6,6 +6,8 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
 {
     public interface IWorkflowRepository : IGenericRepository<Workflow>
     {
+        Task<IEnumerable<Workflow>> GetPublicWorkflowsAsync(CancellationToken cancellationToken = default);
+        Task<IEnumerable<Workflow>> GetUserAccessibleWorkflowsAsync(string userId, CancellationToken cancellationToken = default);
         Task<IEnumerable<Workflow>> GetWorkflowsByUserAsync(string userId, CancellationToken cancellationToken = default);
         Task<IEnumerable<Workflow>> GetActiveWorkflowsAsync(CancellationToken cancellationToken = default);
         Task<IEnumerable<Workflow>> GetWorkflowsByStatusAsync(WorkflowStatus status, CancellationToken cancellationToken = default);

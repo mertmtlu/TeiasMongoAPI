@@ -39,6 +39,9 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         [BsonElement("permissions")]
         public WorkflowPermissions Permissions { get; set; } = new();
 
+        [BsonElement("isPublic")]
+        public bool IsPublic { get; set; } = false;
+
         [BsonElement("tags")]
         public List<string> Tags { get; set; } = new();
 

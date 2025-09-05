@@ -8,6 +8,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.User
         //public required string UserId { get; set; }
 
         [Required]
-        public required List<string> Roles { get; set; }
+        public required string Role { get; set; }
     }
 }

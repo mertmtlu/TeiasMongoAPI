@@ -9,6 +9,7 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         Task<IEnumerable<Program>> GetByStatusAsync(string status, CancellationToken cancellationToken = default);
         Task<IEnumerable<Program>> GetByTypeAsync(string type, CancellationToken cancellationToken = default);
         Task<IEnumerable<Program>> GetByLanguageAsync(string language, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Program>> GetPublicProgramsAsync(CancellationToken cancellationToken = default);
         Task<IEnumerable<Program>> GetUserAccessibleProgramsAsync(string userId, CancellationToken cancellationToken = default);
         Task<IEnumerable<Program>> GetGroupAccessibleProgramsAsync(string groupId, CancellationToken cancellationToken = default);
         Task<bool> UpdateStatusAsync(ObjectId id, string status, CancellationToken cancellationToken = default);

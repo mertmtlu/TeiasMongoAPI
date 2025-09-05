@@ -28,6 +28,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public required string UiType { get; set; }
 
         public object UiConfiguration { get; set; } = new object();
+        public bool IsPublic { get; set; } = false;
         public object Metadata { get; set; } = new object();
         public AppDeploymentInfo? DeploymentInfo { get; set; }
     }
@@ -53,6 +54,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public string? UiType { get; set; }
 
         public object? UiConfiguration { get; set; }
+        public bool? IsPublic { get; set; }
         public object? Metadata { get; set; }
         public AppDeploymentInfo? DeploymentInfo { get; set; }
     }
@@ -69,6 +71,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public DateTime? CreatedFrom { get; set; }
         public DateTime? CreatedTo { get; set; }
         public List<string>? Tags { get; set; }
+        public bool? IsPublic { get; set; }
         public AppDeploymentType? DeploymentType { get; set; }
     }
 

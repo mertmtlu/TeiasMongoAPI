@@ -331,10 +331,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 new Claim(ClaimTypes.Email, user.Email)
             };
 
-            // Add roles as claims
-            foreach (var role in user.Roles)
+            // Add role as claim
+            if (!string.IsNullOrEmpty(user.Role))
             {
-                claims.Add(new Claim(ClaimTypes.Role, role));
+                claims.Add(new Claim(ClaimTypes.Role, user.Role));
             }
 
             // Add permissions as claims

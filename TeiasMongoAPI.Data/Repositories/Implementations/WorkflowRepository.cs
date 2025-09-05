@@ -14,6 +14,24 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         {
         }
 
+        public async Task<IEnumerable<Workflow>> GetPublicWorkflowsAsync(CancellationToken cancellationToken = default)
+        {
+            var filter = Builders<Workflow>.Filter.Eq(w => w.IsPublic, true);
+            return await _collection.Find(filter).ToListAsync(cancellationToken);
+        }
+
+        public async Task<IEnumerable<Workflow>> GetUserAccessibleWorkflowsAsync(string userId, CancellationToken cancellationToken = default)
+        {
+            var filter = Builders<Workflow>.Filter.Or(
+                Builders<Workflow>.Filter.Eq(w => w.IsPublic, true),
+                Builders<Workflow>.Filter.Eq(w => w.Creator, userId),
+                Builders<Workflow>.Filter.ElemMatch(w => w.Permissions.AllowedUsers, userId),
+                Builders<Workflow>.Filter.ElemMatch(w => w.Permissions.Permissions, p => p.UserId == userId)
+            );
+
+            return await _collection.Find(filter).ToListAsync(cancellationToken);
+        }
+
         public async Task<IEnumerable<Workflow>> GetWorkflowsByUserAsync(string userId, CancellationToken cancellationToken = default)
         {
             var filter = Builders<Workflow>.Filter.Or(
@@ -231,8 +249,8 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 return true;
             }
 
-            // Check if workflow is public or permission is View
-            if (workflow.Permissions.IsPublic || permission == WorkflowPermissionType.View)
+            // Check if workflow is public and permission is View or Execute
+            if (workflow.IsPublic && (permission == WorkflowPermissionType.View || permission == WorkflowPermissionType.Execute))
             {
                 return true;
             }

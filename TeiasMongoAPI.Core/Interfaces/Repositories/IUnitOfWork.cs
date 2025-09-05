@@ -7,6 +7,7 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
     public interface IUnitOfWork : IDisposable
     {
         IUserRepository Users { get; }
+        IGroupRepository Groups { get; }
         IClientRepository Clients { get; }
         IRegionRepository Regions { get; }
         ITMRepository TMs { get; }

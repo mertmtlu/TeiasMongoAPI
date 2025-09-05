@@ -246,6 +246,8 @@ namespace TeiasMongoAPI.API
             // Register Business Services
             builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
             builder.Services.AddScoped<IUserService, UserService>();
+            builder.Services.AddScoped<IGroupService, GroupService>();
+            builder.Services.AddScoped<IPermissionService, PermissionService>();
             builder.Services.AddScoped<IClientService, ClientService>();
             builder.Services.AddScoped<IRegionService, RegionService>();
             builder.Services.AddScoped<ITMService, TMService>();

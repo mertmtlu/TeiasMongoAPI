@@ -44,9 +44,18 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 .ToListAsync(cancellationToken);
         }
 
+        public async Task<IEnumerable<Program>> GetPublicProgramsAsync(CancellationToken cancellationToken = default)
+        {
+            var filter = Builders<Program>.Filter.Eq(p => p.IsPublic, true);
+            return await _context.Database.GetCollection<Program>("programs")
+                .Find(filter)
+                .ToListAsync(cancellationToken);
+        }
+
         public async Task<IEnumerable<Program>> GetUserAccessibleProgramsAsync(string userId, CancellationToken cancellationToken = default)
         {
             var filter = Builders<Program>.Filter.Or(
+                Builders<Program>.Filter.Eq(p => p.IsPublic, true),
                 Builders<Program>.Filter.Eq(p => p.CreatorId, userId),
                 Builders<Program>.Filter.ElemMatch(p => p.Permissions.Users,
                     Builders<UserPermission>.Filter.Eq(up => up.UserId, userId))

@@ -200,7 +200,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 var userPermission = new UserPermission
                 {
                     UserId = user._ID.ToString(),
-                    AccessLevel = "admin"
+                    AccessLevel = "Admin"
                 };
 
                 program.Permissions.Users.Add(userPermission);
@@ -251,6 +251,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             _mapper.Map(dto, existingProgram);
+            
+            // Handle IsPublic property update
+            if (dto.IsPublic.HasValue)
+            {
+                existingProgram.IsPublic = dto.IsPublic.Value;
+            }
 
             var success = await _unitOfWork.Programs.UpdateAsync(objectId, existingProgram, cancellationToken);
 
@@ -444,9 +450,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             
             try
             {
-                // Step 1: Use Specification Pattern for database-level pagination
+                // Step 1: Get user's group memberships
+                var user = await _unitOfWork.Users.GetByIdAsync(ObjectId.Parse(userId), cancellationToken);
+                var userGroupIds = user?.Groups;
+
+                // Step 2: Use Specification Pattern for database-level pagination (includes public programs and group permissions)
                 var specTimer = System.Diagnostics.Stopwatch.StartNew();
-                var spec = new ProgramByUserSpecification(userId, pagination);
+                var spec = new ProgramsUserAccessibleSpecification(userId, userGroupIds, pagination);
                 var (programs, totalCount) = await _unitOfWork.Programs.FindWithSpecificationAsync(spec, cancellationToken);
                 specTimer.Stop();
                 
@@ -524,6 +534,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         Type = program.Type,
                         CreatedAt = program.CreatedAt,
                         Status = program.Status,
+                        IsPublic = program.IsPublic,
                         CurrentVersion = currentVersion != null ? new VersionInfoDto
                         {
                             Id = currentVersion._ID.ToString(),

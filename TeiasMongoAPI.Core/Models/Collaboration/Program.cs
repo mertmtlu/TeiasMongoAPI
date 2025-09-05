@@ -20,6 +20,10 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         public string Status { get; set; } = "draft";  // draft, in_review, live
         public string? CurrentVersion { get; set; }  // Reference to version ID
         public ProgramPermissions Permissions { get; set; } = new ProgramPermissions();
+        
+        [BsonElement("isPublic")]
+        public bool IsPublic { get; set; } = false;
+        
         public object Metadata { get; set; } = new object();  // Extensible metadata
         public AppDeploymentInfo? DeploymentInfo { get; set; }
     }

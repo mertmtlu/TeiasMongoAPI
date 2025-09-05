@@ -3,11 +3,11 @@
     // Common roles for the system
     public static class UserRoles
     {
-        public const string Admin = "Admin";           // Full system access
-        public const string Manager = "Manager";       // Business/client management
-        public const string Engineer = "Engineer";     // Technical/building operations
-        public const string Viewer = "Viewer";         // Read-only access
-        public const string Auditor = "Auditor";       // Audit/compliance access
+        public const string Admin = "Admin";                    // Full system access
+        public const string ExternalDev = "ExternalDev";        // Business/client management
+        public const string InternalDev = "InternalDev";        // Technical/building operations
+        public const string ExternalUser = "ExternalUser";      // Read-only access
+        public const string InternalUser = "InternalUser";      // Audit/compliance access
     }
 
     // Common permissions
@@ -106,5 +106,13 @@
         public const string DeleteWorkflows = "workflows.delete";
         public const string ExecuteWorkflows = "workflows.execute";
         public const string ManageWorkflows = "workflows.manage";
+
+        // Group permissions
+        public const string GroupView = "groups.view";
+        public const string GroupCreate = "groups.create";
+        public const string GroupEdit = "groups.edit";
+        public const string GroupDelete = "groups.delete";
+        public const string GroupMemberManage = "groups.members.manage";
+        public const string GroupPermissionManage = "groups.permissions.manage";
     }
 }

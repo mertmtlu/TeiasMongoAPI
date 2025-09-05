@@ -12,6 +12,7 @@ namespace TeiasMongoAPI.Data.Repositories
         private bool _disposed;
 
         private IUserRepository? _users;
+        private IGroupRepository? _groups;
         private IClientRepository? _clients;
         private IRegionRepository? _regions;
         private ITMRepository? _tms;
@@ -34,6 +35,7 @@ namespace TeiasMongoAPI.Data.Repositories
         }
 
         public IUserRepository Users => _users ??= new UserRepository(_context);
+        public IGroupRepository Groups => _groups ??= new GroupRepository(_context);
         public IClientRepository Clients => _clients ??= new ClientRepository(_context);
         public IRegionRepository Regions => _regions ??= new RegionRepository(_context);
         public ITMRepository TMs => _tms ??= new TMRepository(_context);

@@ -11,6 +11,7 @@ namespace TeiasMongoAPI.Core.Models.DTOs
         public string Type { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
         public string Status { get; set; } = string.Empty;
+        public bool IsPublic { get; set; }
         public VersionInfoDto? CurrentVersion { get; set; }
         
         public int VersionCount { get; set; }

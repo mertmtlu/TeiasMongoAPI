@@ -16,6 +16,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public DateTime CreatedAt { get; set; }
         public string Status { get; set; } = string.Empty;
         public string? CurrentVersion { get; set; }
+        public bool IsPublic { get; set; }
         public object Metadata { get; set; } = new object();
         public AppDeploymentInfo? DeploymentInfo { get; set; }
     }
@@ -32,6 +33,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public DateTime CreatedAt { get; set; }
         public string Status { get; set; } = string.Empty;
         public string? CurrentVersion { get; set; }
+        public bool IsPublic { get; set; }
         public AppDeploymentType? DeploymentType { get; set; }
         public string? DeploymentStatus { get; set; }
     }

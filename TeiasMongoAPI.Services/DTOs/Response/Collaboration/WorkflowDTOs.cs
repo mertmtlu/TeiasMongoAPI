@@ -46,6 +46,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public string? LastExecutionId { get; set; }
         public int ExecutionCount { get; set; }
         public TimeSpan? AverageExecutionTime { get; set; }
+        public bool IsPublic { get; set; }
         public WorkflowComplexityMetrics ComplexityMetrics { get; set; } = new();
         public WorkflowValidationResult ValidationResult { get; set; } = new();
     }

@@ -21,8 +21,8 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         [BsonElement("lastName")]
         public string LastName { get; set; } = string.Empty;
 
-        [BsonElement("roles")]
-        public List<string> Roles { get; set; } = new();
+        [BsonElement("role")]
+        public string Role { get; set; } = string.Empty;
 
         [BsonElement("permissions")]
         public List<string> Permissions { get; set; } = new();
@@ -51,7 +51,35 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         [BsonElement("assignedClients")]
         public List<ObjectId> AssignedClients { get; set; } = new();
 
+        [BsonElement("groups")]
+        public List<ObjectId> Groups { get; set; } = new();
+
+        // Legacy fields for backward compatibility - to be removed after data migration
+        [BsonElement("groupIds")]
+        [BsonIgnoreIfNull]
+        public List<ObjectId>? GroupIds { get; set; }
+
+        [BsonElement("roles")]
+        [BsonIgnoreIfNull]
+        public List<string>? Roles { get; set; }
+
         [BsonIgnore]
         public string FullName => $"{FirstName} {LastName}".Trim();
+
+        /// <summary>
+        /// Migrates old roles data to new single role format and updates permissions
+        /// </summary>
+        public void MigrateFromLegacyRoles()
+        {
+            if (string.IsNullOrEmpty(Role) && Roles != null && Roles.Count > 0)
+            {
+                // Take the first role as the primary role
+                Role = Roles[0];
+                // Clear the old roles field after migration
+                Roles = null;
+                // Update permissions based on the new role
+                Permissions = RolePermissions.GetUserPermissions(this);
+            }
+        }
     }
 }
