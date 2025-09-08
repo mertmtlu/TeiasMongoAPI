@@ -49,7 +49,22 @@ namespace TeiasMongoAPI.API.Controllers
         {
             return await ExecuteAsync(async () =>
             {
-                return await _workflowService.GetAllAsync(pagination, cancellationToken);
+                // Check if user has Admin role
+                if (IsInRole("Admin"))
+                {
+                    // Admin users can see all workflows
+                    return await _workflowService.GetAllAsync(pagination, cancellationToken);
+                }
+                else
+                {
+                    // Non-admin users can only see workflows they have access to
+                    var userId = CurrentUserId?.ToString();
+                    if (string.IsNullOrEmpty(userId))
+                    {
+                        throw new UnauthorizedAccessException("User ID not found");
+                    }
+                    return await _workflowService.GetUserAccessibleWorkflowsAsync(userId, pagination, cancellationToken);
+                }
             }, "Get all workflows");
         }
 
@@ -146,7 +161,7 @@ namespace TeiasMongoAPI.API.Controllers
         {
             return await ExecuteAsync(async () =>
             {
-                return await _workflowService.GetWorkflowsByUserAsync(userId, pagination, cancellationToken);
+                return await _workflowService.GetUserAccessibleWorkflowsAsync(userId, pagination, cancellationToken);
             }, "Get workflows by user");
         }
 

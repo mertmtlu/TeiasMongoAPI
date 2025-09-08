@@ -111,11 +111,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Map updates to workflow
             _mapper.Map(updateDto, workflow);
             
-            // Handle IsPublic property update
-            if (updateDto.IsPublic.HasValue)
-            {
-                workflow.IsPublic = updateDto.IsPublic.Value;
-            }
             
             var currentTime = DateTime.UtcNow;
             workflow.UpdatedAt = currentTime;
@@ -193,7 +188,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return success;
         }
 
-        public async Task<PagedResponse<WorkflowListDto>> GetWorkflowsByUserAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        public async Task<PagedResponse<WorkflowListDto>> GetUserAccessibleWorkflowsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             // Use Specification Pattern for database-level pagination (includes public workflows)
             var spec = new WorkflowsUserAccessibleSpecification(userId, pagination);
@@ -630,8 +625,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 ExecutionCount = workflow.ExecutionCount,
                 AverageExecutionTime = workflow.AverageExecutionTime,
                 NodeCount = workflow.Nodes.Count,
-                EdgeCount = workflow.Edges.Count,
-                IsPublic = workflow.Permissions.IsPublic
+                EdgeCount = workflow.Edges.Count
             };
         }
 

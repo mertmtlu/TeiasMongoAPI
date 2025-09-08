@@ -86,7 +86,6 @@ namespace TeiasMongoAPI.Services.Mappings
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.NodeCount, opt => opt.MapFrom(src => src.Nodes != null ? src.Nodes.Count : 0))
                 .ForMember(dest => dest.EdgeCount, opt => opt.MapFrom(src => src.Edges != null ? src.Edges.Count : 0))
-                .ForMember(dest => dest.IsPublic, opt => opt.MapFrom(src => src.Permissions != null ? src.Permissions.IsPublic : false))
                 .ForMember(dest => dest.ComplexityLevel, opt => opt.Ignore()) // Will be calculated
                 .ForMember(dest => dest.HasPermission, opt => opt.Ignore()); // Will be set by service
         }

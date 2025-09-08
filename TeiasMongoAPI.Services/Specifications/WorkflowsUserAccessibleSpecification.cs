@@ -23,7 +23,7 @@ namespace TeiasMongoAPI.Services.Specifications
         private static Expression<Func<Workflow, bool>> CreateCriteria(string userId)
         {
             // Filter workflows where user has access (public OR creator OR has permissions)
-            return w => w.IsPublic == true || 
+            return w => w.Permissions.IsPublic == true || 
                        w.Creator == userId || 
                        w.Permissions.AllowedUsers.Contains(userId) ||
                        w.Permissions.Permissions.Any(p => p.UserId == userId);

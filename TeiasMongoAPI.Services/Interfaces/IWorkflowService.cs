@@ -14,7 +14,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<WorkflowDetailDto> UpdateAsync(string id, WorkflowUpdateDto updateDto, CancellationToken cancellationToken = default);
         Task<WorkflowDetailDto> UpdateNameDescriptionAsync(string id, WorkflowNameDescriptionUpdateDto updateDto, CancellationToken cancellationToken = default);
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
-        Task<PagedResponse<WorkflowListDto>> GetWorkflowsByUserAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<PagedResponse<WorkflowListDto>> GetUserAccessibleWorkflowsAsync(string userId, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<WorkflowListDto>> GetWorkflowsByStatusAsync(WorkflowStatus status, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<WorkflowListDto>> SearchWorkflowsAsync(string searchTerm, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<WorkflowListDto>> GetWorkflowTemplatesAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);

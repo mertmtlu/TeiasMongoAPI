@@ -28,8 +28,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
 
         public bool IsTemplate { get; set; } = false;
 
-        public bool IsPublic { get; set; } = false;
-
         public string? TemplateId { get; set; }
     }
 
@@ -56,8 +54,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public Dictionary<string, object>? Metadata { get; set; }
 
         public bool? IsTemplate { get; set; }
-
-        public bool? IsPublic { get; set; }
     }
 
     public class WorkflowNameDescriptionUpdateDto
