@@ -459,42 +459,83 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("        return json.dumps(self._values, default=str)");
             sb.AppendLine();
 
-            // From JSON method - UPDATED to handle table elements
+            // From JSON method
             sb.AppendLine("    def from_json(self, json_str: str):");
-            sb.AppendLine("        \"\"\"Load values from JSON string\"\"\"");
+            sb.AppendLine("        \"\"\"Load values from JSON string, handling nested JSON recursively\"\"\"");
             sb.AppendLine("        try:");
-            sb.AppendLine("            # Try to parse as proper JSON first");
             sb.AppendLine("            data = json.loads(json_str)");
             sb.AppendLine("            self._load_from_dict(data)");
             sb.AppendLine("        except json.JSONDecodeError:");
-            sb.AppendLine("            # Fallback to custom JS object parsing");
+            sb.AppendLine("            # Fallback for non-standard or malformed JSON that might be a JS object string");
             sb.AppendLine("            data = self.parse_js_object_params(json_str)");
             sb.AppendLine("            self._load_from_dict(data)");
             sb.AppendLine();
 
-            // Add new helper method _load_from_dict
-            sb.AppendLine("    def _load_from_dict(self, data: Dict[str, Any]):");
-            sb.AppendLine("        \"\"\"Load values from dictionary, handling table elements specially\"\"\"");
-            sb.AppendLine("        for key, value in data.items():");
-            sb.AppendLine("            # Check if this is a table element");
-            sb.AppendLine("            if isinstance(value, str):");
-            sb.AppendLine("                _temp = self.parse_js_object_params(value)");
-            sb.AppendLine("                if isinstance(_temp, dict) and _temp:");
-            sb.AppendLine("                    value = _temp");
-            sb.AppendLine("            if self._is_table_element(key) and isinstance(value, dict):");
-            sb.AppendLine("                # Expand table data into individual cell keys");
-            sb.AppendLine("                for cell_key, cell_value in value.items():");
-            sb.AppendLine("                    # Find the actual cell ID from custom name or use the key directly");
-            sb.AppendLine("                    actual_cell_id = self._find_cell_id_by_name(key, cell_key)");
-            sb.AppendLine("                    if actual_cell_id:");
-            sb.AppendLine("                        self._values[f'{key}_{actual_cell_id}'] = cell_value");
-            sb.AppendLine("                    else:");
-            sb.AppendLine("                        # If no mapping found, assume it's already a cell ID");
-            sb.AppendLine("                        self._values[f'{key}_{cell_key}'] = cell_value");
-            sb.AppendLine("            else:");
-            sb.AppendLine("                # Regular element");
-            sb.AppendLine("                self._values[key] = value");
+            // =======================================================================
+            // START: REVISED CODE FOR NESTED JSON PARSING
+            // =======================================================================
+
+            // Add the new _recursive_parse helper method
+            sb.AppendLine(@"    def _recursive_parse(self, item: Any) -> Any:");
+            sb.AppendLine(@"        """"""Helper function to recursively parse dictionaries, lists, and JSON strings.""""""");
+            sb.AppendLine(@"        if isinstance(item, dict):");
+            sb.AppendLine(@"            # If the item is a dictionary, recurse on each of its values.");
+            sb.AppendLine(@"            new_dict = {}");
+            sb.AppendLine(@"            for k, v in item.items():");
+            sb.AppendLine(@"                new_dict[k] = self._recursive_parse(v)");
+            sb.AppendLine(@"            return new_dict");
+            sb.AppendLine(@"        elif isinstance(item, list):");
+            sb.AppendLine(@"            # If the item is a list, recurse on each of its elements.");
+            sb.AppendLine(@"            return [self._recursive_parse(i) for i in item]");
+            sb.AppendLine(@"        elif isinstance(item, str):");
+            sb.AppendLine(@"            # If the item is a string, try to parse it as JSON or JS object.");
+            sb.AppendLine(@"            # First try standard JSON parsing");
+            sb.AppendLine(@"            try:");
+            sb.AppendLine(@"                parsed_item = json.loads(item)");
+            sb.AppendLine(@"                # If parsing succeeds, recurse into the newly parsed structure.");
+            sb.AppendLine(@"                return self._recursive_parse(parsed_item)");
+            sb.AppendLine(@"            except json.JSONDecodeError:");
+            sb.AppendLine(@"                # Try the JS object parser as fallback");
+            sb.AppendLine(@"                try:");
+            sb.AppendLine(@"                    parsed_item = self.parse_js_object_params(item)");
+            sb.AppendLine(@"                    if isinstance(parsed_item, dict) and parsed_item:");
+            sb.AppendLine(@"                        # If parsing succeeds, recurse into the newly parsed structure.");
+            sb.AppendLine(@"                        return self._recursive_parse(parsed_item)");
+            sb.AppendLine(@"                except:");
+            sb.AppendLine(@"                    pass");
+            sb.AppendLine(@"                # If both parsers fail, return the string as is.");
+            sb.AppendLine(@"                return item");
+            sb.AppendLine(@"        else:");
+            sb.AppendLine(@"            # For any other data type (int, float, bool, None), return it directly.");
+            sb.AppendLine(@"            return item");
             sb.AppendLine();
+
+            // Replace the old _load_from_dict with the new, improved version
+            sb.AppendLine(@"    def _load_from_dict(self, data: Dict[str, Any]):");
+            sb.AppendLine(@"        """"""Load values from dictionary, handling nested elements and tables recursively.""""""");
+            sb.AppendLine(@"        # First, run the entire data structure through the recursive parser.");
+            sb.AppendLine(@"        parsed_data = self._recursive_parse(data)");
+            sb.AppendLine();
+            sb.AppendLine(@"        for key, value in parsed_data.items():");
+            sb.AppendLine(@"            # After parsing, check for special handling of table elements.");
+            sb.AppendLine(@"            if self._is_table_element(key) and isinstance(value, dict):");
+            sb.AppendLine(@"                # Expand table data into individual cell keys.");
+            sb.AppendLine(@"                for cell_key, cell_value in value.items():");
+            sb.AppendLine(@"                    # Find the actual cell ID from a custom name or use the key directly.");
+            sb.AppendLine(@"                    actual_cell_id = self._find_cell_id_by_name(key, cell_key)");
+            sb.AppendLine(@"                    if actual_cell_id:");
+            sb.AppendLine(@"                        self._values[f'{key}_{actual_cell_id}'] = cell_value");
+            sb.AppendLine(@"                    else:");
+            sb.AppendLine(@"                        # If no mapping is found, assume it's already a cell ID.");
+            sb.AppendLine(@"                        self._values[f'{key}_{cell_key}'] = cell_value");
+            sb.AppendLine(@"            else:");
+            sb.AppendLine(@"                # For regular elements, assign the fully parsed value.");
+            sb.AppendLine(@"                self._values[key] = value");
+            sb.AppendLine();
+
+            // =======================================================================
+            // END: REVISED CODE FOR NESTED JSON PARSING
+            // =======================================================================
 
             sb.AppendLine("    def _validate_file_data(self, file_data: Dict[str, Any], max_size: int, accepted_types: List[str]):");
             sb.AppendLine("        \"\"\"Validate individual file data structure - supports both old and new formats\"\"\"");
@@ -804,41 +845,41 @@ namespace TeiasMongoAPI.Services.Helpers
                             var elementType = elementDoc.TryGetValue("type", out var type) ? type?.ToString() ?? "" : "";
                             var required = elementDoc.TryGetValue("required", out var req) && (req is bool b ? b : bool.TryParse(req?.ToString(), out b) && b);
 
-                    if (required)
-                    {
-                        if (elementType == "table")
-                        {
-                            // For table elements, check if any cell has a value
-                            sb.AppendLine($"        # Check table element: {elementName}");
-                            sb.AppendLine($"        table_has_value = False");
-
-                            var validationTableConfig = elementDoc.TryGetValue("tableConfig", out var tableConfigObj) ? JsonSerializer.Deserialize<Dictionary<string, object>>(tableConfigObj.ToString()) : null;
-                            var cells = validationTableConfig?.TryGetValue("cells", out var cellsObj) == true ? JsonSerializer.Deserialize<IEnumerable<object>>(cellsObj.ToString()): null;
-
-                            if (cells != null)
+                            if (required)
                             {
-                                foreach (var cell in cells)
+                                if (elementType == "table")
                                 {
-                                    var cellDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(cell.ToString());
-                                    var cellId = cellDoc?.TryGetValue("cellId", out var cellIdObj) == true ? cellIdObj?.ToString() ?? "" : "";
-                                    if (!string.IsNullOrEmpty(cellId))
+                                    // For table elements, check if any cell has a value
+                                    sb.AppendLine($"        # Check table element: {elementName}");
+                                    sb.AppendLine($"        table_has_value = False");
+
+                                    var validationTableConfig = elementDoc.TryGetValue("tableConfig", out var tableConfigObj) ? JsonSerializer.Deserialize<Dictionary<string, object>>(tableConfigObj.ToString()) : null;
+                                    var cells = validationTableConfig?.TryGetValue("cells", out var cellsObj) == true ? JsonSerializer.Deserialize<IEnumerable<object>>(cellsObj.ToString()) : null;
+
+                                    if (cells != null)
                                     {
-                                        sb.AppendLine($"        if self._values.get('{elementName}_{cellId}'):");
-                                        sb.AppendLine($"            table_has_value = True");
-                                        sb.AppendLine($"            break");
+                                        foreach (var cell in cells)
+                                        {
+                                            var cellDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(cell.ToString());
+                                            var cellId = cellDoc?.TryGetValue("cellId", out var cellIdObj) == true ? cellIdObj?.ToString() ?? "" : "";
+                                            if (!string.IsNullOrEmpty(cellId))
+                                            {
+                                                sb.AppendLine($"        if self._values.get('{elementName}_{cellId}'):");
+                                                sb.AppendLine($"            table_has_value = True");
+                                                sb.AppendLine($"            break");
+                                            }
+                                        }
                                     }
+
+                                    sb.AppendLine($"        if not table_has_value:");
+                                    sb.AppendLine($"            errors.append('{elementLabel} is required')");
+                                }
+                                else
+                                {
+                                    sb.AppendLine($"        if not self._values.get('{elementName}'):");
+                                    sb.AppendLine($"            errors.append('{elementLabel} is required')");
                                 }
                             }
-
-                            sb.AppendLine($"        if not table_has_value:");
-                            sb.AppendLine($"            errors.append('{elementLabel} is required')");
-                        }
-                        else
-                        {
-                            sb.AppendLine($"        if not self._values.get('{elementName}'):");
-                            sb.AppendLine($"            errors.append('{elementLabel} is required')");
-                        }
-                    }
                         }
                     }
                 }
@@ -855,14 +896,13 @@ namespace TeiasMongoAPI.Services.Helpers
 
             // String representation
             sb.AppendLine("    def __str__(self):");
-            sb.AppendLine("        return f\"UIComponent({self._metadata['component_name']}): {len(self._values)} values\"");
+            sb.AppendLine($"        return f\"UIComponent({{self._metadata['component_name']}}): {{len(self._values)}} values\"");
             sb.AppendLine();
 
             // Representation
             sb.AppendLine("    def __repr__(self):");
-            sb.AppendLine("        return f\"UIComponent(name='{component.Name}', type='{component.Type}', values={self._values})\"");
+            sb.AppendLine($"        return f\"UIComponent(name='{component.Name}', type='{component.Type}', values={{self._values}})\"");
         }
-
         private static string GetPythonType(string elementType)
         {
             return elementType switch
