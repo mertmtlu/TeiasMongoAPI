@@ -4,15 +4,23 @@ using System.Text.RegularExpressions;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.Services.Implementations;
+using TeiasMongoAPI.Core.Interfaces.Repositories;
+using TeiasMongoAPI.Services.Helpers;
+using MongoDB.Bson;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 {
     public class CSharpProjectRunner : BaseProjectLanguageRunner
     {
+        private readonly IUnitOfWork _unitOfWork;
+
         public override string Language => "C#";
         public override int Priority => 10;
 
-        public CSharpProjectRunner(ILogger<CSharpProjectRunner> logger, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper) { }
+        public CSharpProjectRunner(ILogger<CSharpProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper) 
+        {
+            _unitOfWork = unitOfWork;
+        }
 
         public override async Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default)
         {
@@ -161,6 +169,52 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             }
         }
 
+        public async Task GenerateUIComponentFileAsync(string projectDirectory, ObjectId programId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                _logger.LogInformation("Generating UIComponent.cs for program {ProgramId} in {ProjectDirectory}", programId, projectDirectory);
+
+                var latestComponent = await _unitOfWork.UiComponents.GetLatestActiveByProgramAsync(programId, cancellationToken);
+
+                if (latestComponent == null)
+                {
+                    _logger.LogInformation("No active UI component found for program {ProgramId}, skipping UIComponent.cs generation", programId);
+                    return;
+                }
+
+                // Find the runnable project to determine where to place UIComponent.cs
+                var runnableProject = FindRunnableProject(projectDirectory);
+                string targetDirectory;
+
+                if (!string.IsNullOrEmpty(runnableProject))
+                {
+                    // Place UIComponent.cs in the same directory as the runnable .csproj
+                    targetDirectory = Path.GetDirectoryName(runnableProject) ?? projectDirectory;
+                    _logger.LogInformation("Generating UIComponent.cs in runnable project directory: {TargetDirectory}", targetDirectory);
+                }
+                else
+                {
+                    // Fallback: place in the main project directory
+                    targetDirectory = projectDirectory;
+                    _logger.LogWarning("No runnable project found, generating UIComponent.cs in project root: {TargetDirectory}", targetDirectory);
+                }
+
+                var csharpCode = UIComponentCSharpGenerator.GenerateUIComponentClass(latestComponent);
+                var uiComponentPath = Path.Combine(targetDirectory, "UIComponent.cs");
+
+                await File.WriteAllTextAsync(uiComponentPath, csharpCode, cancellationToken);
+
+                _logger.LogInformation("Successfully generated UIComponent.cs for component '{ComponentName}' ({ComponentId}) at {FilePath}",
+                    latestComponent.Name, latestComponent._ID, uiComponentPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to generate UIComponent.cs for program {ProgramId} in {ProjectDirectory}", programId, projectDirectory);
+                // Don't fail the execution, just log the error
+            }
+        }
+
         public override async Task<ProjectExecutionResult> ExecuteAsync(ProjectExecutionContext context, CancellationToken cancellationToken = default)
         {
             var result = new ProjectExecutionResult
@@ -172,6 +226,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             try
             {
                 _logger.LogInformation("Executing C# project in {ProjectDirectory}", context.ProjectDirectory);
+
+                // Generate UIComponent.cs file based on the latest active UI component for the program
+                var programId = ExtractProgramIdFromContext(context);
+                if (programId != ObjectId.Empty)
+                {
+                    await GenerateUIComponentFileAsync(context.ProjectDirectory, programId, cancellationToken);
+                }
 
                 // This part is fine, it looks for an already-compiled executable
                 var executable = FindExecutable(context.ProjectDirectory);
@@ -509,6 +570,36 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             // Simple estimation based on output size
             var outputSize = output?.Length ?? 0;
             return Math.Max(outputSize * 10, 50 * 1024 * 1024); // Minimum 50MB
+        }
+
+        private ObjectId ExtractProgramIdFromContext(ProjectExecutionContext context)
+        {
+            try
+            {
+                // Extract program ID from the execution directory path
+                // Path format: ./storage/{programId}/{versionId}/execution/{executionId}/project
+                var projectPath = context.ProjectDirectory.Replace("\\", "/");
+                var pathParts = projectPath.Split('/');
+
+                // Find the storage directory index
+                var storageIndex = Array.FindIndex(pathParts, p => p.Equals("storage", StringComparison.OrdinalIgnoreCase));
+                if (storageIndex >= 0 && storageIndex + 1 < pathParts.Length)
+                {
+                    var programIdString = pathParts[storageIndex + 1];
+                    if (ObjectId.TryParse(programIdString, out var programId))
+                    {
+                        return programId;
+                    }
+                }
+
+                _logger.LogWarning("Could not extract program ID from project directory path: {ProjectDirectory}", context.ProjectDirectory);
+                return ObjectId.Empty;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to extract program ID from context");
+                return ObjectId.Empty;
+            }
         }
     }
 }
