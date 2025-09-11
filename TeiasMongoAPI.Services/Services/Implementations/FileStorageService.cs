@@ -698,7 +698,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public string GetFilePath(string programId, string versionId, string filePath)
         {
-            var normalizedPath = NormalizeFilePath(filePath);
+            var normalizedPath = NormalizeFilePath(System.Web.HttpUtility.UrlDecode(filePath));
             return Path.Combine(_settings.BasePath, programId, versionId, "files", normalizedPath);
         }
 
@@ -798,13 +798,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         private string GenerateStorageKey(string programId, string versionId, string filePath)
         {
-            var normalizedPath = NormalizeFilePath(filePath);
+            var normalizedPath = NormalizeFilePath(System.Web.HttpUtility.UrlDecode(filePath));
             return Path.Combine(programId, versionId, "files", normalizedPath).Replace('\\', '/');
         }
 
         private string NormalizeFilePath(string filePath)
         {
-            return filePath.Replace('\\', '/').Trim('/');
+            return filePath.Replace('/','\\').Trim('\\');
         }
 
         private string GetMetadataPath(string storageKey)
@@ -836,7 +836,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 StorageKey = storageKey,
                 ProgramId = programId,
                 VersionId = versionId,
-                FilePath = filePath,
+                FilePath = System.Web.HttpUtility.UrlDecode(filePath),
                 Hash = CalculateFileHash(content),
                 Size = content.Length,
                 ContentType = contentType,
@@ -845,7 +845,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Exists = true
             };
 
-            var metadataPath = GetMetadataPath(storageKey);
+            var metadataPath = GetMetadataPath(System.Web.HttpUtility.UrlDecode(storageKey));
             var directory = Path.GetDirectoryName(metadataPath);
             if (directory != null)
             {

@@ -10,9 +10,13 @@
 
 	<ItemGroup>
 	  <Compile Remove="HealthChecks\**" />
+	  <Compile Remove="storage\**" />
 	  <Content Remove="HealthChecks\**" />
+	  <Content Remove="storage\**" />
 	  <EmbeddedResource Remove="HealthChecks\**" />
+	  <EmbeddedResource Remove="storage\**" />
 	  <None Remove="HealthChecks\**" />
+	  <None Remove="storage\**" />
 	</ItemGroup>
 
 	<ItemGroup>

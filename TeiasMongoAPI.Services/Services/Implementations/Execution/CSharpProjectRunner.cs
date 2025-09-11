@@ -112,7 +112,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 }
 
                 // Build the project
-                var buildArguments = $"build \"{buildTarget}\" --configuration {buildArgs.Configuration}";
+                var relativeBuildTarget = Path.GetRelativePath(projectDirectory, buildTarget);
+
+                // Build the project using the relative path
+                var buildArguments = $"build \"{relativeBuildTarget}\" --configuration {buildArgs.Configuration}";
                 if (buildArgs.AdditionalArgs.Any())
                 {
                     buildArguments += " " + string.Join(" ", buildArgs.AdditionalArgs);
@@ -170,6 +173,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             {
                 _logger.LogInformation("Executing C# project in {ProjectDirectory}", context.ProjectDirectory);
 
+                // This part is fine, it looks for an already-compiled executable
                 var executable = FindExecutable(context.ProjectDirectory);
                 if (string.IsNullOrEmpty(executable))
                 {
@@ -177,10 +181,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     executable = "dotnet";
                     var runArgs = "run";
 
-                    var buildTarget = FindBuildTarget(context.ProjectDirectory);
-                    if (!string.IsNullOrEmpty(buildTarget))
+                    // DO NOT use FindBuildTarget here. Use our new helper to find the .csproj to RUN.
+                    var runnableProject = FindRunnableProject(context.ProjectDirectory);
+                    if (!string.IsNullOrEmpty(runnableProject))
                     {
-                        runArgs += $" --project \"{buildTarget}\"";
+                        var relativeProjectPath = Path.GetRelativePath(context.ProjectDirectory, runnableProject);
+                        runArgs += $" --project \"{relativeProjectPath}\"";
+                    }
+                    else
+                    {
+                        // If we can't find a project, dotnet run might still work if the context is unambiguous,
+                        // but we should log a warning.
+                        _logger.LogWarning("No .csproj file found to specify for 'dotnet run'. The command may fail if the project to run is ambiguous.");
                     }
 
                     // Add parameters if any
@@ -205,7 +217,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 }
                 else
                 {
-                    // Run the compiled executable directly
+                    // Run the compiled executable directly (this logic is unchanged and correct)
                     var processResult = await RunProcessAsync(
                         executable,
                         "", // Arguments would be passed here
@@ -244,6 +256,44 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 result.Duration = result.CompletedAt - result.StartedAt;
                 return result;
             }
+        }
+
+        private string FindRunnableProject(string projectDirectory)
+        {
+            var csprojFiles = FindFiles(projectDirectory, "*.csproj");
+
+            if (!csprojFiles.Any())
+            {
+                return string.Empty;
+            }
+
+            if (csprojFiles.Count == 1)
+            {
+                return csprojFiles.First();
+            }
+
+            // Multiple projects found, try to find the executable one
+            foreach (var projectFile in csprojFiles)
+            {
+                try
+                {
+                    var content = File.ReadAllText(projectFile);
+                    // Look for <OutputType>Exe</OutputType> or <OutputType>WinExe</OutputType>
+                    if (Regex.IsMatch(content, @"<OutputType>\s*(Win)?Exe\s*</OutputType>", RegexOptions.IgnoreCase))
+                    {
+                        _logger.LogInformation("Found runnable project '{ProjectFile}' in multi-project solution.", Path.GetFileName(projectFile));
+                        return projectFile;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not read or parse project file {ProjectFile} to determine output type.", projectFile);
+                }
+            }
+
+            // Fallback: return the first project. dotnet run will fail if it's a library, which is correct behavior.
+            _logger.LogWarning("Could not determine a single runnable project. Falling back to the first project found: {ProjectFile}", Path.GetFileName(csprojFiles.First()));
+            return csprojFiles.First();
         }
 
         protected override async Task ValidateLanguageSpecificAsync(string projectDirectory, ProjectValidationResult result, CancellationToken cancellationToken)
