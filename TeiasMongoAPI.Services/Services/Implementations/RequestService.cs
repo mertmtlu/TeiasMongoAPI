@@ -359,7 +359,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     var systemResponse = new RequestResponse
                     {
-                        RespondedBy = "system",
+                        RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
                         RespondedAt = DateTime.UtcNow,
                         Message = $"Status changed to {dto.Status}: {dto.Reason}"
                     };
@@ -405,7 +405,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 var assignmentResponse = new RequestResponse
                 {
-                    RespondedBy = "system",
+                    RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
                     RespondedAt = DateTime.UtcNow,
                     Message = $"Request assigned to user: {dto.AssignmentNotes}"
                 };
@@ -441,7 +441,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 var unassignResponse = new RequestResponse
                 {
-                    RespondedBy = "system",
+                    RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
                     RespondedAt = DateTime.UtcNow,
                     Message = "Request unassigned and returned to open status"
                 };
@@ -476,7 +476,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     var priorityResponse = new RequestResponse
                     {
-                        RespondedBy = "system",
+                        RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
                         RespondedAt = DateTime.UtcNow,
                         Message = $"Priority changed to {dto.Priority}: {dto.Reason}"
                     };
@@ -509,7 +509,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             var response = new RequestResponse
             {
-                RespondedBy = "system", // Should come from current user context
+                RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
                 RespondedAt = DateTime.UtcNow,
                 Message = dto.Message
             };
@@ -623,7 +623,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Add completion response
             var completionResponse = new RequestResponse
             {
-                RespondedBy = "system", // Should come from current user context
+                RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
                 RespondedAt = DateTime.UtcNow,
                 Message = $"Request completed: {dto.CompletionNotes}"
             };
@@ -655,7 +655,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Add rejection response
             var rejectionResponse = new RequestResponse
             {
-                RespondedBy = "system", // Should come from current user context
+                RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
                 RespondedAt = DateTime.UtcNow,
                 Message = $"Request rejected: {dto.RejectionReason}"
             };
@@ -697,7 +697,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Add reopen response
                 var reopenResponse = new RequestResponse
                 {
-                    RespondedBy = "system", // Should come from current user context
+                    RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
                     RespondedAt = DateTime.UtcNow,
                     Message = $"Request reopened: {reason}"
                 };
@@ -933,7 +933,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 FieldDefinitions = dto.FieldDefinitions,
                 Priority = dto.Priority,
                 IsActive = dto.IsActive,
-                CreatedBy = "system", // Should come from current user context
+                CreatedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
                 CreatedAt = DateTime.UtcNow,
                 UsageCount = 0
             };
@@ -1278,7 +1278,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Get user details
                 try
                 {
-                    if (response.RespondedBy != "system")
+                    if (response.RespondedBy != "system") // Should come from current user context BaseController holds CurrentUserId property
                     {
                         var user = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(response.RespondedBy), cancellationToken);
                         if (user != null)
@@ -1465,7 +1465,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     FieldDefinitions = new { feature_name = "string", description = "text", justification = "text", criteria = "text" },
                     Priority = "normal",
                     IsActive = true,
-                    CreatedBy = "system",
+                    CreatedBy = "system", 
                     CreatedAt = DateTime.UtcNow,
                     UsageCount = 0
                 },

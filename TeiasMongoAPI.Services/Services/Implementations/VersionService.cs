@@ -73,10 +73,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 try
                 {
-                    var reviewer = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(version.Reviewer), cancellationToken);
-                    if (reviewer != null)
+                    // Handle special case where reviewer is "system" (not a valid ObjectId)
+                    if (string.Equals(version.Reviewer, "system", StringComparison.OrdinalIgnoreCase))
                     {
-                        dto.ReviewerName = reviewer.FullName;
+                        dto.ReviewerName = "System";
+                    }
+                    else
+                    {
+                        var reviewer = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(version.Reviewer), cancellationToken);
+                        if (reviewer != null)
+                        {
+                            dto.ReviewerName = reviewer.FullName;
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -195,7 +203,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Get next version number
             var nextVersionNumber = await _unitOfWork.Versions.GetNextVersionNumberAsync(programObjectId, cancellationToken);
 
-            string createdBy = "system";
+            string createdBy = "system"; // Should come from current user context BaseController holds CurrentUserId property
 
             if (objectId is ObjectId userId)
             {
@@ -424,7 +432,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Version with ID {id} not found.");
             }
 
-            var success = await _unitOfWork.Versions.UpdateStatusAsync(objectId, dto.Status, "system", dto.Comments, cancellationToken);
+            var success = await _unitOfWork.Versions.UpdateStatusAsync(objectId,
+                dto.Status,
+                "system", // Should come from current user context BaseController holds CurrentUserId property
+                dto.Comments,
+                cancellationToken);
 
             if (success)
             {
@@ -449,7 +461,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException("Version is not pending review.");
             }
 
-            var success = await _unitOfWork.Versions.UpdateStatusAsync(objectId, dto.Status, "system", dto.Comments, cancellationToken);
+            var success = await _unitOfWork.Versions.UpdateStatusAsync(objectId,
+                dto.Status, 
+                "system", // Should come from current user context BaseController holds CurrentUserId property
+                dto.Comments, 
+                cancellationToken);
 
             if (!success)
             {
@@ -478,7 +494,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 VersionId = id,
                 Status = dto.Status,
                 Comments = dto.Comments,
-                ReviewedBy = "system",
+                ReviewedBy = "system",// Should come from current user context BaseController holds CurrentUserId property
                 ReviewedByName = "System",
                 ReviewedAt = DateTime.UtcNow
             };
@@ -611,7 +627,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 VersionId = versionId,
                 Status = "deployed",
                 DeployedAt = DateTime.UtcNow,
-                DeployedBy = "system",
+                DeployedBy = "system",// Should come from current user context BaseController holds CurrentUserId property
                 TargetEnvironments = dto.TargetEnvironments,
                 Configuration = dto.DeploymentConfiguration
             };
@@ -766,7 +782,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Create new version
             var nextVersionNumber = await _unitOfWork.Versions.GetNextVersionNumberAsync(programObjectId, cancellationToken);
 
-            string createdBy = "system";
+            string createdBy = "system";// Should come from current user context BaseController holds CurrentUserId property
 
             if (objectId is ObjectId userId)
             {
@@ -931,10 +947,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     try
                     {
-                        var reviewer = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(version.Reviewer), cancellationToken);
-                        if (reviewer != null)
+                        // Handle special case where reviewer is "system" (not a valid ObjectId)
+                        if (string.Equals(version.Reviewer, "system", StringComparison.OrdinalIgnoreCase))
                         {
-                            dto.ReviewerName = reviewer.FullName;
+                            dto.ReviewerName = "System";
+                        }
+                        else
+                        {
+                            var reviewer = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(version.Reviewer), cancellationToken);
+                            if (reviewer != null)
+                            {
+                                dto.ReviewerName = reviewer.FullName;
+                            }
                         }
                     }
                     catch (Exception ex)

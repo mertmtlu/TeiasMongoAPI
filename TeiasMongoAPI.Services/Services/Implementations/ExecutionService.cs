@@ -652,7 +652,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 ProgramId = programObjectId,
                 VersionId = versionObjectId,
-                UserId = "system",
+                UserId = "system", // Should come from current user context BaseController holds CurrentUserId property
                 ExecutionType = "web_app_deploy",
                 StartedAt = DateTime.UtcNow,
                 Status = "running",
@@ -1293,7 +1293,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 ProgramId = programObjectId,
                 VersionId = versionObjectId,
-                UserId = "system",
+                UserId = "system", // Should come from current user context BaseController holds CurrentUserId property
                 ExecutionType = "scheduled_execution",
                 StartedAt = dto.ScheduledTime,
                 Status = "scheduled",

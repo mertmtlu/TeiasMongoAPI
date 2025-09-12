@@ -110,7 +110,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             var group = _mapper.Map<Group>(dto);
-            group.CreatedBy = userId ?? "system";
+            group.CreatedBy = userId;
             group.CreatedAt = DateTime.UtcNow;
 
             // Add initial members if provided

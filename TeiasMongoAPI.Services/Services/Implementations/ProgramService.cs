@@ -35,26 +35,45 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<ProgramDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default)
         {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            _logger.LogInformation("Starting GetById for program {ProgramId}", id);
+
             var objectId = ParseObjectId(id);
             var program = await _unitOfWork.Programs.GetByIdAsync(objectId, cancellationToken);
+            stopwatch.Stop();
+            _logger.LogInformation("Fetched main program document in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
 
             if (program == null)
             {
                 throw new KeyNotFoundException($"Program with ID {id} not found.");
             }
 
+            stopwatch.Restart();
             var dto = _mapper.Map<ProgramDetailDto>(program);
+            stopwatch.Stop();
+            _logger.LogInformation("Completed initial DTO mapping in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
+
+            stopwatch.Restart();
             dto.Creator = await GetCreatorNameAsync(program.CreatorId, cancellationToken);
+            stopwatch.Stop();
+            _logger.LogInformation("Fetched creator name in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
 
             // Get permissions
+            stopwatch.Restart();
             var permissions = new List<ProgramPermissionDto>();
+            _logger.LogInformation("Starting user permissions lookup for {UserPermissionCount} users", program.Permissions.Users.Count);
 
             // Add user permissions
+            var userPermissionStopwatch = System.Diagnostics.Stopwatch.StartNew();
             foreach (var userPerm in program.Permissions.Users)
             {
                 try
                 {
+                    var individualUserStopwatch = System.Diagnostics.Stopwatch.StartNew();
                     var user = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(userPerm.UserId), cancellationToken);
+                    individualUserStopwatch.Stop();
+                    _logger.LogInformation("Fetched user {UserId} in {ElapsedMilliseconds} ms", userPerm.UserId, individualUserStopwatch.ElapsedMilliseconds);
+                    
                     if (user != null)
                     {
                         permissions.Add(new ProgramPermissionDto
@@ -71,8 +90,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     _logger.LogWarning(ex, "Failed to get user {UserId} for program {ProgramId}", userPerm.UserId, id);
                 }
             }
+            userPermissionStopwatch.Stop();
+            _logger.LogInformation("Completed all user permissions lookup in {ElapsedMilliseconds} ms", userPermissionStopwatch.ElapsedMilliseconds);
 
             // Add group permissions
+            var groupPermissionStopwatch = System.Diagnostics.Stopwatch.StartNew();
             foreach (var groupPerm in program.Permissions.Groups)
             {
                 permissions.Add(new ProgramPermissionDto
@@ -83,32 +105,54 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     AccessLevel = groupPerm.AccessLevel
                 });
             }
+            groupPermissionStopwatch.Stop();
+            _logger.LogInformation("Processed {GroupPermissionCount} group permissions in {ElapsedMilliseconds} ms", program.Permissions.Groups.Count, groupPermissionStopwatch.ElapsedMilliseconds);
 
             dto.Permissions = permissions;
+            stopwatch.Stop();
+            _logger.LogInformation("Completed all permissions processing in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
 
             // Note: Files are no longer fetched here - they should be retrieved through IFileStorageService
             // when needed by controllers using the current version or specific version
             dto.Files = new List<ProgramFileDto>();
 
             // Get deployment status
+            stopwatch.Restart();
             try
             {
                 var deploymentStatus = await _deploymentService.GetDeploymentStatusAsync(id, cancellationToken);
                 dto.DeploymentStatus = deploymentStatus;
+                stopwatch.Stop();
+                _logger.LogInformation("Fetched deployment status in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get deployment status for program {ProgramId}", id);
+                stopwatch.Stop();
+                _logger.LogWarning(ex, "Failed to get deployment status for program {ProgramId} in {ElapsedMilliseconds} ms", id, stopwatch.ElapsedMilliseconds);
                 dto.DeploymentStatus = null;
             }
 
             // Get program statistics
+            stopwatch.Restart();
             var executions = await _unitOfWork.Executions.GetByProgramIdAsync(objectId, cancellationToken);
+            stopwatch.Stop();
+            _logger.LogInformation("Fetched executions query in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
+
+            stopwatch.Restart();
             var executionsList = executions.ToList();
+            stopwatch.Stop();
+            _logger.LogInformation("Converted executions to list ({ExecutionCount} items) in {ElapsedMilliseconds} ms", executionsList.Count, stopwatch.ElapsedMilliseconds);
+
+            stopwatch.Restart();
             var versions = await _unitOfWork.Versions.GetByProgramIdAsync(objectId, cancellationToken);
+            stopwatch.Stop();
+            _logger.LogInformation("Fetched versions query in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
 
+            stopwatch.Restart();
             var completedExecutions = executionsList.Where(e => e.CompletedAt.HasValue).ToList();
-
+            var totalVersions = versions.Count();
+            var lastUpdate = versions.OrderByDescending(v => v.CreatedAt).FirstOrDefault()?.CreatedAt;
+            
             dto.Stats = new ProgramStatsDto
             {
                 TotalExecutions = executionsList.Count,
@@ -118,10 +162,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 AverageExecutionTime = completedExecutions.Any()
                     ? completedExecutions.Average(e => (e.CompletedAt!.Value - e.StartedAt).TotalMinutes)
                     : 0,
-                TotalVersions = versions.Count(),
-                LastUpdate = versions.OrderByDescending(v => v.CreatedAt).FirstOrDefault()?.CreatedAt
+                TotalVersions = totalVersions,
+                LastUpdate = lastUpdate
             };
+            stopwatch.Stop();
+            _logger.LogInformation("Completed statistics calculations in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
 
+            _logger.LogInformation("Completed GetById for program {ProgramId} - returning DTO", id);
             return dto;
         }
 
@@ -218,7 +265,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 ProgramId = createdProgram._ID,
                 VersionNumber = 1,
                 CommitMessage = "Auto generated version",
-                CreatedBy = userId.ToString() ?? "system",
+                CreatedBy = userId.ToString(),
             };
 
             var createdVersion = await _unitOfWork.Versions.CreateAsync(version, cancellationToken);

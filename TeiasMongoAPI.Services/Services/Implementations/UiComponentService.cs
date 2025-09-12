@@ -230,7 +230,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             component.ProgramId = programObjectId;
             component.VersionId = versionObjectId;
             component.CreatedAt = DateTime.UtcNow;
-            component.Creator = "system"; // Should come from current user context
+            component.Creator = "system"; // Should come from current user context BaseController holds CurrentUserId property
             component.Status = "active";
 
             var createdComponent = await _unitOfWork.UiComponents.CreateAsync(component, cancellationToken);
