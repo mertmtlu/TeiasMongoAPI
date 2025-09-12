@@ -26,6 +26,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IVersionService _versionService;
         private readonly IDeploymentService _deploymentService;
         private readonly IProjectExecutionEngine _projectExecutionEngine;
+        private readonly IGroupService _groupService;
         private readonly ExecutionSettings _settings;
         private readonly Dictionary<string, ExecutionContext> _activeExecutions = new();
 
@@ -37,6 +38,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IVersionService versionService,
             IDeploymentService deploymentService,
             IProjectExecutionEngine projectExecutionEngine,
+            IGroupService groupService,
             IOptions<ExecutionSettings> settings,
             ILogger<ExecutionService> logger)
             : base(unitOfWork, mapper, logger)
@@ -46,6 +48,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _versionService = versionService;
             _deploymentService = deploymentService;
             _projectExecutionEngine = projectExecutionEngine;
+            _groupService = groupService;
             _settings = settings.Value;
         }
 
@@ -1399,9 +1402,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task<bool> ValidateExecutionPermissionsAsync(string programId, string userId, CancellationToken cancellationToken = default)
         {
-            return await _programService.ValidateUserAccessAsync(programId, userId, "Execute", cancellationToken) ||
-                await _programService.ValidateUserAccessAsync(programId, userId, "admin", cancellationToken) ||
-                await _programService.ValidateUserAccessAsync(programId, userId, "Write", cancellationToken);
+            // Check direct user permissions first
+            var hasUserPermission = await _programService.ValidateUserAccessAsync(programId, userId, "Execute", cancellationToken) ||
+                                   await _programService.ValidateUserAccessAsync(programId, userId, "admin", cancellationToken) ||
+                                   await _programService.ValidateUserAccessAsync(programId, userId, "Write", cancellationToken);
+
+            if (hasUserPermission)
+                return true;
+
+            // Check group-based permissions
+            var objectId = ParseObjectId(programId);
+            var program = await _unitOfWork.Programs.GetByIdAsync(objectId, cancellationToken);
+
+            if (program?.Permissions?.Groups == null || !program.Permissions.Groups.Any())
+                return false;
+
+            // Check if user belongs to any group with execution permissions
+            foreach (var groupPermission in program.Permissions.Groups)
+            {
+                if (IsExecutionPermission(groupPermission.AccessLevel))
+                {
+                    var isMember = await _groupService.IsMemberAsync(groupPermission.GroupId, userId, cancellationToken);
+                    if (isMember)
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsExecutionPermission(string accessLevel)
+        {
+            return string.Equals(accessLevel, "Execute", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(accessLevel, "admin", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(accessLevel, "Write", StringComparison.OrdinalIgnoreCase);
         }
 
         public async Task<ExecutionSecurityScanResult> RunSecurityScanAsync(string programId, CancellationToken cancellationToken = default)
