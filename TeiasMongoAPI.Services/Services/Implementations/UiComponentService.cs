@@ -186,7 +186,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new PagedResponse<UiComponentListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<UiComponentDto> CreateAsync(string programId, string versionId, UiComponentCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<UiComponentDto> CreateAsync(string programId, string versionId, UiComponentCreateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
             var versionObjectId = ParseObjectId(versionId);
@@ -230,7 +230,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             component.ProgramId = programObjectId;
             component.VersionId = versionObjectId;
             component.CreatedAt = DateTime.UtcNow;
-            component.Creator = "system"; // Should come from current user context BaseController holds CurrentUserId property
+            component.Creator = currentUserId?.ToString();
             component.Status = "active";
 
             var createdComponent = await _unitOfWork.UiComponents.CreateAsync(component, cancellationToken);

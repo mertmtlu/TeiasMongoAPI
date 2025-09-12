@@ -41,7 +41,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<ExecutionResultDto> GetExecutionResultAsync(string id, CancellationToken cancellationToken = default);
 
         // Web Application Execution
-        Task<ExecutionDto> DeployWebApplicationAsync(string programId, WebAppDeploymentRequestDto dto, CancellationToken cancellationToken = default);
+        Task<ExecutionDto> DeployWebApplicationAsync(string programId, WebAppDeploymentRequestDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
         Task<string> GetWebApplicationUrlAsync(string executionId, CancellationToken cancellationToken = default);
         Task<WebAppStatusDto> GetWebApplicationStatusAsync(string executionId, CancellationToken cancellationToken = default);
         Task<bool> RestartWebApplicationAsync(string executionId, CancellationToken cancellationToken = default);
@@ -68,7 +68,7 @@ namespace TeiasMongoAPI.Services.Interfaces
 
         // Execution Queue and Scheduling
         Task<ExecutionQueueStatusDto> GetExecutionQueueStatusAsync(CancellationToken cancellationToken = default);
-        Task<ExecutionDto> ScheduleExecutionAsync(string programId, ExecutionScheduleRequestDto dto, CancellationToken cancellationToken = default);
+        Task<ExecutionDto> ScheduleExecutionAsync(string programId, ExecutionScheduleRequestDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
         Task<bool> CancelScheduledExecutionAsync(string executionId, CancellationToken cancellationToken = default);
         Task<List<ExecutionListDto>> GetScheduledExecutionsAsync(CancellationToken cancellationToken = default);
 

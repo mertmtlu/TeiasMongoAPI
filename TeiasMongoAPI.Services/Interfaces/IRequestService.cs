@@ -1,4 +1,5 @@
-﻿using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
+﻿using MongoDB.Bson;
+using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
@@ -11,8 +12,8 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<RequestDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default);
         Task<PagedResponse<RequestListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<RequestListDto>> SearchAsync(RequestSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<RequestDto> CreateAsync(RequestCreateDto dto, CancellationToken cancellationToken = default);
-        Task<RequestDto> UpdateAsync(string id, RequestUpdateDto dto, CancellationToken cancellationToken = default);
+        Task<RequestDto> CreateAsync(RequestCreateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
+        Task<RequestDto> UpdateAsync(string id, RequestUpdateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
 
         // Request Filtering and Categorization
@@ -25,23 +26,23 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<PagedResponse<RequestListDto>> GetUnassignedRequestsAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
 
         // Request Status and Assignment Management
-        Task<bool> UpdateStatusAsync(string id, RequestStatusUpdateDto dto, CancellationToken cancellationToken = default);
-        Task<RequestDto> AssignRequestAsync(string id, RequestAssignmentDto dto, CancellationToken cancellationToken = default);
-        Task<bool> UnassignRequestAsync(string id, CancellationToken cancellationToken = default);
-        Task<bool> UpdatePriorityAsync(string id, RequestPriorityUpdateDto dto, CancellationToken cancellationToken = default);
+        Task<bool> UpdateStatusAsync(string id, RequestStatusUpdateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
+        Task<RequestDto> AssignRequestAsync(string id, RequestAssignmentDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
+        Task<bool> UnassignRequestAsync(string id, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
+        Task<bool> UpdatePriorityAsync(string id, RequestPriorityUpdateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
 
         // Request Response and Communication
-        Task<RequestResponseDto> AddResponseAsync(string id, RequestResponseCreateDto dto, CancellationToken cancellationToken = default);
+        Task<RequestResponseDto> AddResponseAsync(string id, RequestResponseCreateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
         Task<List<RequestResponseDto>> GetResponsesAsync(string id, CancellationToken cancellationToken = default);
         Task<bool> UpdateResponseAsync(string requestId, string responseId, RequestResponseUpdateDto dto, CancellationToken cancellationToken = default);
         Task<bool> DeleteResponseAsync(string requestId, string responseId, CancellationToken cancellationToken = default);
 
         // Request Workflow Management
-        Task<bool> OpenRequestAsync(string id, CancellationToken cancellationToken = default);
-        Task<bool> StartWorkOnRequestAsync(string id, string assignedTo, CancellationToken cancellationToken = default);
-        Task<RequestDto> CompleteRequestAsync(string id, RequestCompletionDto dto, CancellationToken cancellationToken = default);
-        Task<RequestDto> RejectRequestAsync(string id, RequestRejectionDto dto, CancellationToken cancellationToken = default);
-        Task<bool> ReopenRequestAsync(string id, string reason, CancellationToken cancellationToken = default);
+        Task<bool> OpenRequestAsync(string id, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
+        Task<bool> StartWorkOnRequestAsync(string id, string assignedTo, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
+        Task<RequestDto> CompleteRequestAsync(string id, RequestCompletionDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
+        Task<RequestDto> RejectRequestAsync(string id, RequestRejectionDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
+        Task<bool> ReopenRequestAsync(string id, string reason, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
 
         // Request Analytics and Reporting
         Task<RequestStatsDto> GetRequestStatsAsync(RequestStatsFilterDto? filter = null, CancellationToken cancellationToken = default);
@@ -52,8 +53,8 @@ namespace TeiasMongoAPI.Services.Interfaces
 
         // Request Templates and Categories
         Task<List<RequestTemplateDto>> GetRequestTemplatesAsync(string? type = null, CancellationToken cancellationToken = default);
-        Task<RequestTemplateDto> CreateRequestTemplateAsync(RequestTemplateCreateDto dto, CancellationToken cancellationToken = default);
-        Task<RequestDto> CreateFromTemplateAsync(string templateId, RequestFromTemplateDto dto, CancellationToken cancellationToken = default);
+        Task<RequestTemplateDto> CreateRequestTemplateAsync(RequestTemplateCreateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
+        Task<RequestDto> CreateFromTemplateAsync(string templateId, RequestFromTemplateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
 
         // Request Notifications and Subscriptions
         Task<bool> SubscribeToRequestUpdatesAsync(string requestId, string userId, CancellationToken cancellationToken = default);

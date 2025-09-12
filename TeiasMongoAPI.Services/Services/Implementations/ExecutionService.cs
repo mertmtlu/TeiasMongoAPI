@@ -617,7 +617,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Web Application Execution
 
-        public async Task<ExecutionDto> DeployWebApplicationAsync(string programId, WebAppDeploymentRequestDto dto, CancellationToken cancellationToken = default)
+        public async Task<ExecutionDto> DeployWebApplicationAsync(string programId, WebAppDeploymentRequestDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
             var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
@@ -652,7 +652,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 ProgramId = programObjectId,
                 VersionId = versionObjectId,
-                UserId = "system", // Should come from current user context BaseController holds CurrentUserId property
+                UserId = currentUserId?.ToString(),
                 ExecutionType = "web_app_deploy",
                 StartedAt = DateTime.UtcNow,
                 Status = "running",
@@ -1264,7 +1264,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             };
         }
 
-        public async Task<ExecutionDto> ScheduleExecutionAsync(string programId, ExecutionScheduleRequestDto dto, CancellationToken cancellationToken = default)
+        public async Task<ExecutionDto> ScheduleExecutionAsync(string programId, ExecutionScheduleRequestDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
             var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
@@ -1293,7 +1293,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 ProgramId = programObjectId,
                 VersionId = versionObjectId,
-                UserId = "system", // Should come from current user context BaseController holds CurrentUserId property
+                UserId = currentUserId?.ToString(),
                 ExecutionType = "scheduled_execution",
                 StartedAt = dto.ScheduledTime,
                 Status = "scheduled",

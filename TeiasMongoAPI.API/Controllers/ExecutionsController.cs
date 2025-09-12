@@ -482,7 +482,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _executionService.DeployWebApplicationAsync(programId, dto, cancellationToken);
+                return await _executionService.DeployWebApplicationAsync(programId, dto, CurrentUserId, cancellationToken);
             }, $"Deploy web application {programId}");
         }
 
@@ -872,7 +872,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _executionService.ScheduleExecutionAsync(programId, dto, cancellationToken);
+                return await _executionService.ScheduleExecutionAsync(programId, dto, CurrentUserId, cancellationToken);
             }, $"Schedule execution for program {programId}");
         }
 

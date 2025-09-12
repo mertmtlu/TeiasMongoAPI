@@ -225,7 +225,7 @@ namespace TeiasMongoAPI.API.Controllers
         {
             return await ExecuteAsync(async () =>
             {
-                return await _workflowService.CloneWorkflowAsync(id, cloneDto, cancellationToken);
+                return await _workflowService.CloneWorkflowAsync(id, cloneDto, CurrentUserId, cancellationToken);
             }, "Clone workflow");
         }
 

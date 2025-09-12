@@ -86,7 +86,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _uiComponentService.CreateAsync(programId, versionId, dto, cancellationToken);
+                return await _uiComponentService.CreateAsync(programId, versionId, dto, CurrentUserId, cancellationToken);
             }, $"Create UI component for program {programId}, version {versionId}");
         }
 
@@ -995,7 +995,7 @@ namespace TeiasMongoAPI.API.Controllers
                 };
 
                 // Create the cloned component in the target program version
-                var clonedComponent = await _uiComponentService.CreateAsync(targetProgramId, targetVersionId, cloneDto, cancellationToken);
+                var clonedComponent = await _uiComponentService.CreateAsync(targetProgramId, targetVersionId, cloneDto, CurrentUserId, cancellationToken);
 
                 // Copy assets using the service's copy method
                 await _uiComponentService.CopyComponentToVersionAsync(id, targetProgramId, targetVersionId, newName, cancellationToken);

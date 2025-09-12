@@ -190,7 +190,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new PagedResponse<VersionListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<VersionDto> CreateAsync(VersionCreateDto dto, ObjectId? objectId, CancellationToken cancellationToken = default)
+        public async Task<VersionDto> CreateAsync(VersionCreateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(dto.ProgramId);
             var program = await _unitOfWork.Programs.GetByIdAsync(programObjectId, cancellationToken);
@@ -203,12 +203,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Get next version number
             var nextVersionNumber = await _unitOfWork.Versions.GetNextVersionNumberAsync(programObjectId, cancellationToken);
 
-            string createdBy = "system"; // Should come from current user context BaseController holds CurrentUserId property
-
-            if (objectId is ObjectId userId)
-            {
-                createdBy = userId.ToString();
-            }
+            string createdBy = currentUserId?.ToString();
 
             var version = new Version
             {
@@ -239,7 +234,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<VersionDto>(createdVersion);
         }
 
-        public async Task<VersionDto> UpdateAsync(string id, VersionUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<VersionDto> UpdateAsync(string id, VersionUpdateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var existingVersion = await _unitOfWork.Versions.GetByIdAsync(objectId, cancellationToken);
@@ -422,7 +417,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return await CreatePagedVersionResponse(versions, pagination, cancellationToken);
         }
 
-        public async Task<bool> UpdateStatusAsync(string id, VersionStatusUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<bool> UpdateStatusAsync(string id, VersionStatusUpdateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var version = await _unitOfWork.Versions.GetByIdAsync(objectId, cancellationToken);
@@ -432,9 +427,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Version with ID {id} not found.");
             }
 
+            var reviewerId = currentUserId?.ToString();
             var success = await _unitOfWork.Versions.UpdateStatusAsync(objectId,
                 dto.Status,
-                "system", // Should come from current user context BaseController holds CurrentUserId property
+                reviewerId,
                 dto.Comments,
                 cancellationToken);
 
@@ -446,7 +442,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return success;
         }
 
-        public async Task<VersionReviewDto> SubmitReviewAsync(string id, VersionReviewSubmissionDto dto, CancellationToken cancellationToken = default)
+        public async Task<VersionReviewDto> SubmitReviewAsync(string id, VersionReviewSubmissionDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var version = await _unitOfWork.Versions.GetByIdAsync(objectId, cancellationToken);
@@ -461,9 +457,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new InvalidOperationException("Version is not pending review.");
             }
 
+            var reviewerId = currentUserId?.ToString();
             var success = await _unitOfWork.Versions.UpdateStatusAsync(objectId,
                 dto.Status, 
-                "system", // Should come from current user context BaseController holds CurrentUserId property
+                reviewerId,
                 dto.Comments, 
                 cancellationToken);
 
@@ -494,8 +491,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 VersionId = id,
                 Status = dto.Status,
                 Comments = dto.Comments,
-                ReviewedBy = "system",// Should come from current user context BaseController holds CurrentUserId property
-                ReviewedByName = "System",
+                ReviewedBy = reviewerId,
+                ReviewedByName = "System", // TODO: Get actual user name from currentUserId
                 ReviewedAt = DateTime.UtcNow
             };
         }
@@ -599,7 +596,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Version Deployment Operations
 
-        public async Task<VersionDeploymentDto> DeployVersionAsync(string versionId, VersionDeploymentRequestDto dto, CancellationToken cancellationToken = default)
+        public async Task<VersionDeploymentDto> DeployVersionAsync(string versionId, VersionDeploymentRequestDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var version = await _unitOfWork.Versions.GetByIdAsync(ParseObjectId(versionId), cancellationToken);
 
@@ -627,13 +624,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 VersionId = versionId,
                 Status = "deployed",
                 DeployedAt = DateTime.UtcNow,
-                DeployedBy = "system",// Should come from current user context BaseController holds CurrentUserId property
+                DeployedBy = currentUserId?.ToString(),
                 TargetEnvironments = dto.TargetEnvironments,
                 Configuration = dto.DeploymentConfiguration
             };
         }
 
-        public async Task<bool> RevertToPreviousVersionAsync(string programId, string versionId, CancellationToken cancellationToken = default)
+        public async Task<bool> RevertToPreviousVersionAsync(string programId, string versionId, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var version = await _unitOfWork.Versions.GetByIdAsync(ParseObjectId(versionId), cancellationToken);
 
@@ -666,7 +663,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return success;
         }
 
-        public async Task<bool> SetAsCurrentVersionAsync(string programId, string versionId, CancellationToken cancellationToken = default)
+        public async Task<bool> SetAsCurrentVersionAsync(string programId, string versionId, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var version = await _unitOfWork.Versions.GetByIdAsync(ParseObjectId(versionId), cancellationToken);
 
@@ -770,7 +767,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Commit Operations
 
-        public async Task<VersionDto> CommitChangesAsync(string programId, ObjectId? objectId, VersionCommitDto dto, CancellationToken cancellationToken = default)
+        public async Task<VersionDto> CommitChangesAsync(string programId, VersionCommitDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var programObjectId = ParseObjectId(programId);
 
@@ -782,12 +779,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Create new version
             var nextVersionNumber = await _unitOfWork.Versions.GetNextVersionNumberAsync(programObjectId, cancellationToken);
 
-            string createdBy = "system";// Should come from current user context BaseController holds CurrentUserId property
-
-            if (objectId is ObjectId userId)
-            {
-                createdBy = userId.ToString();
-            }
+            string createdBy = currentUserId?.ToString();
 
             var version = new Version
             {

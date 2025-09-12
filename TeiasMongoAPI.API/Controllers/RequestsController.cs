@@ -84,7 +84,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.CreateAsync(dto, cancellationToken);
+                return await _requestService.CreateAsync(dto, CurrentUserId, cancellationToken);
             }, "Create request");
         }
 
@@ -108,7 +108,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.UpdateAsync(id, dto, cancellationToken);
+                return await _requestService.UpdateAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Update request {id}");
         }
 
@@ -295,7 +295,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.UpdateStatusAsync(id, dto, cancellationToken);
+                return await _requestService.UpdateStatusAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Update status for request {id}");
         }
 
@@ -319,7 +319,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.AssignRequestAsync(id, dto, cancellationToken);
+                return await _requestService.AssignRequestAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Assign request {id}");
         }
 
@@ -338,7 +338,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.UnassignRequestAsync(id, cancellationToken);
+                return await _requestService.UnassignRequestAsync(id, CurrentUserId, cancellationToken);
             }, $"Unassign request {id}");
         }
 
@@ -362,7 +362,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.UpdatePriorityAsync(id, dto, cancellationToken);
+                return await _requestService.UpdatePriorityAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Update priority for request {id}");
         }
 
@@ -390,7 +390,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.AddResponseAsync(id, dto, cancellationToken);
+                return await _requestService.AddResponseAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Add response to request {id}");
         }
 
@@ -482,7 +482,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.OpenRequestAsync(id, cancellationToken);
+                return await _requestService.OpenRequestAsync(id, CurrentUserId, cancellationToken);
             }, $"Open request {id}");
         }
 
@@ -510,7 +510,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.StartWorkOnRequestAsync(id, assignedTo, cancellationToken);
+                return await _requestService.StartWorkOnRequestAsync(id, assignedTo, CurrentUserId, cancellationToken);
             }, $"Start work on request {id}");
         }
 
@@ -534,7 +534,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.CompleteRequestAsync(id, dto, cancellationToken);
+                return await _requestService.CompleteRequestAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Complete request {id}");
         }
 
@@ -558,7 +558,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.RejectRequestAsync(id, dto, cancellationToken);
+                return await _requestService.RejectRequestAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Reject request {id}");
         }
 
@@ -583,7 +583,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.ReopenRequestAsync(id, reason, cancellationToken);
+                return await _requestService.ReopenRequestAsync(id, reason, CurrentUserId, cancellationToken);
             }, $"Reopen request {id}");
         }
 
@@ -703,7 +703,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.CreateRequestTemplateAsync(dto, cancellationToken);
+                return await _requestService.CreateRequestTemplateAsync(dto, CurrentUserId, cancellationToken);
             }, "Create request template");
         }
 
@@ -727,7 +727,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _requestService.CreateFromTemplateAsync(templateId, dto, cancellationToken);
+                return await _requestService.CreateFromTemplateAsync(templateId, dto, CurrentUserId, cancellationToken);
             }, $"Create request from template {templateId}");
         }
 
@@ -1046,7 +1046,7 @@ namespace TeiasMongoAPI.API.Controllers
                         Reason = dto.Reason
                     };
 
-                    var success = await _requestService.UpdateStatusAsync(requestId, updateDto, cancellationToken);
+                    var success = await _requestService.UpdateStatusAsync(requestId, updateDto, CurrentUserId, cancellationToken);
                     if (success) successCount++;
                 }
 

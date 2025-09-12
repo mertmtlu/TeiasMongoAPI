@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
@@ -187,7 +188,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new PagedResponse<RequestListDto>(dtos, pagination.PageNumber, pagination.PageSize, totalCount);
         }
 
-        public async Task<RequestDto> CreateAsync(RequestCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<RequestDto> CreateAsync(RequestCreateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             // Validate required program
             if (string.IsNullOrEmpty(dto.ProgramId))
@@ -213,7 +214,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<RequestDto>(createdRequest);
         }
 
-        public async Task<RequestDto> UpdateAsync(string id, RequestUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<RequestDto> UpdateAsync(string id, RequestUpdateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var existingRequest = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
@@ -334,7 +335,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Request Status and Assignment Management
 
-        public async Task<bool> UpdateStatusAsync(string id, RequestStatusUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<bool> UpdateStatusAsync(string id, RequestStatusUpdateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
@@ -359,7 +360,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     var systemResponse = new RequestResponse
                     {
-                        RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
+                        RespondedBy = currentUserId?.ToString(),
                         RespondedAt = DateTime.UtcNow,
                         Message = $"Status changed to {dto.Status}: {dto.Reason}"
                     };
@@ -376,7 +377,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return success;
         }
 
-        public async Task<RequestDto> AssignRequestAsync(string id, RequestAssignmentDto dto, CancellationToken cancellationToken = default)
+        public async Task<RequestDto> AssignRequestAsync(string id, RequestAssignmentDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
@@ -405,7 +406,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 var assignmentResponse = new RequestResponse
                 {
-                    RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
+                    RespondedBy = currentUserId?.ToString(),
                     RespondedAt = DateTime.UtcNow,
                     Message = $"Request assigned to user: {dto.AssignmentNotes}"
                 };
@@ -422,7 +423,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<RequestDto>(updatedRequest);
         }
 
-        public async Task<bool> UnassignRequestAsync(string id, CancellationToken cancellationToken = default)
+        public async Task<bool> UnassignRequestAsync(string id, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
@@ -441,7 +442,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 var unassignResponse = new RequestResponse
                 {
-                    RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
+                    RespondedBy = currentUserId?.ToString(),
                     RespondedAt = DateTime.UtcNow,
                     Message = "Request unassigned and returned to open status"
                 };
@@ -457,7 +458,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return success;
         }
 
-        public async Task<bool> UpdatePriorityAsync(string id, RequestPriorityUpdateDto dto, CancellationToken cancellationToken = default)
+        public async Task<bool> UpdatePriorityAsync(string id, RequestPriorityUpdateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
@@ -476,7 +477,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     var priorityResponse = new RequestResponse
                     {
-                        RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
+                        RespondedBy = currentUserId?.ToString(),
                         RespondedAt = DateTime.UtcNow,
                         Message = $"Priority changed to {dto.Priority}: {dto.Reason}"
                     };
@@ -497,7 +498,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Request Response and Communication
 
-        public async Task<RequestResponseDto> AddResponseAsync(string id, RequestResponseCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<RequestResponseDto> AddResponseAsync(string id, RequestResponseCreateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
@@ -509,7 +510,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             var response = new RequestResponse
             {
-                RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
+                RespondedBy = currentUserId?.ToString(),
                 RespondedAt = DateTime.UtcNow,
                 Message = dto.Message
             };
@@ -588,21 +589,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #region Request Workflow Management
 
-        public async Task<bool> OpenRequestAsync(string id, CancellationToken cancellationToken = default)
+        public async Task<bool> OpenRequestAsync(string id, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
-            return await UpdateStatusAsync(id, new RequestStatusUpdateDto { Status = "open" }, cancellationToken);
+            return await UpdateStatusAsync(id, new RequestStatusUpdateDto { Status = "open" }, currentUserId, cancellationToken);
         }
 
-        public async Task<bool> StartWorkOnRequestAsync(string id, string assignedTo, CancellationToken cancellationToken = default)
+        public async Task<bool> StartWorkOnRequestAsync(string id, string assignedTo, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             // First assign the request
-            await AssignRequestAsync(id, new RequestAssignmentDto { AssignedTo = assignedTo }, cancellationToken);
+            await AssignRequestAsync(id, new RequestAssignmentDto { AssignedTo = assignedTo }, currentUserId, cancellationToken);
 
             // Then update status to in_progress
-            return await UpdateStatusAsync(id, new RequestStatusUpdateDto { Status = "in_progress" }, cancellationToken);
+            return await UpdateStatusAsync(id, new RequestStatusUpdateDto { Status = "in_progress" }, currentUserId, cancellationToken);
         }
 
-        public async Task<RequestDto> CompleteRequestAsync(string id, RequestCompletionDto dto, CancellationToken cancellationToken = default)
+        public async Task<RequestDto> CompleteRequestAsync(string id, RequestCompletionDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
@@ -623,7 +624,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Add completion response
             var completionResponse = new RequestResponse
             {
-                RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
+                RespondedBy = currentUserId?.ToString(),
                 RespondedAt = DateTime.UtcNow,
                 Message = $"Request completed: {dto.CompletionNotes}"
             };
@@ -639,7 +640,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<RequestDto>(updatedRequest);
         }
 
-        public async Task<RequestDto> RejectRequestAsync(string id, RequestRejectionDto dto, CancellationToken cancellationToken = default)
+        public async Task<RequestDto> RejectRequestAsync(string id, RequestRejectionDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
@@ -655,7 +656,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Add rejection response
             var rejectionResponse = new RequestResponse
             {
-                RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
+                RespondedBy = currentUserId?.ToString(),
                 RespondedAt = DateTime.UtcNow,
                 Message = $"Request rejected: {dto.RejectionReason}"
             };
@@ -671,7 +672,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<RequestDto>(updatedRequest);
         }
 
-        public async Task<bool> ReopenRequestAsync(string id, string reason, CancellationToken cancellationToken = default)
+        public async Task<bool> ReopenRequestAsync(string id, string reason, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var objectId = ParseObjectId(id);
             var request = await _unitOfWork.Requests.GetByIdAsync(objectId, cancellationToken);
@@ -697,7 +698,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Add reopen response
                 var reopenResponse = new RequestResponse
                 {
-                    RespondedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
+                    RespondedBy = currentUserId?.ToString(),
                     RespondedAt = DateTime.UtcNow,
                     Message = $"Request reopened: {reason}"
                 };
@@ -920,7 +921,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }).ToList();
         }
 
-        public async Task<RequestTemplateDto> CreateRequestTemplateAsync(RequestTemplateCreateDto dto, CancellationToken cancellationToken = default)
+        public async Task<RequestTemplateDto> CreateRequestTemplateAsync(RequestTemplateCreateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var template = new RequestTemplate
             {
@@ -933,7 +934,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 FieldDefinitions = dto.FieldDefinitions,
                 Priority = dto.Priority,
                 IsActive = dto.IsActive,
-                CreatedBy = "system", // Should come from current user context BaseController holds CurrentUserId property
+                CreatedBy = currentUserId?.ToString(),
                 CreatedAt = DateTime.UtcNow,
                 UsageCount = 0
             };
@@ -945,7 +946,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return _mapper.Map<RequestTemplateDto>(template);
         }
 
-        public async Task<RequestDto> CreateFromTemplateAsync(string templateId, RequestFromTemplateDto dto, CancellationToken cancellationToken = default)
+        public async Task<RequestDto> CreateFromTemplateAsync(string templateId, RequestFromTemplateDto dto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             if (!_requestTemplates.TryGetValue(templateId, out var template))
             {
@@ -980,7 +981,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Increment template usage
             template.UsageCount++;
 
-            var request = await CreateAsync(createDto, cancellationToken);
+            var request = await CreateAsync(createDto, currentUserId, cancellationToken);
 
             _logger.LogInformation("Created request {RequestId} from template {TemplateId} for program {ProgramId}",
                 request.Id, templateId, dto.ProgramId);
@@ -1278,18 +1279,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Get user details
                 try
                 {
-                    if (response.RespondedBy != "system") // Should come from current user context BaseController holds CurrentUserId property
+                    var user = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(response.RespondedBy), cancellationToken);
+                    if (user != null)
                     {
-                        var user = await _unitOfWork.Users.GetByIdAsync(ParseObjectId(response.RespondedBy), cancellationToken);
-                        if (user != null)
-                        {
-                            dto.RespondedByName = user.FullName;
-                        }
+                        dto.RespondedByName = user.FullName;
                     }
-                    else
-                    {
-                        dto.RespondedByName = "System";
-                    }
+
                 }
                 catch (Exception ex)
                 {
@@ -1465,7 +1460,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     FieldDefinitions = new { feature_name = "string", description = "text", justification = "text", criteria = "text" },
                     Priority = "normal",
                     IsActive = true,
-                    CreatedBy = "system", 
+                    CreatedBy = "6874e91f0f62e2c814e7fa89",
                     CreatedAt = DateTime.UtcNow,
                     UsageCount = 0
                 },
@@ -1480,7 +1475,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     FieldDefinitions = new { bug_title = "string", steps = "text", expected = "text", actual = "text", environment = "string" },
                     Priority = "normal",
                     IsActive = true,
-                    CreatedBy = "system",
+                    CreatedBy = "6874e91f0f62e2c814e7fa89",
                     CreatedAt = DateTime.UtcNow,
                     UsageCount = 0
                 },
@@ -1495,7 +1490,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     FieldDefinitions = new { issue_title = "string", issue_description = "text", steps_taken = "text", expected_resolution = "text" },
                     Priority = "normal",
                     IsActive = true,
-                    CreatedBy = "system",
+                    CreatedBy = "6874e91f0f62e2c814e7fa89",
                     CreatedAt = DateTime.UtcNow,
                     UsageCount = 0
                 }

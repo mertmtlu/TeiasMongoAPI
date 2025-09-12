@@ -105,7 +105,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _versionService.UpdateAsync(id, dto, cancellationToken);
+                return await _versionService.UpdateAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Update version {id}");
         }
 
@@ -320,7 +320,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _versionService.UpdateStatusAsync(id, dto, cancellationToken);
+                return await _versionService.UpdateStatusAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Update status for version {id}");
         }
 
@@ -343,7 +343,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _versionService.SubmitReviewAsync(id, dto, cancellationToken);
+                return await _versionService.SubmitReviewAsync(id, dto, CurrentUserId, cancellationToken);
             }, $"Submit review for version {id}");
         }
 
@@ -373,7 +373,7 @@ namespace TeiasMongoAPI.API.Controllers
                     Status = "approved",
                     Comments = comments
                 };
-                return await _versionService.SubmitReviewAsync(id, reviewDto, cancellationToken);
+                return await _versionService.SubmitReviewAsync(id, reviewDto, CurrentUserId, cancellationToken);
             }, $"Approve version {id}");
         }
 
@@ -403,7 +403,7 @@ namespace TeiasMongoAPI.API.Controllers
                     Status = "rejected",
                     Comments = comments
                 };
-                return await _versionService.SubmitReviewAsync(id, reviewDto, cancellationToken);
+                return await _versionService.SubmitReviewAsync(id, reviewDto, CurrentUserId, cancellationToken);
             }, $"Reject version {id}");
         }
 
@@ -432,7 +432,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _versionService.CommitChangesAsync(programId, CurrentUserId, dto, cancellationToken);
+                return await _versionService.CommitChangesAsync(programId, dto, CurrentUserId, cancellationToken);
             }, $"Commit changes for program {programId}");
         }
 
@@ -544,7 +544,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _versionService.DeployVersionAsync(versionId, dto, cancellationToken);
+                return await _versionService.DeployVersionAsync(versionId, dto, CurrentUserId, cancellationToken);
             }, $"Deploy version {versionId}");
         }
 
@@ -567,7 +567,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _versionService.RevertToPreviousVersionAsync(programId, versionId, cancellationToken);
+                return await _versionService.RevertToPreviousVersionAsync(programId, versionId, CurrentUserId, cancellationToken);
             }, $"Revert program {programId} to version {versionId}");
         }
 
@@ -590,7 +590,7 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _versionService.SetAsCurrentVersionAsync(programId, versionId, cancellationToken);
+                return await _versionService.SetAsCurrentVersionAsync(programId, versionId, CurrentUserId, cancellationToken);
             }, $"Set version {versionId} as current for program {programId}");
         }
 

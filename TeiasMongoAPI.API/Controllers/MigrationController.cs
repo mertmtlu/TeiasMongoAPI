@@ -37,10 +37,10 @@ namespace TeiasMongoAPI.API.Controllers
 
                 // Get direct access to the MongoDB collection
                 var database = _context.Database;
-                var collection = database.GetCollection<BsonDocument>("versions");
+                var collection = database.GetCollection<BsonDocument>("uicomponents");
 
                 // Find all documents where Reviewer field equals "system"
-                var filter = Builders<BsonDocument>.Filter.Eq("Reviewer", "system");
+                var filter = Builders<BsonDocument>.Filter.Eq("Creator", "system");
                 var documentsToUpdate = await collection.Find(filter).ToListAsync();
 
                 _logger.LogInformation("Found {DocumentCount} documents with 'system' reviewer entries", documentsToUpdate.Count);
@@ -50,9 +50,9 @@ namespace TeiasMongoAPI.API.Controllers
                     return Ok(new { message = "No documents found with 'system' reviewer entries", updated = 0 });
                 }
 
-                // Option 1: Set Reviewer to null for system entries
-                // This is the safest option as it removes the invalid data without making assumptions
-                var update = Builders<BsonDocument>.Update.Unset("Reviewer");
+                // Set Reviewer to the specified system user ID instead of null
+                var systemUserId = "6874e91f0f62e2c814e7fa89";
+                var update = Builders<BsonDocument>.Update.Set("Reviewer", systemUserId);
                 
                 var result = await collection.UpdateManyAsync(filter, update);
 
@@ -63,7 +63,7 @@ namespace TeiasMongoAPI.API.Controllers
                     message = "Successfully fixed system reviewer entries",
                     documentsFound = documentsToUpdate.Count,
                     documentsUpdated = result.ModifiedCount,
-                    action = "Set Reviewer field to null for system entries"
+                    action = $"Set Reviewer field to user ID {systemUserId} for system entries"
                 });
             }
             catch (Exception ex)

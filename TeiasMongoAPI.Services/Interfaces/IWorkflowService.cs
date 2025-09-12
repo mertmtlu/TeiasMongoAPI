@@ -1,3 +1,4 @@
+using MongoDB.Bson;
 using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
@@ -18,7 +19,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<PagedResponse<WorkflowListDto>> GetWorkflowsByStatusAsync(WorkflowStatus status, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<WorkflowListDto>> SearchWorkflowsAsync(string searchTerm, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<WorkflowListDto>> GetWorkflowTemplatesAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
-        Task<WorkflowDetailDto> CloneWorkflowAsync(string workflowId, WorkflowCloneDto cloneDto, CancellationToken cancellationToken = default);
+        Task<WorkflowDetailDto> CloneWorkflowAsync(string workflowId, WorkflowCloneDto cloneDto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default);
         Task<WorkflowValidationResult> ValidateWorkflowAsync(string workflowId, CancellationToken cancellationToken = default);
         Task<bool> UpdateWorkflowStatusAsync(string workflowId, WorkflowStatus status, CancellationToken cancellationToken = default);
         Task<bool> ArchiveWorkflowAsync(string workflowId, CancellationToken cancellationToken = default);

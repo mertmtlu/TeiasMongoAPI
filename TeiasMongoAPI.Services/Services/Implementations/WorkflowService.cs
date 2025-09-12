@@ -248,12 +248,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 (int)totalCount);
         }
 
-        public async Task<WorkflowDetailDto> CloneWorkflowAsync(string workflowId, WorkflowCloneDto cloneDto, CancellationToken cancellationToken = default)
+        public async Task<WorkflowDetailDto> CloneWorkflowAsync(string workflowId, WorkflowCloneDto cloneDto, ObjectId? currentUserId = null, CancellationToken cancellationToken = default)
         {
             var clonedWorkflow = await _unitOfWork.Workflows.CloneWorkflowAsync(
                 ObjectId.Parse(workflowId),
                 cloneDto.Name,
-                "current_user", // This should come from the current user context
+                currentUserId?.ToString(),
                 cancellationToken);
 
             if (!string.IsNullOrEmpty(cloneDto.Description))
