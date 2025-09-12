@@ -17,7 +17,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public override string Language => "C#";
         public override int Priority => 10;
 
-        public CSharpProjectRunner(ILogger<CSharpProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper) 
+        public CSharpProjectRunner(ILogger<CSharpProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper)
         {
             _unitOfWork = unitOfWork;
         }
@@ -83,6 +83,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             try
             {
                 _logger.LogInformation("Building C# project in {ProjectDirectory}", projectDirectory);
+
+                // Generate UIComponent.cs BEFORE attempting to build (to avoid compilation errors)
+                var programId = ExtractProgramIdFromDirectory(projectDirectory);
+                if (programId != ObjectId.Empty)
+                {
+                    await GenerateUIComponentFileAsync(projectDirectory, programId, cancellationToken);
+                }
 
                 // Find the main project file to build
                 var buildTarget = FindBuildTarget(projectDirectory);
@@ -227,12 +234,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             {
                 _logger.LogInformation("Executing C# project in {ProjectDirectory}", context.ProjectDirectory);
 
-                // Generate UIComponent.cs file based on the latest active UI component for the program
-                var programId = ExtractProgramIdFromContext(context);
-                if (programId != ObjectId.Empty)
-                {
-                    await GenerateUIComponentFileAsync(context.ProjectDirectory, programId, cancellationToken);
-                }
+                // Process input files from parameters (using base class method)
+                await ProcessInputFilesFromParametersAsync(context, cancellationToken);
+
+                // Note: UIComponent.cs is now generated during build phase, not execution phase
 
                 // This part is fine, it looks for an already-compiled executable
                 var executable = FindExecutable(context.ProjectDirectory);
@@ -256,11 +261,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         _logger.LogWarning("No .csproj file found to specify for 'dotnet run'. The command may fail if the project to run is ambiguous.");
                     }
 
-                    // Add parameters if any
+                    // Add parameters if any (using base class method to process files)
                     if (context.Parameters != null && context.Parameters.ToString() != "{}")
                     {
-                        var paramJson = JsonSerializer.Serialize(context.Parameters);
-                        runArgs += $" -- {paramJson}";
+                        var processedParams = ProcessParametersForExecution(context.Parameters, context.ProjectDirectory);
+                        var paramJson = JsonSerializer.Serialize(processedParams);
+                        runArgs += $" -- \"{paramJson}\"";
                     }
 
                     var processResult = await RunProcessAsync(
@@ -278,10 +284,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 }
                 else
                 {
-                    // Run the compiled executable directly (this logic is unchanged and correct)
+                    // Run the compiled executable directly with processed parameters
+                    var arguments = "";
+
+                    // Add parameters if any (using base class method to process files)
+                    if (context.Parameters != null && context.Parameters.ToString() != "{}")
+                    {
+                        var processedParams = ProcessParametersForExecution(context.Parameters, context.ProjectDirectory);
+                        var paramJson = JsonSerializer.Serialize(processedParams);
+                        arguments = $"\"{paramJson}\"";
+                    }
+
                     var processResult = await RunProcessAsync(
                         executable,
-                        "", // Arguments would be passed here
+                        arguments,
                         context.ProjectDirectory,
                         context.Environment,
                         context.ResourceLimits.MaxExecutionTimeMinutes,
@@ -574,11 +590,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
         private ObjectId ExtractProgramIdFromContext(ProjectExecutionContext context)
         {
+            return ExtractProgramIdFromDirectory(context.ProjectDirectory);
+        }
+
+        private ObjectId ExtractProgramIdFromDirectory(string projectDirectory)
+        {
             try
             {
-                // Extract program ID from the execution directory path
+                // Extract program ID from the project directory path
                 // Path format: ./storage/{programId}/{versionId}/execution/{executionId}/project
-                var projectPath = context.ProjectDirectory.Replace("\\", "/");
+                var projectPath = projectDirectory.Replace("\\", "/");
                 var pathParts = projectPath.Split('/');
 
                 // Find the storage directory index
@@ -592,12 +613,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     }
                 }
 
-                _logger.LogWarning("Could not extract program ID from project directory path: {ProjectDirectory}", context.ProjectDirectory);
+                _logger.LogWarning("Could not extract program ID from project directory path: {ProjectDirectory}", projectDirectory);
                 return ObjectId.Empty;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to extract program ID from context");
+                _logger.LogError(ex, "Failed to extract program ID from directory path");
                 return ObjectId.Empty;
             }
         }

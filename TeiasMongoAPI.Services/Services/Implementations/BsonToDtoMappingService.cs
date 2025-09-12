@@ -241,82 +241,122 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
+        // Assuming you have a logger instance named _logger available in the class
+        // and System.Text.Json is being used.
+
         private List<InputFileDto> ExtractFilesFromParameters(Dictionary<string, object> parameters)
         {
             try
             {
                 var inputFiles = new List<InputFileDto>();
-                
+
                 foreach (var kvp in parameters)
                 {
-                    // Check if this parameter looks like a file object (has filename and content)
+                    // Case 1: The value is already a dictionary representing a single file.
                     if (kvp.Value is Dictionary<string, object> fileDict)
                     {
-                        if (fileDict.ContainsKey("filename") && fileDict.ContainsKey("content"))
+                        if (TryParseFileDictionary(fileDict) is InputFileDto inputFile)
                         {
-                            var filename = fileDict.GetValueOrDefault("filename", "").ToString() ?? "";
-                            var content = fileDict.GetValueOrDefault("content", "").ToString() ?? "";
-                            var contentType = fileDict.GetValueOrDefault("contentType", "application/octet-stream").ToString() ?? "application/octet-stream";
-                            var fileSize = Convert.ToInt64(fileDict.GetValueOrDefault("fileSize", 0));
-
-                            if (!string.IsNullOrEmpty(filename) && !string.IsNullOrEmpty(content))
-                            {
-                                inputFiles.Add(new InputFileDto
-                                {
-                                    Name = filename,
-                                    Content = content,
-                                    ContentType = contentType,
-                                    Size = fileSize
-                                });
-
-                                _logger.LogDebug("Extracted file from parameters: {FileName} ({Size} bytes)", filename, fileSize);
-                            }
+                            inputFiles.Add(inputFile);
                         }
                     }
-                    // Handle JSON elements that might contain file data
-                    else if (kvp.Value is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
+                    // Case 2: The value is a JsonElement, which could be a single file object or an array of them.
+                    else if (kvp.Value is JsonElement jsonElement)
                     {
-                        try
+                        // Handle a single file object
+                        if (jsonElement.ValueKind == JsonValueKind.Object)
                         {
-                            var fileDictonary = JsonSerializer.Deserialize<Dictionary<string, object>>(jsonElement.GetRawText());
-                            if (fileDictonary?.ContainsKey("filename") == true && fileDictonary?.ContainsKey("content") == true)
+                            try
                             {
-                                var filename = fileDictonary.GetValueOrDefault("filename", "").ToString() ?? "";
-                                var content = fileDictonary.GetValueOrDefault("content", "").ToString() ?? "";
-                                var contentType = fileDictonary.GetValueOrDefault("contentType", "application/octet-stream").ToString() ?? "application/octet-stream";
-                                var baseFileSize = fileDictonary.GetValueOrDefault("fileSize", 0).ToString();
-
-
-                                var fileSize = Convert.ToInt64(baseFileSize);
-
-                                if (!string.IsNullOrEmpty(filename) && !string.IsNullOrEmpty(content))
+                                var fileDictionary = JsonSerializer.Deserialize<Dictionary<string, object>>(jsonElement.GetRawText());
+                                if (fileDictionary != null && TryParseFileDictionary(fileDictionary) is InputFileDto inputFile)
                                 {
-                                    inputFiles.Add(new InputFileDto
+                                    inputFiles.Add(inputFile);
+                                }
+                            }
+                            catch (JsonException ex)
+                            {
+                                _logger.LogDebug(ex, "Failed to parse JSON element object as file data for parameter {ParameterName}", kvp.Key);
+                            }
+                        }
+                        // --- THIS IS THE NEW LOGIC TO HANDLE THE ARRAY ---
+                        // Handle an array of file objects
+                        else if (jsonElement.ValueKind == JsonValueKind.Array)
+                        {
+                            // Iterate through each element in the JSON array
+                            foreach (var item in jsonElement.EnumerateArray())
+                            {
+                                // Each item should be a file object
+                                if (item.ValueKind == JsonValueKind.Object)
+                                {
+                                    try
                                     {
-                                        Name = filename,
-                                        Content = content,
-                                        ContentType = contentType,
-                                        Size = fileSize
-                                    });
-
-                                    _logger.LogDebug("Extracted file from JSON parameters: {FileName} ({Size} bytes)", filename, fileSize);
+                                        var fileDictionary = JsonSerializer.Deserialize<Dictionary<string, object>>(item.GetRawText());
+                                        if (fileDictionary != null && TryParseFileDictionary(fileDictionary) is InputFileDto inputFile)
+                                        {
+                                            inputFiles.Add(inputFile);
+                                        }
+                                    }
+                                    catch (JsonException ex)
+                                    {
+                                        _logger.LogDebug(ex, "Failed to parse an item in the JSON file array for parameter {ParameterName}", kvp.Key);
+                                    }
                                 }
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.LogDebug(ex, "Failed to parse JSON element as file data for parameter {ParameterName}", kvp.Key);
-                        }
                     }
                 }
-                
+
                 return inputFiles;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to extract files from parameters");
+                _logger.LogWarning(ex, "An unexpected error occurred while extracting files from parameters");
                 return new List<InputFileDto>();
             }
+        }
+
+        /// <summary>
+        /// Helper method to safely parse a dictionary into an InputFileDto.
+        /// This avoids code duplication.
+        /// </summary>
+        /// <param name="fileDict">The dictionary potentially containing file data.</param>
+        /// <returns>An InputFileDto if parsing is successful; otherwise, null.</returns>
+        private InputFileDto? TryParseFileDictionary(Dictionary<string, object> fileDict)
+        {
+            // Check for the essential keys "filename" and "content"
+            if (fileDict.TryGetValue("filename", out var filenameObj) &&
+                fileDict.TryGetValue("content", out var contentObj))
+            {
+                var filename = filenameObj?.ToString() ?? "";
+                var content = contentObj?.ToString() ?? "";
+
+                // Proceed only if the essential data is present
+                if (!string.IsNullOrEmpty(filename) && !string.IsNullOrEmpty(content))
+                {
+                    var contentType = fileDict.GetValueOrDefault("contentType", "application/octet-stream")?.ToString() ?? "application/octet-stream";
+
+                    // Safely parse the file size
+                    long fileSize = 0;
+                    if (fileDict.TryGetValue("fileSize", out var fileSizeObj) && fileSizeObj != null)
+                    {
+                        long.TryParse(fileSizeObj.ToString(), out fileSize);
+                    }
+
+                    var inputFile = new InputFileDto
+                    {
+                        Name = filename,
+                        Content = content,
+                        ContentType = contentType,
+                        Size = fileSize
+                    };
+
+                    _logger.LogDebug("Extracted file from parameters: {FileName} ({Size} bytes)", inputFile.Name, inputFile.Size);
+                    return inputFile;
+                }
+            }
+
+            return null;
         }
     }
 }

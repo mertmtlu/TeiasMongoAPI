@@ -431,6 +431,28 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("            var inputDir = Path.Combine(Directory.GetCurrentDirectory(), \"input\");");
             sb.AppendLine("            return Path.Combine(inputDir, fileName);");
             sb.AppendLine("        }");
+            sb.AppendLine();
+
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Get the full path to the input directory");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <returns>Full path to the input directory</returns>");
+            sb.AppendLine("        public static string GetInputDirectoryPath()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            return Path.Combine(Directory.GetCurrentDirectory(), \"input\");");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Get the full path to the output directory (creates if doesn't exist)");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <returns>Full path to the output directory</returns>");
+            sb.AppendLine("        public static string GetOutputDirectoryPath()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var outputDir = Path.Combine(Directory.GetCurrentDirectory(), \"output\");");
+            sb.AppendLine("            Directory.CreateDirectory(outputDir);");
+            sb.AppendLine("            return outputDir;");
+            sb.AppendLine("        }");
         }
 
         private static string SanitizePropertyName(string name)
@@ -459,10 +481,10 @@ namespace TeiasMongoAPI.Services.Helpers
             }
 
             var result = sanitized.ToString();
-            
+
             // Ensure it's not a C# keyword
             var keywords = new[] { "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else", "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock", "long", "namespace", "new", "null", "object", "operator", "out", "override", "params", "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void", "volatile", "while" };
-            
+
             if (keywords.Contains(result.ToLower()))
             {
                 result = "_" + result;
