@@ -418,6 +418,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         /// </summary>
         private async Task<string?> FindExecutionDirectoryAsync(string executionBasePath, string executionId, CancellationToken cancellationToken)
         {
+            // TODO: NEEDS IMMEDIATE FIX 
             try
             {
                 if (!Directory.Exists(executionBasePath))
