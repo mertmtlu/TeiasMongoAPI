@@ -24,5 +24,6 @@ namespace TeiasMongoAPI.Services.Interfaces
         
         Task<bool> UpdateStatusAsync(string id, string status, CancellationToken cancellationToken = default);
         Task<bool> ValidateNameUniqueAsync(string name, string? excludeId = null, CancellationToken cancellationToken = default);
+        Task<string> GetLaunchUrlAsync(string id, string userId, CancellationToken cancellationToken = default);
     }
 }

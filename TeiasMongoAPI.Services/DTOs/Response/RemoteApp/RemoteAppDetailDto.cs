@@ -13,6 +13,9 @@ namespace TeiasMongoAPI.Services.DTOs.Response.RemoteApp
         public DateTime CreatedAt { get; set; }
         public DateTime? ModifiedAt { get; set; }
         public List<RemoteAppAssignedUserDto> AssignedUsers { get; set; } = new();
+        public string? DefaultUsername { get; set; }
+        public string? DefaultPassword { get; set; }
+        public string? SsoUrl { get; set; }
     }
 
     public class RemoteAppAssignedUserDto

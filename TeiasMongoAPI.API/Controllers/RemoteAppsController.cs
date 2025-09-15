@@ -327,6 +327,48 @@ namespace TeiasMongoAPI.API.Controllers
 
         #endregion
 
+        #region Launch
+
+        /// <summary>
+        /// Launch remote app - redirects to SSO URL if configured, otherwise to base URL
+        /// </summary>
+        [HttpGet("{id}/launch")]
+        [RequirePermission(UserPermissions.ViewPrograms)]
+        public async Task<IActionResult> Launch(
+            string id,
+            CancellationToken cancellationToken = default)
+        {
+            var objectIdResult = ParseObjectId(id);
+            if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            try
+            {
+                var userId = CurrentUserId?.ToString();
+                if (string.IsNullOrEmpty(userId))
+                {
+                    return Unauthorized("User not authenticated");
+                }
+
+                var launchUrl = await _remoteAppService.GetLaunchUrlAsync(id, userId, cancellationToken);
+                return Redirect(launchUrl);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Forbid(ex.Message);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error launching remote app {RemoteAppId}", id);
+                return StatusCode(500, "Internal server error occurred while launching remote app");
+            }
+        }
+
+        #endregion
+
         #region Validation
 
         /// <summary>

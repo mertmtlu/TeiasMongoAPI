@@ -10,5 +10,8 @@ namespace TeiasMongoAPI.Services.DTOs.Response.RemoteApp
         public required string Creator { get; set; }
         public string Status { get; set; } = "active";
         public DateTime CreatedAt { get; set; }
+        public string? DefaultUsername { get; set; }
+        public string? DefaultPassword { get; set; }
+        public string? SsoUrl { get; set; }
     }
 }

@@ -82,6 +82,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var remoteApp = _mapper.Map<RemoteApp>(dto);
             remoteApp.Creator = creatorId;
             remoteApp.CreatedAt = DateTime.UtcNow;
+            remoteApp.DefaultUsername = dto.DefaultUsername;
+            remoteApp.DefaultPassword = dto.DefaultPassword;
+            remoteApp.SsoUrl = dto.SsoUrl;
 
             // Convert assigned user IDs to ObjectIds
             if (dto.AssignedUserIds.Any())
@@ -134,6 +137,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             
             if (dto.IsPublic.HasValue)
                 existingRemoteApp.IsPublic = dto.IsPublic.Value;
+            
+            if (dto.DefaultUsername != null)
+                existingRemoteApp.DefaultUsername = dto.DefaultUsername;
+            
+            if (dto.DefaultPassword != null)
+                existingRemoteApp.DefaultPassword = dto.DefaultPassword;
+            
+            if (dto.SsoUrl != null)
+                existingRemoteApp.SsoUrl = dto.SsoUrl;
 
             // Update assigned users if provided
             if (dto.AssignedUserIds != null)
@@ -272,6 +284,34 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             return await _unitOfWork.RemoteApps.IsNameUniqueAsync(name, excludeObjectId, cancellationToken);
+        }
+
+        public async Task<string> GetLaunchUrlAsync(string id, string userId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            if (!ObjectId.TryParse(userId, out var userObjectId))
+                throw new ArgumentException("Invalid user ID format", nameof(userId));
+
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
+
+            // Check if user has access (public apps or assigned users)
+            if (!remoteApp.IsPublic && !remoteApp.AssignedUsers.Contains(userObjectId))
+                throw new UnauthorizedAccessException("User does not have access to this remote app");
+
+            // If SSO credentials are configured, construct SSO URL
+            if (!string.IsNullOrEmpty(remoteApp.SsoUrl) && 
+                !string.IsNullOrEmpty(remoteApp.DefaultUsername) && 
+                !string.IsNullOrEmpty(remoteApp.DefaultPassword))
+            {
+                return $"{remoteApp.SsoUrl}?username={remoteApp.DefaultUsername}&password={remoteApp.DefaultPassword}";
+            }
+
+            // Otherwise return the base URL
+            return remoteApp.Url;
         }
 
     }

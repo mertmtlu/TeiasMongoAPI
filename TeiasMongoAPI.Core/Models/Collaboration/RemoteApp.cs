@@ -35,5 +35,14 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
 
         [BsonElement("metadata")]
         public object Metadata { get; set; } = new object();
+
+        [BsonElement("defaultUsername")]
+        public string? DefaultUsername { get; set; }
+
+        [BsonElement("defaultPassword")]
+        public string? DefaultPassword { get; set; }
+
+        [BsonElement("ssoUrl")]
+        public string? SsoUrl { get; set; }
     }
 }
