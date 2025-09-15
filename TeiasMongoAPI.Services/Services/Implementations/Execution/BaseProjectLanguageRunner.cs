@@ -103,7 +103,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             {
                 if (e.Data != null)
                 {
-                    error.AppendLine(e.Data);
+                    if (e.Data.ToLower().Contains("error"))
+                    {
+                        error.AppendLine(e.Data);
+                    }
+                    else
+                    {
+                        output.AppendLine(e.Data);
+                    }
                 }
             };
 
@@ -185,8 +192,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             {
                 // CRITICAL FIX: Use DTO mapping service instead of direct JsonSerializer
                 var contextDto = _bsonMapper.MapToExecutionContextDto(
-                    context.Parameters, 
-                    context.ExecutionId, 
+                    context.Parameters,
+                    context.ExecutionId,
                     context.ProjectDirectory);
 
                 if (contextDto.InputFiles != null && contextDto.InputFiles.Any())
