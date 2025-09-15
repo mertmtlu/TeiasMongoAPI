@@ -418,7 +418,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         /// </summary>
         private async Task<string?> FindExecutionDirectoryAsync(string executionBasePath, string executionId, CancellationToken cancellationToken)
         {
-            // TODO: NEEDS IMMEDIATE FIX 
             try
             {
                 if (!Directory.Exists(executionBasePath))
@@ -426,47 +425,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     return null;
                 }
 
-                var executionDirectories = Directory.GetDirectories(executionBasePath);
-
-                foreach (var directory in executionDirectories)
+                // With the fix, execution folders now use the database execution ID directly
+                var executionDirectory = Path.Combine(executionBasePath, executionId);
+                
+                if (Directory.Exists(executionDirectory))
                 {
-                    // Check for metadata files that might contain the database execution ID
-                    var logsPath = Path.Combine(directory, "logs");
-                    if (Directory.Exists(logsPath))
-                    {
-                        var metadataFiles = Directory.GetFiles(logsPath, "*metadata*.json", SearchOption.TopDirectoryOnly);
-
-                        foreach (var metadataFile in metadataFiles)
-                        {
-                            try
-                            {
-                                var metadata = await File.ReadAllTextAsync(metadataFile, cancellationToken);
-                                // Check if this metadata contains our execution ID
-                                if (metadata.Contains(executionId))
-                                {
-                                    return directory;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "Failed to read metadata file {MetadataFile}", metadataFile);
-                            }
-                        }
-                    }
+                    return executionDirectory;
                 }
 
-                // Fallback: if no metadata found, try the most recent directory (last execution)
-                if (executionDirectories.Length > 0)
-                {
-                    var mostRecentDirectory = executionDirectories
-                        .OrderByDescending(dir => Directory.GetCreationTime(dir))
-                        .FirstOrDefault();
-
-                    _logger.LogWarning("No metadata found for execution {ExecutionId}, using most recent directory {Directory}",
-                        executionId, mostRecentDirectory);
-                    return mostRecentDirectory;
-                }
-
+                _logger.LogWarning("Execution directory not found for execution {ExecutionId} at path {ExpectedPath}", 
+                    executionId, executionDirectory);
                 return null;
             }
             catch (Exception ex)

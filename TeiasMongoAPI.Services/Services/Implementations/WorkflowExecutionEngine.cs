@@ -1104,7 +1104,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
 
                 // Execute program (only if no UI interaction required)
-                var programResult = await _projectExecutionEngine.ExecuteProjectAsync(programRequest, cancellationToken);
+                var nodeExecutionId = $"{executionId}_{nodeId}";
+                var programResult = await _projectExecutionEngine.ExecuteProjectAsync(programRequest, nodeExecutionId, cancellationToken);
 
                 // Process results
                 var outputData = await ProcessNodeOutputAsync(session, nodeId, programResult, cancellationToken);
@@ -2268,7 +2269,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _logger.LogInformation("Executing program {ProgramId} for node {NodeId} after UI interaction with parameters: {Parameters}",
                 node.ProgramId, nodeId, ConvertBsonDocumentToJson(inputData.Data));
 
-            var programResult = await _projectExecutionEngine.ExecuteProjectAsync(programRequest, cancellationToken);
+            var nodeExecutionId = $"{executionId}_{nodeId}";
+            var programResult = await _projectExecutionEngine.ExecuteProjectAsync(programRequest, nodeExecutionId, cancellationToken);
 
             _logger.LogInformation("Program execution completed for node {NodeId}. Success: {Success}, ExecutionId: {ExecutionId}, Message: {Message}",
                 nodeId, programResult.Success, programResult.ExecutionId, programResult.ErrorMessage ?? "No errors");

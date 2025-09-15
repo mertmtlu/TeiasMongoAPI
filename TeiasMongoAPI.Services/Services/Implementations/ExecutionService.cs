@@ -1804,7 +1804,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 };
 
                 // Execute using project execution engine
-                var result = await _projectExecutionEngine.ExecuteProjectAsync(projectRequest, context.CancellationTokenSource.Token);
+                var result = await _projectExecutionEngine.ExecuteProjectAsync(projectRequest, executionId, context.CancellationTokenSource.Token);
 
                 // Update execution record with results
                 await UpdateExecutionWithProjectResultAsync(execution, result, cancellationToken);

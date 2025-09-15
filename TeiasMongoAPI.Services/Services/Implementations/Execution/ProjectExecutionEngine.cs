@@ -41,9 +41,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             _settings = settings.Value;
         }
 
-        public async Task<ProjectExecutionResult> ExecuteProjectAsync(ProjectExecutionRequest request, CancellationToken cancellationToken = default)
+        public async Task<ProjectExecutionResult> ExecuteProjectAsync(ProjectExecutionRequest request, string executionId, CancellationToken cancellationToken = default)
         {
-            var executionId = Guid.NewGuid().ToString();
             var session = new ExecutionSession
             {
                 ExecutionId = executionId,

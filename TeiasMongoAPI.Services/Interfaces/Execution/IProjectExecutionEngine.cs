@@ -5,7 +5,7 @@ namespace TeiasMongoAPI.Services.Interfaces.Execution
 {
     public interface IProjectExecutionEngine
     {
-        Task<ProjectExecutionResult> ExecuteProjectAsync(ProjectExecutionRequest request, CancellationToken cancellationToken = default);
+        Task<ProjectExecutionResult> ExecuteProjectAsync(ProjectExecutionRequest request, string executionId, CancellationToken cancellationToken = default);
         Task<ProjectValidationResult> ValidateProjectAsync(string programId, string versionId, CancellationToken cancellationToken = default);
         Task<ProjectStructureAnalysis> AnalyzeProjectStructureAsync(string programId, string versionId, CancellationToken cancellationToken = default);
         Task<bool> CancelExecutionAsync(string executionId, CancellationToken cancellationToken = default);
