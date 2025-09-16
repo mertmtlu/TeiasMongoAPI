@@ -8,7 +8,7 @@ namespace TeiasMongoAPI.Services.Specifications
     public class RemoteAppsUserAccessibleSpecification : BaseSpecification<RemoteApp>
     {
         public RemoteAppsUserAccessibleSpecification(ObjectId userId, PaginationRequestDto pagination) 
-            : base(r => r.AssignedUsers.Contains(userId) || r.IsPublic)
+            : base(r => r.AssignedUsers.Contains(userId) || r.IsPublic || r.Creator == userId.ToString())
         {
             // Default ordering by creation date descending (newest first)
             AddOrderByDescending(r => r.CreatedAt);

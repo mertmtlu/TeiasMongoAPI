@@ -299,7 +299,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Remote app with ID {id} not found");
 
             // Check if user has access (public apps or assigned users)
-            if (!remoteApp.IsPublic && !remoteApp.AssignedUsers.Contains(userObjectId))
+            if (!remoteApp.IsPublic && !remoteApp.AssignedUsers.Contains(userObjectId) && remoteApp.Creator != userId)
                 throw new UnauthorizedAccessException("User does not have access to this remote app");
 
             // If SSO credentials are configured, construct SSO URL
