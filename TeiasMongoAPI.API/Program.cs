@@ -139,10 +139,9 @@ namespace TeiasMongoAPI.API
                 // Generate detailed schemas
                 //c.UseAllOfToExtendReferenceSchemas();
                 //c.UseAllOfForInheritance();
-                //c.UseOneOfForPolymorphism();
-
-                // Custom schema IDs
-                //c.CustomSchemaIds(type => type.FullName?.Replace("+", "."));
+                
+                // Register additional types that should be included in the schema
+                c.SchemaFilter<AdditionalSchemasFilter>();
             });
 
             // MODIFICATION: Configure MongoDB with optimized connection settings

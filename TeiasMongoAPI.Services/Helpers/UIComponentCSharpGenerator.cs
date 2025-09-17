@@ -2,6 +2,7 @@ using MongoDB.Bson;
 using System.Text;
 using System.Text.Json;
 using TeiasMongoAPI.Core.Models.Collaboration;
+using TeiasMongoAPI.Services.Helpers;
 
 namespace TeiasMongoAPI.Services.Helpers
 {
@@ -495,21 +496,37 @@ namespace TeiasMongoAPI.Services.Helpers
 
         private static string GetCSharpType(string elementType, Dictionary<string, object> element)
         {
-            return elementType switch
+            var type = UIComponentTypeRegistry.GetTypeForElement(elementType);
+            return GetCSharpTypeName(type);
+        }
+
+        private static string GetCSharpTypeName(Type type)
+        {
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
             {
-                "text_input" => "string?",
-                "textarea" => "string?",
-                "number_input" => "double?",
-                "dropdown" => "string?",
-                "checkbox" => "bool",
-                "radio" => "string?",
-                "date_input" => "string?",
-                "slider" => "double?",
-                "multi_select" => "List<string>?",
-                "file_input" => GetFileInputType(element),
-                "table" => "Dictionary<string, object>?",
-                _ => "string?"
+                var genericArgument = type.GetGenericArguments()[0];
+                // Handle nested generics if necessary in the future
+                return $"List<{genericArgument.Name}>?";
+            }
+
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+            {
+                var keyType = type.GetGenericArguments()[0].Name;
+                var valueType = type.GetGenericArguments()[1].Name;
+                return $"Dictionary<{keyType}, {valueType}>?";
+            }
+            
+            // Primitive/simple types
+            var typeName = type.Name switch
+            {
+                "String" => "string?",
+                "Boolean" => "bool",
+                "Double" => "double?",
+                "Object" => "object?",
+                _ => $"{type.Name}?" // For DTOs like NamedPointDto
             };
+
+            return typeName;
         }
 
         private static string GetFileInputType(Dictionary<string, object> element)

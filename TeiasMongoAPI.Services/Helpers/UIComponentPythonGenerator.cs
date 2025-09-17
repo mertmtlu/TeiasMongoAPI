@@ -9,8 +9,12 @@ namespace TeiasMongoAPI.Services.Helpers
 {
     public static class UIComponentPythonGenerator
     {
+        private static readonly HashSet<Type> CollectedDtoTypes = new HashSet<Type>();
+
         public static string GenerateUIComponentPython(UiComponent component)
         {
+            // Clear collected DTOs for each generation
+            CollectedDtoTypes.Clear();
             var sb = new StringBuilder();
 
             // File header
@@ -24,6 +28,12 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("import re");
             sb.AppendLine("import sys");
             sb.AppendLine();
+
+            // First pass: collect DTO types by processing elements
+            CollectDtoTypesFromElements(component);
+
+            // Generate DTO class definitions at the top
+            GenerateDtoClassDefinitions(sb);
 
             // Component class
             sb.AppendLine($"class UIComponent:");
@@ -89,6 +99,185 @@ namespace TeiasMongoAPI.Services.Helpers
             sb.AppendLine("ui = UIComponent()");
 
             return sb.ToString();
+        }
+
+        private static void CollectDtoTypesFromElements(UiComponent component)
+        {
+            Dictionary<string, object> config = null;
+            if (component.Configuration is string configString && !string.IsNullOrWhiteSpace(configString))
+            {
+                try
+                {
+                    config = JsonSerializer.Deserialize<Dictionary<string, object>>(configString);
+                }
+                catch (JsonException)
+                {
+                    return;
+                }
+            }
+
+            if (config != null && config.ContainsKey("elements"))
+            {
+                if (config["elements"] is JsonElement elementsArray && elementsArray.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement element in elementsArray.EnumerateArray())
+                    {
+                        var elementDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(element.GetRawText());
+                        if (elementDoc != null)
+                        {
+                            CollectDtoTypesFromElement(elementDoc);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void CollectDtoTypesFromElement(Dictionary<string, object> element)
+        {
+            if (element == null) return;
+
+            var elementType = element.TryGetValue("type", out var type) ? type?.ToString() ?? "" : "";
+            
+            // Get the C# type for this element
+            var csharpType = UIComponentTypeRegistry.GetTypeForElement(elementType);
+            
+            // Check if it's a DTO type we need to generate
+            CollectDtoTypeRecursively(csharpType);
+
+            // For table elements, also check cell types
+            if (elementType == "table")
+            {
+                CollectDtoTypesFromTableElement(element);
+            }
+        }
+
+        private static void CollectDtoTypesFromTableElement(Dictionary<string, object> element)
+        {
+            var tableConfig = element.TryGetValue("tableConfig", out var tableConfigObj) ?
+                JsonSerializer.Deserialize<Dictionary<string, object>>(tableConfigObj.ToString()) : null;
+            
+            var cells = tableConfig?.TryGetValue("cells", out var cellsObj) == true ?
+                JsonSerializer.Deserialize<IEnumerable<object>>(cellsObj.ToString()) : null;
+
+            if (cells != null)
+            {
+                foreach (var cell in cells)
+                {
+                    var cellDoc = JsonSerializer.Deserialize<Dictionary<string, object>>(cell.ToString());
+                    if (cellDoc != null)
+                    {
+                        var cellType = cellDoc.TryGetValue("type", out var cType) ? cType?.ToString() ?? "text" : "text";
+                        var csharpType = UIComponentTypeRegistry.GetTypeForElement(cellType);
+                        CollectDtoTypeRecursively(csharpType);
+                    }
+                }
+            }
+        }
+
+        private static void CollectDtoTypeRecursively(Type type)
+        {
+            if (type == null) return;
+
+            // Handle generic List types
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                var genericArgument = type.GetGenericArguments()[0];
+                CollectDtoTypeRecursively(genericArgument);
+                return;
+            }
+
+            // Handle generic Dictionary types
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+            {
+                var keyType = type.GetGenericArguments()[0];
+                var valueType = type.GetGenericArguments()[1];
+                CollectDtoTypeRecursively(keyType);
+                CollectDtoTypeRecursively(valueType);
+                return;
+            }
+
+            // Check if this is a DTO type (classes ending with "Dto" or in the DTOs namespace)
+            if (IsDto(type))
+            {
+                CollectedDtoTypes.Add(type);
+            }
+        }
+
+        private static bool IsDto(Type type)
+        {
+            return type.Name.EndsWith("Dto") || 
+                   (type.Namespace?.Contains("DTOs") == true);
+        }
+
+        private static void GenerateDtoClassDefinitions(StringBuilder sb)
+        {
+            if (!CollectedDtoTypes.Any())
+            {
+                return;
+            }
+
+            sb.AppendLine("# DTO classes generated from C#");
+            
+            foreach (var dtoType in CollectedDtoTypes.OrderBy(t => t.Name))
+            {
+                GenerateDtoClassDefinition(sb, dtoType);
+            }
+            
+            sb.AppendLine("# Main UI Component class");
+        }
+
+        private static void GenerateDtoClassDefinition(StringBuilder sb, Type dtoType)
+        {
+            sb.AppendLine($"class {dtoType.Name}:");
+            
+            var properties = dtoType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            
+            if (!properties.Any())
+            {
+                sb.AppendLine("    pass");
+            }
+            else
+            {
+                foreach (var prop in properties)
+                {
+                    var pythonType = GetPythonTypeForProperty(prop.PropertyType);
+                    var propertyName = ToPythonPropertyName(prop.Name);
+                    sb.AppendLine($"    {propertyName}: {pythonType}");
+                }
+            }
+            
+            sb.AppendLine();
+        }
+
+        private static string GetPythonTypeForProperty(Type propertyType)
+        {
+            // Handle nullable types
+            if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                var underlyingType = Nullable.GetUnderlyingType(propertyType);
+                return $"Optional[{GetPythonTypeForCSharpType(underlyingType)}]";
+            }
+
+            // Handle nullable reference types (string? etc.)
+            if (propertyType == typeof(string) || propertyType.Name.EndsWith("?"))
+            {
+                return $"Optional[{GetPythonTypeForCSharpType(propertyType)}]";
+            }
+
+            // For value types, keep as is
+            if (propertyType.IsValueType)
+            {
+                return GetPythonTypeForCSharpType(propertyType);
+            }
+
+            // For reference types, make them optional
+            return $"Optional[{GetPythonTypeForCSharpType(propertyType)}]";
+        }
+
+        private static string ToPythonPropertyName(string csharpPropertyName)
+        {
+            // Convert PascalCase to snake_case
+            return string.Concat(csharpPropertyName.Select((x, i) => i > 0 && char.IsUpper(x) ? "_" + x : x.ToString())).ToLower();
         }
 
         private static void GenerateElementProperty(StringBuilder sb, Dictionary<string, object>? element)
@@ -905,20 +1094,45 @@ namespace TeiasMongoAPI.Services.Helpers
         }
         private static string GetPythonType(string elementType)
         {
-            return elementType switch
+            var type = UIComponentTypeRegistry.GetTypeForElement(elementType);
+            return GetPythonTypeName(type);
+        }
+
+        private static string GetPythonTypeName(Type type)
+        {
+            // Handle generic List types
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
             {
-                "text_input" => "Optional[str]",
-                "textarea" => "Optional[str]",
-                "number_input" => "Optional[Union[int, float]]",
-                "dropdown" => "Optional[str]",
-                "checkbox" => "Optional[bool]",
-                "radio" => "Optional[str]",
-                "file_input" => "Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]", // Updated
-                "date_input" => "Optional[str]",
-                "slider" => "Optional[Union[int, float]]",
-                "multi_select" => "Optional[List[str]]",
-                "table" => "Optional[Dict[str, Any]]",
-                _ => "Optional[Any]"
+                var genericArgument = type.GetGenericArguments()[0];
+                var innerType = GetPythonTypeForCSharpType(genericArgument);
+                return $"Optional[List[{innerType}]]";
+            }
+
+            // Handle generic Dictionary types
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+            {
+                var keyType = GetPythonTypeForCSharpType(type.GetGenericArguments()[0]);
+                var valueType = GetPythonTypeForCSharpType(type.GetGenericArguments()[1]);
+                return $"Optional[Dict[{keyType}, {valueType}]]";
+            }
+
+            // Handle simple types and DTOs
+            return $"Optional[{GetPythonTypeForCSharpType(type)}]";
+        }
+
+        private static string GetPythonTypeForCSharpType(Type csharpType)
+        {
+            return csharpType.Name switch
+            {
+                "String" => "str",
+                "Boolean" => "bool",
+                "Double" => "Union[int, float]",
+                "Nullable`1" when csharpType.GetGenericArguments()[0].Name == "Double" => "Union[int, float]",
+                "Object" => "Any",
+                "Int64" => "int",
+                "NamedPointDto" => "NamedPointDto",
+                "FileDataDto" => "FileDataDto",
+                _ => "Any" // Fallback for DTOs and unknown types
             };
         }
 

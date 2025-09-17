@@ -613,9 +613,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             // --- 1. Setup: Prepare constants and lookups for high performance ---
 
             // Using HashSet provides O(1) "Contains" checks, which is much faster than a List.
-            var outputSubDirs = new HashSet<string> { "bin", "dist", "build", "target", "out", "output" };
-            var excludedFileNames = new HashSet<string> { "WorkflowInputs", "UIComponent" };
-            var excludedSubDirs = new HashSet<string> { "__pycache__", ".git", "node_modules" };
+            var outputSubDirs = new HashSet<string> {"dist", "build", "target", "out", "output" };
+            var excludedFileNames = new HashSet<string> { "WorkflowInputs" };
+            var excludedSubDirs = new HashSet<string> { "__pycache__", ".git", "node_modules", "bin", "obj" };
 
             var outputsDirectory = Path.Combine(executionDirectory, "outputs");
             var collectedOutputPaths = new List<string>();
