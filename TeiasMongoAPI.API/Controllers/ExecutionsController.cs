@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Net.Http.Headers;
 using TeiasMongoAPI.API.Attributes;
 using TeiasMongoAPI.API.Controllers.Base;
 using TeiasMongoAPI.Core.Models.KeyModels;
@@ -1123,25 +1124,41 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}/files/download-all")]
         [RequirePermission(UserPermissions.ViewExecutionResults)]
-        public async Task<ActionResult<ApiResponse<BulkDownloadResult>>> DownloadAllExecutionFiles(
+        public async Task<IActionResult> DownloadAllExecutionFiles(
             string id,
-            [FromQuery] bool includeMetadata = false,
-            [FromQuery] string compressionLevel = "optimal",
             CancellationToken cancellationToken = default)
         {
             var objectIdResult = ParseObjectId(id);
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
-            return await ExecuteAsync(async () =>
+            try
             {
                 // Get execution details
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
 
-                // Create ZIP archive using the service
-                var result = await _fileStorageService.CreateExecutionZipArchiveAsync(execution, cancellationToken);
+                // Set response headers for file download
+                Response.ContentType = "application/zip";
+                Response.Headers.Add(HeaderNames.ContentDisposition,
+                    new ContentDispositionHeaderValue("attachment")
+                    {
+                        FileName = $"execution-{execution.Id}-output-files.zip"
+                    }.ToString());
 
-                return result;
-            }, $"Download all files for execution {id}");
+                // Stream the ZIP archive directly to the response
+                await _fileStorageService.WriteExecutionZipToStreamAsync(execution, Response.Body, cancellationToken);
+
+                return new OkResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error downloading all files for execution {ExecutionId}", id);
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message,
+                    Data = null
+                });
+            }
         }
 
         /// <summary>

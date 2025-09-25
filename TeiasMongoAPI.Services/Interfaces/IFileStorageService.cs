@@ -105,6 +105,15 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<BulkDownloadResult> CreateExecutionZipArchiveAsync(
             TeiasMongoAPI.Services.DTOs.Response.Collaboration.ExecutionDetailDto execution,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Writes all execution output files directly to a stream as a ZIP archive.
+        /// This method provides streaming functionality for large files to avoid memory issues.
+        /// </summary>
+        Task WriteExecutionZipToStreamAsync(
+            TeiasMongoAPI.Services.DTOs.Response.Collaboration.ExecutionDetailDto execution,
+            System.IO.Stream targetStream,
+            CancellationToken cancellationToken = default);
     }
 
     public class FileStorageResult

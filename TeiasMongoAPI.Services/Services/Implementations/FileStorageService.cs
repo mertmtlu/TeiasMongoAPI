@@ -822,6 +822,54 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
+        public async Task WriteExecutionZipToStreamAsync(TeiasMongoAPI.Services.DTOs.Response.Collaboration.ExecutionDetailDto execution, System.IO.Stream targetStream, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // Get list of execution output files first
+                var executionFiles = await ListExecutionFilesAsync(
+                    execution.ProgramId,
+                    execution.VersionId,
+                    execution.Id,
+                    cancellationToken);
+
+                var nonDirectoryFiles = executionFiles.Where(f => f.FileType != "directory").ToList();
+
+                // Create ZIP archive directly to the target stream
+                using (var archive = new System.IO.Compression.ZipArchive(targetStream, System.IO.Compression.ZipArchiveMode.Create, true))
+                {
+                    foreach (var file in nonDirectoryFiles)
+                    {
+                        try
+                        {
+                            var fileContent = await GetExecutionFileAsync(
+                                execution.ProgramId,
+                                execution.VersionId,
+                                execution.Id,
+                                file.Path,
+                                cancellationToken);
+
+                            var entry = archive.CreateEntry(file.Path);
+                            using var entryStream = entry.Open();
+                            await entryStream.WriteAsync(fileContent.Content, cancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to add file {FilePath} to execution ZIP stream", file.Path);
+                        }
+                    }
+                } // ZipArchive is disposed here, data is written to targetStream
+
+                _logger.LogInformation("Streamed execution ZIP archive for execution {ExecutionId}: {FileCount} files",
+                    execution.Id, nonDirectoryFiles.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to stream execution ZIP archive for execution {ExecutionId}", execution.Id);
+                throw;
+            }
+        }
+
         #region Private Helper Methods
 
         private void EnsureDirectoryExists(string path)
