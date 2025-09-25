@@ -755,6 +755,73 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
+        public async Task<BulkDownloadResult> CreateExecutionZipArchiveAsync(TeiasMongoAPI.Services.DTOs.Response.Collaboration.ExecutionDetailDto execution, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // Get list of execution output files first
+                var executionFiles = await ListExecutionFilesAsync(
+                    execution.ProgramId,
+                    execution.VersionId,
+                    execution.Id,
+                    cancellationToken);
+
+                // Declare variables before the using block
+                var errors = new List<string>();
+                var nonDirectoryFiles = executionFiles.Where(f => f.FileType != "directory").ToList();
+
+                // Create ZIP archive from execution files
+                using var memoryStream = new MemoryStream();
+                using (var archive = new System.IO.Compression.ZipArchive(memoryStream, System.IO.Compression.ZipArchiveMode.Create, true))
+                {
+                    foreach (var file in nonDirectoryFiles)
+                    {
+                        try
+                        {
+                            var fileContent = await GetExecutionFileAsync(
+                                execution.ProgramId,
+                                execution.VersionId,
+                                execution.Id,
+                                file.Path,
+                                cancellationToken);
+
+                            var entry = archive.CreateEntry(file.Path);
+                            using var entryStream = entry.Open();
+                            await entryStream.WriteAsync(fileContent.Content, cancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to add file {FilePath} to execution ZIP archive", file.Path);
+                            errors.Add($"{file.Path}: {ex.Message}");
+                        }
+                    }
+                } // ZipArchive is disposed here
+
+                // Create the result after the archive is disposed and ToArray() is safe to call
+                var successfulFiles = nonDirectoryFiles.Count - errors.Count;
+                var result = new BulkDownloadResult
+                {
+                    ZipContent = memoryStream.ToArray(),
+                    FileName = $"execution-{execution.Id}-output-files.zip",
+                    FileCount = successfulFiles,
+                    TotalSize = nonDirectoryFiles.Sum(f => f.Size),
+                    IncludedFiles = nonDirectoryFiles.Where((f, i) => !errors.Any(e => e.StartsWith(f.Path))).Select(f => f.Path).ToList(),
+                    SkippedFiles = errors.Select(e => e.Split(':')[0]).ToList(),
+                    Errors = errors
+                };
+
+                _logger.LogInformation("Created execution ZIP archive for execution {ExecutionId}: {FileCount} files, {TotalSize} bytes",
+                    execution.Id, result.FileCount, result.TotalSize);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create execution ZIP archive for execution {ExecutionId}", execution.Id);
+                throw;
+            }
+        }
+
         #region Private Helper Methods
 
         private void EnsureDirectoryExists(string path)

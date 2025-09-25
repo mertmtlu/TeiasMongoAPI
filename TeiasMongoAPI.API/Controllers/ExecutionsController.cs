@@ -1134,59 +1134,13 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                // Get execution details to extract programId and versionId
+                // Get execution details
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
 
-                // Get list of execution output files first
-                var executionFiles = await _fileStorageService.ListExecutionFilesAsync(
-                    execution.ProgramId,
-                    execution.VersionId,
-                    execution.Id,
-                    cancellationToken);
+                // Create ZIP archive using the service
+                var result = await _fileStorageService.CreateExecutionZipArchiveAsync(execution, cancellationToken);
 
-                // Create ZIP archive from execution files
-                using var memoryStream = new MemoryStream();
-                using (var archive = new System.IO.Compression.ZipArchive(memoryStream, System.IO.Compression.ZipArchiveMode.Create, true))
-                {
-                    var errors = new List<string>();
-                    foreach (var file in executionFiles.Where(f => f.FileType != "directory"))
-                    {
-                        try
-                        {
-                            var fileContent = await _fileStorageService.GetExecutionFileAsync(
-                                execution.ProgramId,
-                                execution.VersionId,
-                                execution.Id,
-                                file.Path,
-                                cancellationToken);
-
-                            var entry = archive.CreateEntry(file.Path);
-                            using var entryStream = entry.Open();
-                            await entryStream.WriteAsync(fileContent.Content, cancellationToken);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to add file {FilePath} to execution ZIP archive", file.Path);
-                            errors.Add($"{file.Path}: {ex.Message}");
-                        }
-                    }
-
-                    var nonDirectoryFiles = executionFiles.Where(f => f.FileType != "directory").ToList();
-                    var successfulFiles = nonDirectoryFiles.Count - errors.Count;
-
-                    var result = new BulkDownloadResult
-                    {
-                        ZipContent = memoryStream.ToArray(),
-                        FileName = $"execution-{id}-output-files.zip",
-                        FileCount = successfulFiles,
-                        TotalSize = nonDirectoryFiles.Sum(f => f.Size),
-                        IncludedFiles = nonDirectoryFiles.Where((f, i) => !errors.Any(e => e.StartsWith(f.Path))).Select(f => f.Path).ToList(),
-                        SkippedFiles = errors.Select(e => e.Split(':')[0]).ToList(),
-                        Errors = errors
-                    };
-
-                    return result;
-                }
+                return result;
             }, $"Download all files for execution {id}");
         }
 

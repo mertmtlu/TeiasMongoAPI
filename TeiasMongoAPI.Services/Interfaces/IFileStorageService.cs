@@ -98,6 +98,13 @@ namespace TeiasMongoAPI.Services.Interfaces
         /// Downloads all files from a specific program version as a zip archive
         /// </summary>
         Task<BulkDownloadResult> DownloadAllVersionFilesAsync(string programId, string versionId, bool includeMetadata = false, string compressionLevel = "optimal", CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Creates a ZIP archive containing all execution output files
+        /// </summary>
+        Task<BulkDownloadResult> CreateExecutionZipArchiveAsync(
+            TeiasMongoAPI.Services.DTOs.Response.Collaboration.ExecutionDetailDto execution,
+            CancellationToken cancellationToken = default);
     }
 
     public class FileStorageResult
