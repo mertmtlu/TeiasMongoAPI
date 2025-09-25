@@ -1123,17 +1123,17 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}/files/download-all")]
         [RequirePermission(UserPermissions.ViewExecutionResults)]
-        public async Task<IActionResult> DownloadAllExecutionFiles(
+        public async Task<ActionResult<ApiResponse<BulkDownloadResult>>> DownloadAllExecutionFiles(
             string id,
             [FromQuery] bool includeMetadata = false,
             [FromQuery] string compressionLevel = "optimal",
             CancellationToken cancellationToken = default)
         {
-            try
-            {
-                var objectIdResult = ParseObjectId(id);
-                if (objectIdResult.Result != null) return objectIdResult.Result!;
+            var objectIdResult = ParseObjectId(id);
+            if (objectIdResult.Result != null) return objectIdResult.Result!;
 
+            return await ExecuteAsync(async () =>
+            {
                 // Get execution details to extract programId and versionId
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
 
@@ -1148,6 +1148,7 @@ namespace TeiasMongoAPI.API.Controllers
                 using var memoryStream = new MemoryStream();
                 using (var archive = new System.IO.Compression.ZipArchive(memoryStream, System.IO.Compression.ZipArchiveMode.Create, true))
                 {
+                    var errors = new List<string>();
                     foreach (var file in executionFiles.Where(f => f.FileType != "directory"))
                     {
                         try
@@ -1166,34 +1167,27 @@ namespace TeiasMongoAPI.API.Controllers
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex, "Failed to add file {FilePath} to execution ZIP archive", file.Path);
+                            errors.Add($"{file.Path}: {ex.Message}");
                         }
                     }
+
+                    var nonDirectoryFiles = executionFiles.Where(f => f.FileType != "directory").ToList();
+                    var successfulFiles = nonDirectoryFiles.Count - errors.Count;
+
+                    var result = new BulkDownloadResult
+                    {
+                        ZipContent = memoryStream.ToArray(),
+                        FileName = $"execution-{id}-output-files.zip",
+                        FileCount = successfulFiles,
+                        TotalSize = nonDirectoryFiles.Sum(f => f.Size),
+                        IncludedFiles = nonDirectoryFiles.Where((f, i) => !errors.Any(e => e.StartsWith(f.Path))).Select(f => f.Path).ToList(),
+                        SkippedFiles = errors.Select(e => e.Split(':')[0]).ToList(),
+                        Errors = errors
+                    };
+
+                    return result;
                 }
-
-                var result = new BulkDownloadResult
-                {
-                    ZipContent = memoryStream.ToArray(),
-                    FileName = $"execution-{id}-output-files.zip",
-                    FileCount = executionFiles.Count(f => f.FileType != "directory"),
-                    TotalSize = executionFiles.Where(f => f.FileType != "directory").Sum(f => f.Size),
-                    IncludedFiles = executionFiles.Where(f => f.FileType != "directory").Select(f => f.Path).ToList()
-                };
-
-                return File(
-                    result.ZipContent,
-                    "application/zip",
-                    $"execution-{id}-output-files.zip");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error downloading all files for execution {ExecutionId}", id);
-                return BadRequest(new ApiResponse<object>
-                {
-                    Success = false,
-                    Message = ex.Message,
-                    Data = null
-                });
-            }
+            }, $"Download all files for execution {id}");
         }
 
         /// <summary>

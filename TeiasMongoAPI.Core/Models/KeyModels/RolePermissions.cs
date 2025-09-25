@@ -158,6 +158,9 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  UserPermissions.ExecuteWorkflows,
                  UserPermissions.ManageWorkflows,
 
+                 // User pemissions
+                 UserPermissions.ViewUsers,
+
                  // Group permissions (limited for external dev)
                  UserPermissions.GroupView,
                  UserPermissions.GroupCreate,
@@ -212,6 +215,9 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  UserPermissions.ExecuteWorkflows,
                  UserPermissions.ManageWorkflows,
 
+                 // User pemissions
+                 UserPermissions.ViewUsers,
+
                  // Group permissions (full for internal dev)
                  UserPermissions.GroupView,
                  UserPermissions.GroupCreate,
@@ -247,6 +253,9 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  UserPermissions.ViewWorkflows,
                  UserPermissions.ExecuteWorkflows,
 
+                 // User pemissions
+                 UserPermissions.ViewUsers,
+
                  // Group permissions (view only for external users)
                  UserPermissions.GroupView,
             },
@@ -279,6 +288,9 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  // Workflow permissions
                  UserPermissions.ViewWorkflows,
                  UserPermissions.ExecuteWorkflows,
+
+                 // User pemissions
+                 UserPermissions.ViewUsers,
 
                  // Group permissions (view only for internal users)
                  UserPermissions.GroupView,
