@@ -43,7 +43,8 @@ namespace TeiasMongoAPI.API.Controllers
         {
             return await ExecuteAsync(async () =>
             {
-                return await _executionService.GetAllAsync(pagination, cancellationToken);
+                // Use the new authorization-aware method
+                return await _executionService.GetAllAsync(CurrentUserId, CurrentUserRoles, pagination, cancellationToken);
             }, "Get all executions");
         }
 
@@ -238,7 +239,8 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _executionService.GetRecentExecutionsAsync(count, cancellationToken);
+                // Use the new authorization-aware method
+                return await _executionService.GetRecentExecutionsAsync(CurrentUserId, CurrentUserRoles, count, cancellationToken);
             }, $"Get recent executions (count: {count})");
         }
 

@@ -78,18 +78,42 @@ namespace TeiasMongoAPI.API.Middleware
         private async Task LogResponse(HttpContext context, string requestId, long elapsedMs, MemoryStream responseBody)
         {
             var response = context.Response;
-            responseBody.Seek(0, SeekOrigin.Begin);
-            var responseText = await new StreamReader(responseBody).ReadToEndAsync();
-            responseBody.Seek(0, SeekOrigin.Begin);
+
+            // Check if this is a file stream response - skip body logging to prevent OutOfMemoryException
+            var contentType = response.ContentType?.ToLowerInvariant();
+            var isFileStream = !string.IsNullOrEmpty(contentType) && (
+                contentType.Contains("application/zip") ||
+                contentType.Contains("application/octet-stream") ||
+                contentType.Contains("application/pdf") ||
+                contentType.Contains("image/") ||
+                contentType.Contains("video/") ||
+                contentType.Contains("audio/") ||
+                contentType.Contains("text/csv") ||
+                contentType.Contains("application/vnd.") ||
+                contentType.Contains("application/x-") ||
+                contentType.StartsWith("multipart/")
+            );
 
             var logMessage = new StringBuilder();
             logMessage.AppendLine($"Response {requestId}:");
             logMessage.AppendLine($"  StatusCode: {response.StatusCode}");
             logMessage.AppendLine($"  Duration: {elapsedMs}ms");
+            logMessage.AppendLine($"  ContentType: {response.ContentType}");
 
-            if (responseText.Length < 1000) // Only log small bodies
+            if (isFileStream)
             {
-                logMessage.AppendLine($"  Body: {responseText}");
+                logMessage.AppendLine($"  Body: Skipping response body logging for file stream.");
+            }
+            else
+            {
+                responseBody.Seek(0, SeekOrigin.Begin);
+                var responseText = await new StreamReader(responseBody).ReadToEndAsync();
+                responseBody.Seek(0, SeekOrigin.Begin);
+
+                if (responseText.Length < 1000) // Only log small bodies
+                {
+                    logMessage.AppendLine($"  Body: {responseText}");
+                }
             }
 
             if (response.StatusCode >= 400)

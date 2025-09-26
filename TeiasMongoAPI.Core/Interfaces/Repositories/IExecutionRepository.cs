@@ -14,6 +14,7 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         Task<IEnumerable<Execution>> GetCompletedExecutionsAsync(CancellationToken cancellationToken = default);
         Task<IEnumerable<Execution>> GetFailedExecutionsAsync(CancellationToken cancellationToken = default);
         Task<IEnumerable<Execution>> GetRecentExecutionsAsync(int count, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Execution>> GetRecentExecutionsAsync(int count, string? userId, CancellationToken cancellationToken = default);
         Task<bool> UpdateStatusAsync(ObjectId id, string status, CancellationToken cancellationToken = default);
         Task<bool> CompleteExecutionAsync(ObjectId id, int exitCode, string output, List<string> outputFiles, string? error = null, CancellationToken cancellationToken = default);
         Task<bool> UpdateResourceUsageAsync(ObjectId id, double cpuTime, long memoryUsed, long diskUsed, CancellationToken cancellationToken = default);

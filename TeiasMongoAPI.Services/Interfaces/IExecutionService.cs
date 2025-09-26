@@ -11,6 +11,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         // Basic CRUD Operations
         Task<ExecutionDetailDto> GetByIdAsync(string id, CancellationToken cancellationToken = default);
         Task<PagedResponse<ExecutionListDto>> GetAllAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
+        Task<PagedResponse<ExecutionListDto>> GetAllAsync(ObjectId? currentUserId, IEnumerable<string> userRoles, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<ExecutionListDto>> SearchAsync(ExecutionSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
 
@@ -23,6 +24,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<PagedResponse<ExecutionListDto>> GetCompletedExecutionsAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<PagedResponse<ExecutionListDto>> GetFailedExecutionsAsync(PaginationRequestDto pagination, CancellationToken cancellationToken = default);
         Task<List<ExecutionListDto>> GetRecentExecutionsAsync(int count = 10, CancellationToken cancellationToken = default);
+        Task<List<ExecutionListDto>> GetRecentExecutionsAsync(ObjectId? currentUserId, IEnumerable<string> userRoles, int count = 10, CancellationToken cancellationToken = default);
 
         // Program Execution Operations
         Task<ExecutionDto> ExecuteProgramAsync(string programId, ObjectId? currentUser, ProgramExecutionRequestDto dto, CancellationToken cancellationToken = default);

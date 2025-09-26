@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
+using TeiasMongoAPI.Core.Specifications;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
@@ -136,6 +137,31 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new PagedResponse<ExecutionListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
+        public async Task<PagedResponse<ExecutionListDto>> GetAllAsync(ObjectId? currentUserId, IEnumerable<string> userRoles, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
+        {
+            // Check if user has Admin role
+            bool isAdmin = userRoles.Contains("Admin", StringComparer.OrdinalIgnoreCase);
+
+            BaseSpecification<ExecutionModel> spec;
+
+            if (isAdmin)
+            {
+                // Admin users can see all executions
+                spec = new AllExecutionsSpecification(pagination);
+            }
+            else
+            {
+                // Non-admin users can only see their own executions
+                string? userId = currentUserId?.ToString();
+                spec = new UserFilteredExecutionsSpecification(userId, pagination);
+            }
+
+            var (executions, totalCount) = await _unitOfWork.Executions.FindWithSpecificationAsync(spec, cancellationToken);
+            var dtos = await MapExecutionListDtosAsync(executions.ToList(), cancellationToken);
+
+            return new PagedResponse<ExecutionListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
+        }
+
         public async Task<PagedResponse<ExecutionListDto>> SearchAsync(ExecutionSearchDto searchDto, PaginationRequestDto pagination, CancellationToken cancellationToken = default)
         {
             // Use Specification Pattern for database-level pagination and filtering
@@ -258,6 +284,28 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         public async Task<List<ExecutionListDto>> GetRecentExecutionsAsync(int count = 10, CancellationToken cancellationToken = default)
         {
             var executions = await _unitOfWork.Executions.GetRecentExecutionsAsync(count, cancellationToken);
+            return await MapExecutionListDtosAsync(executions.ToList(), cancellationToken);
+        }
+
+        public async Task<List<ExecutionListDto>> GetRecentExecutionsAsync(ObjectId? currentUserId, IEnumerable<string> userRoles, int count = 10, CancellationToken cancellationToken = default)
+        {
+            // Check if user has Admin role
+            bool isAdmin = userRoles.Contains("Admin", StringComparer.OrdinalIgnoreCase);
+
+            IEnumerable<ExecutionModel> executions;
+
+            if (isAdmin)
+            {
+                // Admin users can see all executions
+                executions = await _unitOfWork.Executions.GetRecentExecutionsAsync(count, null, cancellationToken);
+            }
+            else
+            {
+                // Non-admin users can only see their own executions
+                string? userId = currentUserId?.ToString();
+                executions = await _unitOfWork.Executions.GetRecentExecutionsAsync(count, userId, cancellationToken);
+            }
+
             return await MapExecutionListDtosAsync(executions.ToList(), cancellationToken);
         }
 

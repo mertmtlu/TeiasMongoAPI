@@ -72,6 +72,30 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
                 .ToListAsync(cancellationToken);
         }
 
+        public async Task<IEnumerable<Execution>> GetRecentExecutionsAsync(int count, string? userId, CancellationToken cancellationToken = default)
+        {
+            var collection = _context.Database.GetCollection<Execution>("executions");
+
+            if (string.IsNullOrEmpty(userId))
+            {
+                // Return all executions if no userId is specified
+                return await collection
+                    .Find(_ => true)
+                    .SortByDescending(e => e.StartedAt)
+                    .Limit(count)
+                    .ToListAsync(cancellationToken);
+            }
+            else
+            {
+                // Filter by userId if specified
+                return await collection
+                    .Find(e => e.UserId == userId)
+                    .SortByDescending(e => e.StartedAt)
+                    .Limit(count)
+                    .ToListAsync(cancellationToken);
+            }
+        }
+
         public async Task<bool> UpdateStatusAsync(ObjectId id, string status, CancellationToken cancellationToken = default)
         {
             var updateBuilder = Builders<Execution>.Update.Set(e => e.Status, status);
