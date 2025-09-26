@@ -517,6 +517,63 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
         }
 
+        public async Task<string> CreateExecutionZipIfNotExistsAsync(ExecutionDetailDto execution, CancellationToken cancellationToken = default)
+        {
+            _logger.LogInformation("Request to create ZIP archive if not exists for execution {ExecutionId}", execution.Id);
+
+            var executionBasePath = Path.Combine(_settings.BasePath, execution.ProgramId, execution.VersionId, "execution");
+            var actualExecutionDirectory = await FindExecutionDirectoryAsync(executionBasePath, execution.Id, cancellationToken);
+
+            if (string.IsNullOrEmpty(actualExecutionDirectory))
+            {
+                throw new DirectoryNotFoundException($"Execution directory not found for execution {execution.Id}");
+            }
+
+            var zipFileName = "_archive.zip";
+            var zipFilePath = Path.Combine(actualExecutionDirectory, zipFileName);
+
+            if (File.Exists(zipFilePath))
+            {
+                _logger.LogInformation("ZIP archive already exists for execution {ExecutionId} at {ZipPath}. Returning existing path.", execution.Id, zipFilePath);
+                return zipFilePath;
+            }
+
+            _logger.LogInformation("ZIP archive not found for execution {ExecutionId}. Creating new archive at {ZipPath}.", execution.Id, zipFilePath);
+
+            var executionFiles = await ListExecutionFilesAsync(execution.ProgramId, execution.VersionId, execution.Id, cancellationToken);
+            var nonDirectoryFiles = executionFiles.Where(f => f.FileType != "directory").ToList();
+
+            if (!nonDirectoryFiles.Any())
+            {
+                _logger.LogWarning("No files found to archive for execution {ExecutionId}.", execution.Id);
+                // Create an empty file to prevent re-attempts on subsequent calls
+                await File.Create(zipFilePath).DisposeAsync();
+                return zipFilePath;
+            }
+            
+            await using var fileStream = new FileStream(zipFilePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
+            using (var archive = new ZipArchive(fileStream, ZipArchiveMode.Create, leaveOpen: false))
+            {
+                foreach (var file in nonDirectoryFiles)
+                {
+                    try
+                    {
+                        var fileContent = await GetExecutionFileAsync(execution.ProgramId, execution.VersionId, execution.Id, file.Path, cancellationToken);
+                        var entry = archive.CreateEntry(file.Path);
+                        await using var entryStream = entry.Open();
+                        await entryStream.WriteAsync(fileContent.Content, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to add file {FilePath} to execution ZIP archive for {ExecutionId}", file.Path, execution.Id);
+                    }
+                }
+            }
+
+            _logger.LogInformation("Successfully created ZIP archive for execution {ExecutionId} with {FileCount} files.", execution.Id, nonDirectoryFiles.Count);
+            return zipFilePath;
+        }
+
         public async Task<bool> DeleteProgramFilesAsync(string programId, CancellationToken cancellationToken = default)
         {
             try

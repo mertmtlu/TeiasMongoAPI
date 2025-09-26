@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
@@ -1590,68 +1589,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #endregion
 
-        #region File Download Token Management
-
-        // Static token cache for single-use download tokens
-        private static readonly ConcurrentDictionary<string, (string ExecutionId, ObjectId UserId, DateTime Expiration)> _downloadTokens = new();
-
-        public async Task<string> GenerateDownloadTokenAsync(string executionId, ObjectId currentUserId)
-        {
-            // Validate execution exists and user has access
-            var execution = await GetByIdAsync(executionId);
-
-            // Generate secure random token
-            var tokenBytes = new byte[32];
-            using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
-            {
-                rng.GetBytes(tokenBytes);
-            }
-            var token = Convert.ToBase64String(tokenBytes).Replace("+", "-").Replace("/", "_").Replace("=", "");
-
-            // Store token with 60 second expiration
-            var expiration = DateTime.UtcNow.AddSeconds(60);
-            _downloadTokens[token] = (executionId, currentUserId, expiration);
-
-            // Clean up expired tokens
-            CleanupExpiredTokens();
-
-            return token;
-        }
-
-        public (string ExecutionId, ObjectId UserId) ValidateDownloadToken(string token)
-        {
-            if (string.IsNullOrEmpty(token))
-            {
-                throw new UnauthorizedAccessException("Download token is required");
-            }
-
-            if (!_downloadTokens.TryRemove(token, out var tokenData))
-            {
-                throw new UnauthorizedAccessException("Invalid or expired download token");
-            }
-
-            if (DateTime.UtcNow > tokenData.Expiration)
-            {
-                throw new UnauthorizedAccessException("Download token has expired");
-            }
-
-            return (tokenData.ExecutionId, tokenData.UserId);
-        }
-
-        private static void CleanupExpiredTokens()
-        {
-            var expiredTokens = _downloadTokens
-                .Where(kvp => DateTime.UtcNow > kvp.Value.Expiration)
-                .Select(kvp => kvp.Key)
-                .ToList();
-
-            foreach (var expiredToken in expiredTokens)
-            {
-                _downloadTokens.TryRemove(expiredToken, out _);
-            }
-        }
-
-        #endregion
 
         #region Project Validation and Analysis (Using IFileStorageService)
 

@@ -114,6 +114,15 @@ namespace TeiasMongoAPI.Services.Interfaces
             TeiasMongoAPI.Services.DTOs.Response.Collaboration.ExecutionDetailDto execution,
             System.IO.Stream targetStream,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Creates a ZIP archive of all files for a given execution if it doesn't already exist.
+        /// This method is idempotent.
+        /// </summary>
+        /// <param name="execution">The execution details DTO.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The physical disk path to the generated ZIP file.</returns>
+        Task<string> CreateExecutionZipIfNotExistsAsync(ExecutionDetailDto execution, CancellationToken cancellationToken = default);
     }
 
     public class FileStorageResult

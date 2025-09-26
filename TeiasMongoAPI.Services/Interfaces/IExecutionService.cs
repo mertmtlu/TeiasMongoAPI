@@ -84,16 +84,6 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<ExecutionSecurityScanResult> RunSecurityScanAsync(string programId, CancellationToken cancellationToken = default);
         Task<bool> IsExecutionAllowedAsync(string programId, string userId, CancellationToken cancellationToken = default);
 
-        // File Download Token Management
-        /// <summary>
-        /// Generates a single-use download token for execution files
-        /// </summary>
-        Task<string> GenerateDownloadTokenAsync(string executionId, MongoDB.Bson.ObjectId currentUserId);
-
-        /// <summary>
-        /// Validates and consumes a download token, returning associated execution and user details
-        /// </summary>
-        (string ExecutionId, MongoDB.Bson.ObjectId UserId) ValidateDownloadToken(string token);
 
         Task<List<string>> GetSupportedLanguagesAsync(CancellationToken cancellationToken = default);
         Task<ProjectStructureAnalysisDto> AnalyzeProjectStructureAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default);
