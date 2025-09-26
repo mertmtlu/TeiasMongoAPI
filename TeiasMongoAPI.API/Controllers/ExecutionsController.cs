@@ -1145,12 +1145,17 @@ namespace TeiasMongoAPI.API.Controllers
         /// </summary>
         [HttpGet("{id}/files/download-all")]
         [AllowAnonymous]
-        public async Task<IActionResult> DownloadAllExecutionFiles(
+        public async Task DownloadAllExecutionFiles(
             string id,
             [FromQuery] string token)
         {
             var objectIdResult = ParseObjectId(id);
-            if (objectIdResult.Result != null) return objectIdResult.Result!;
+            if (objectIdResult.Result != null)
+            {
+                _logger.LogError("Invalid ObjectId format for execution {ExecutionId}", id);
+                Response.StatusCode = 400;
+                return;
+            }
 
             try
             {
@@ -1164,12 +1169,8 @@ namespace TeiasMongoAPI.API.Controllers
                 if (executionId != id)
                 {
                     _logger.LogWarning("Token execution ID {TokenExecutionId} does not match requested ID {RequestedId}", executionId, id);
-                    return BadRequest(new ApiResponse<object>
-                    {
-                        Success = false,
-                        Message = "Token does not match the requested execution",
-                        Data = null
-                    });
+                    Response.StatusCode = 400;
+                    return;
                 }
 
                 // Get execution details using the validated execution ID
@@ -1189,18 +1190,11 @@ namespace TeiasMongoAPI.API.Controllers
                 _logger.LogInformation("Starting ZIP stream generation for execution {ExecutionId}", execution.Id);
                 await _fileStorageService.WriteExecutionZipToStreamAsync(execution, Response.Body, CancellationToken.None);
                 _logger.LogInformation("Completed ZIP stream generation for execution {ExecutionId}", execution.Id);
-
-                return new OkResult();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error downloading all files for execution {ExecutionId}", id);
-                return BadRequest(new ApiResponse<object>
-                {
-                    Success = false,
-                    Message = ex.Message,
-                    Data = null
-                });
+                Response.StatusCode = 500;
             }
         }
 
