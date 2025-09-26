@@ -1154,12 +1154,16 @@ namespace TeiasMongoAPI.API.Controllers
 
             try
             {
+                _logger.LogInformation("Starting DownloadAllExecutionFiles for execution {ExecutionId} with token", id);
+
                 // Validate download token first
                 var (executionId, userId) = _executionService.ValidateDownloadToken(token);
+                _logger.LogInformation("Token validated successfully - ExecutionId: {ExecutionId}, UserId: {UserId}", executionId, userId);
 
                 // Ensure the execution ID from token matches the requested ID
                 if (executionId != id)
                 {
+                    _logger.LogWarning("Token execution ID {TokenExecutionId} does not match requested ID {RequestedId}", executionId, id);
                     return BadRequest(new ApiResponse<object>
                     {
                         Success = false,
@@ -1170,6 +1174,7 @@ namespace TeiasMongoAPI.API.Controllers
 
                 // Get execution details using the validated execution ID
                 var execution = await _executionService.GetByIdAsync(executionId);
+                _logger.LogInformation("Retrieved execution details for {ExecutionId}", executionId);
 
                 // Set response headers for file download
                 Response.ContentType = "application/zip";
@@ -1178,9 +1183,12 @@ namespace TeiasMongoAPI.API.Controllers
                     {
                         FileName = $"execution-{execution.Id}-output-files.zip"
                     }.ToString());
+                _logger.LogInformation("Set response headers - ContentType: application/zip, FileName: execution-{ExecutionId}-output-files.zip", execution.Id);
 
                 // Stream the ZIP archive directly to the response
+                _logger.LogInformation("Starting ZIP stream generation for execution {ExecutionId}", execution.Id);
                 await _fileStorageService.WriteExecutionZipToStreamAsync(execution, Response.Body, CancellationToken.None);
+                _logger.LogInformation("Completed ZIP stream generation for execution {ExecutionId}", execution.Id);
 
                 return new OkResult();
             }

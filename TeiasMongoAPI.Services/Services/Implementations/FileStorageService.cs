@@ -824,6 +824,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         public async Task WriteExecutionZipToStreamAsync(TeiasMongoAPI.Services.DTOs.Response.Collaboration.ExecutionDetailDto execution, System.IO.Stream targetStream, CancellationToken cancellationToken = default)
         {
+            _logger.LogInformation("WriteExecutionZipToStreamAsync started for execution {ExecutionId}", execution.Id);
+
             try
             {
                 // Get list of execution output files first
@@ -834,6 +836,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     cancellationToken);
 
                 var nonDirectoryFiles = executionFiles.Where(f => f.FileType != "directory").ToList();
+                _logger.LogInformation("Found {FileCount} files to add to ZIP archive for execution {ExecutionId}", nonDirectoryFiles.Count, execution.Id);
 
                 // Find the actual execution directory GUID since executionId is the database ID, not the directory name
                 var executionBasePath = Path.Combine(_settings.BasePath, execution.ProgramId, execution.VersionId, "execution");
@@ -845,39 +848,48 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
 
                 var outputsPath = Path.Combine(actualExecutionDirectory, "outputs");
+                _logger.LogInformation("Constructed outputs path: {OutputsPath} for execution {ExecutionId}", outputsPath, execution.Id);
 
-                // Create ZIP archive directly to the target stream
-                using (var archive = new System.IO.Compression.ZipArchive(targetStream, System.IO.Compression.ZipArchiveMode.Create, true))
+                // Create ZIP archive directly to the target stream - CRITICAL FIX: leaveOpen must be true
+                using (var archive = new System.IO.Compression.ZipArchive(targetStream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
                 {
+                    _logger.LogInformation("Created ZipArchive with leaveOpen=true for execution {ExecutionId}", execution.Id);
+
                     foreach (var file in nonDirectoryFiles)
                     {
                         try
                         {
                             // Get the full physical path to the file on disk
                             var fullFilePath = Path.Combine(outputsPath, System.Web.HttpUtility.UrlDecode(file.Path));
+                            _logger.LogInformation("Processing file: {FullFilePath} for ZIP entry: {EntryPath}", fullFilePath, file.Path);
 
                             if (!File.Exists(fullFilePath))
                             {
-                                _logger.LogWarning("Execution file not found, skipping: {FilePath}", file.Path);
+                                _logger.LogWarning("Execution file not found, skipping: {FilePath} (Full path: {FullFilePath})", file.Path, fullFilePath);
                                 continue;
                             }
 
                             // Create ZIP entry
                             var entry = archive.CreateEntry(file.Path);
+                            _logger.LogInformation("Created ZIP entry: {EntryPath}", file.Path);
 
                             // Stream the file directly from disk to ZIP entry using efficient buffering
                             using var sourceFileStream = new FileStream(fullFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
                             using var entryStream = entry.Open();
 
+                            _logger.LogInformation("Starting file copy from {FullFilePath} to ZIP entry {EntryPath}", fullFilePath, file.Path);
                             // Copy file data directly from disk to ZIP stream in memory-efficient chunks
                             await sourceFileStream.CopyToAsync(entryStream, cancellationToken);
+                            _logger.LogInformation("Completed file copy from {FullFilePath} to ZIP entry {EntryPath}", fullFilePath, file.Path);
                         }
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex, "Failed to add file {FilePath} to execution ZIP stream", file.Path);
                         }
                     }
-                } // ZipArchive is disposed here, data is written to targetStream
+                } // ZipArchive is disposed here, but targetStream remains open due to leaveOpen=true
+
+                _logger.LogInformation("CRITICAL: ZipArchive disposed successfully, targetStream should remain open. Execution {ExecutionId}", execution.Id);
 
                 _logger.LogInformation("Streamed execution ZIP archive for execution {ExecutionId}: {FileCount} files",
                     execution.Id, nonDirectoryFiles.Count);
