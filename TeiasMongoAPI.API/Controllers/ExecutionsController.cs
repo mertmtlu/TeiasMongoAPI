@@ -1190,6 +1190,7 @@ namespace TeiasMongoAPI.API.Controllers
                 _logger.LogInformation("Starting ZIP stream generation for execution {ExecutionId}", execution.Id);
                 await _fileStorageService.WriteExecutionZipToStreamAsync(execution, Response.Body, CancellationToken.None);
                 _logger.LogInformation("Completed ZIP stream generation for execution {ExecutionId}", execution.Id);
+                await Response.Body.FlushAsync();
             }
             catch (Exception ex)
             {
