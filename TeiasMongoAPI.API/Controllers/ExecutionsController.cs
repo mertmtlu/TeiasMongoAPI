@@ -1122,21 +1122,54 @@ namespace TeiasMongoAPI.API.Controllers
         }
 
         /// <summary>
-        /// Download all output files from an execution as a ZIP archive
+        /// Generate a single-use download token for execution files
         /// </summary>
-        [HttpGet("{id}/files/download-all")]
+        [HttpGet("{id}/files/download-token")]
         [RequirePermission(UserPermissions.ViewExecutionResults)]
-        public async Task<IActionResult> DownloadAllExecutionFiles(
+        public async Task<ActionResult<ApiResponse<FileDownloadTokenResponseDto>>> GenerateDownloadToken(
             string id,
             CancellationToken cancellationToken = default)
         {
             var objectIdResult = ParseObjectId(id);
             if (objectIdResult.Result != null) return objectIdResult.Result!;
 
+            return await ExecuteAsync(async () =>
+            {
+                var token = await _executionService.GenerateDownloadTokenAsync(id, CurrentUserId.Value);
+                return new FileDownloadTokenResponseDto { Token = token };
+            }, $"Generate download token for execution {id}");
+        }
+
+        /// <summary>
+        /// Download all output files from an execution as a ZIP archive using a single-use token
+        /// </summary>
+        [HttpGet("{id}/files/download-all")]
+        [AllowAnonymous]
+        public async Task<IActionResult> DownloadAllExecutionFiles(
+            string id,
+            [FromQuery] string token)
+        {
+            var objectIdResult = ParseObjectId(id);
+            if (objectIdResult.Result != null) return objectIdResult.Result!;
+
             try
             {
-                // Get execution details
-                var execution = await _executionService.GetByIdAsync(id, cancellationToken);
+                // Validate download token first
+                var (executionId, userId) = _executionService.ValidateDownloadToken(token);
+
+                // Ensure the execution ID from token matches the requested ID
+                if (executionId != id)
+                {
+                    return BadRequest(new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "Token does not match the requested execution",
+                        Data = null
+                    });
+                }
+
+                // Get execution details using the validated execution ID
+                var execution = await _executionService.GetByIdAsync(executionId);
 
                 // Set response headers for file download
                 Response.ContentType = "application/zip";
@@ -1147,7 +1180,7 @@ namespace TeiasMongoAPI.API.Controllers
                     }.ToString());
 
                 // Stream the ZIP archive directly to the response
-                await _fileStorageService.WriteExecutionZipToStreamAsync(execution, Response.Body, cancellationToken);
+                await _fileStorageService.WriteExecutionZipToStreamAsync(execution, Response.Body, CancellationToken.None);
 
                 return new OkResult();
             }

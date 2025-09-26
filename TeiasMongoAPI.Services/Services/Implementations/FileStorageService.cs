@@ -835,6 +835,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
                 var nonDirectoryFiles = executionFiles.Where(f => f.FileType != "directory").ToList();
 
+                // Find the actual execution directory GUID since executionId is the database ID, not the directory name
+                var executionBasePath = Path.Combine(_settings.BasePath, execution.ProgramId, execution.VersionId, "execution");
+                var actualExecutionDirectory = await FindExecutionDirectoryAsync(executionBasePath, execution.Id, cancellationToken);
+
+                if (string.IsNullOrEmpty(actualExecutionDirectory))
+                {
+                    throw new DirectoryNotFoundException($"Execution directory not found for execution {execution.Id}");
+                }
+
+                var outputsPath = Path.Combine(actualExecutionDirectory, "outputs");
+
                 // Create ZIP archive directly to the target stream
                 using (var archive = new System.IO.Compression.ZipArchive(targetStream, System.IO.Compression.ZipArchiveMode.Create, true))
                 {
@@ -842,16 +853,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     {
                         try
                         {
-                            var fileContent = await GetExecutionFileAsync(
-                                execution.ProgramId,
-                                execution.VersionId,
-                                execution.Id,
-                                file.Path,
-                                cancellationToken);
+                            // Get the full physical path to the file on disk
+                            var fullFilePath = Path.Combine(outputsPath, System.Web.HttpUtility.UrlDecode(file.Path));
 
+                            if (!File.Exists(fullFilePath))
+                            {
+                                _logger.LogWarning("Execution file not found, skipping: {FilePath}", file.Path);
+                                continue;
+                            }
+
+                            // Create ZIP entry
                             var entry = archive.CreateEntry(file.Path);
+
+                            // Stream the file directly from disk to ZIP entry using efficient buffering
+                            using var sourceFileStream = new FileStream(fullFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 4096, useAsync: true);
                             using var entryStream = entry.Open();
-                            await entryStream.WriteAsync(fileContent.Content, cancellationToken);
+
+                            // Copy file data directly from disk to ZIP stream in memory-efficient chunks
+                            await sourceFileStream.CopyToAsync(entryStream, cancellationToken);
                         }
                         catch (Exception ex)
                         {
