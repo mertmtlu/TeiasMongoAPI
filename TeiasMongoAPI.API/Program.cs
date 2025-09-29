@@ -275,7 +275,7 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IProgramService, ProgramService>();
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<IExecutionService, ExecutionService>();
-            builder.Services.AddScoped<IExecutionOutputStreamingService, SignalRExecutionOutputStreamingService>();
+            builder.Services.AddSingleton<IExecutionOutputStreamingService, SignalRExecutionOutputStreamingService>();
             builder.Services.AddScoped<IDeploymentService, DeploymentService>();
             builder.Services.AddScoped<IProjectExecutionEngine, ProjectExecutionEngine>();
             builder.Services.AddScoped<IRemoteAppService, RemoteAppService>();

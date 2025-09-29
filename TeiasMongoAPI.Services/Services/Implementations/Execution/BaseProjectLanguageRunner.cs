@@ -102,7 +102,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             {
                 if (e.Data != null)
                 {
-                    _logger.LogInformation(">>> [PYTHON STDOUT]: {Data}", e.Data);
+                    //_logger.LogInformation(">>> [PYTHON STDOUT]: {Data}", e.Data);
                     output.AppendLine(e.Data);
 
                     // LIVE STREAMING: Stream stdout output in real-time

@@ -32,16 +32,15 @@ namespace TeiasMongoAPI.API.Hubs
             var userId = Context.UserIdentifier ?? "Unknown";
             _logger.LogInformation("Client disconnected from ExecutionHub with ConnectionID {ConnectionId} for UserID {UserId}",
                 Context.ConnectionId, userId);
-
             if (exception != null)
             {
                 _logger.LogWarning(exception, "Client {ConnectionId} disconnected with exception", Context.ConnectionId);
             }
-
             await base.OnDisconnectedAsync(exception);
         }
 
         /// <summary>
+        /// --- MODIFIED: THIS IS THE CORE OF THE SOLUTION ---
         /// Join execution group to receive real-time process output.
         /// Upon joining, the server will automatically send any cached logs for the execution.
         /// </summary>
@@ -50,25 +49,23 @@ namespace TeiasMongoAPI.API.Hubs
             var userId = Context.UserIdentifier ?? "Unknown";
             var connectionId = Context.ConnectionId;
 
+            // 1. Add the client to the group for all *future* real-time updates
             await Groups.AddToGroupAsync(connectionId, $"execution_{executionId}");
             _logger.LogInformation("Client {ConnectionId} (User: {UserId}) joined execution group {ExecutionId}", connectionId, userId, executionId);
 
-            // --- THIS IS THE FIX ---
-            // Immediately get cached logs and push them ONLY to the joining client.
+            // 2. Immediately get the current cached logs
             var cachedLogs = _streamingService.GetCachedLogs(executionId).ToList();
             _logger.LogInformation("Pushing {LogCount} cached log lines to client {ConnectionId} for execution {ExecutionId}", cachedLogs.Count, connectionId, executionId);
+
+            // 3. Send the historical logs ONLY to the client that just called this method
             await Clients.Caller.SendAsync("InitialLogs", cachedLogs);
-            // --- END OF FIX ---
         }
 
         /// <summary>
         /// --- REMOVED ---
         /// This method is no longer needed as the logic is now inside JoinExecutionGroup to prevent race conditions.
         /// </summary>
-        // public async Task RequestInitialLogs(string executionId)
-        // {
-        //     ...
-        // }
+        // public async Task RequestInitialLogs(string executionId) { ... }
 
         /// <summary>
         /// Leave execution group to stop receiving real-time process output.
@@ -85,7 +82,8 @@ namespace TeiasMongoAPI.API.Hubs
                 Context.ConnectionId, userId, executionId);
         }
 
-        // --- Other methods like JoinUserExecutionGroup, Ping etc. remain unchanged ---
+        // --- ALL OTHER METHODS REMAIN UNCHANGED ---
+
         public async Task JoinUserExecutionGroup(string userId)
         {
             var currentUserId = Context.UserIdentifier ?? "Unknown";
