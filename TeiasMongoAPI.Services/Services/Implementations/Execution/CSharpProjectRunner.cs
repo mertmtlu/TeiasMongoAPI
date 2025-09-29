@@ -6,6 +6,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.Services.Implementations;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Services.Helpers;
+using TeiasMongoAPI.Services.Interfaces;
 using MongoDB.Bson;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Execution
@@ -17,7 +18,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public override string Language => "C#";
         public override int Priority => 10;
 
-        public CSharpProjectRunner(ILogger<CSharpProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper)
+        public CSharpProjectRunner(ILogger<CSharpProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper, IExecutionOutputStreamingService? streamingService = null) : base(logger, bsonMapper, streamingService)
         {
             _unitOfWork = unitOfWork;
         }
@@ -275,7 +276,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         context.ProjectDirectory,
                         context.Environment,
                         context.ResourceLimits.MaxExecutionTimeMinutes,
-                        cancellationToken);
+                        cancellationToken,
+                        context.ExecutionId);
 
                     result.Success = processResult.Success;
                     result.ExitCode = processResult.ExitCode;
@@ -301,7 +303,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         context.ProjectDirectory,
                         context.Environment,
                         context.ResourceLimits.MaxExecutionTimeMinutes,
-                        cancellationToken);
+                        cancellationToken,
+                        context.ExecutionId);
 
                     result.Success = processResult.Success;
                     result.ExitCode = processResult.ExitCode;

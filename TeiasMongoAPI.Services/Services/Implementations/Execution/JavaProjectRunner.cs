@@ -3,6 +3,7 @@ using System.Text.Json;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.Services.Implementations;
+using TeiasMongoAPI.Services.Interfaces;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 {
@@ -11,7 +12,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public override string Language => "Java";
         public override int Priority => 30;
 
-        public JavaProjectRunner(ILogger<JavaProjectRunner> logger, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper) { }
+        public JavaProjectRunner(ILogger<JavaProjectRunner> logger, IBsonToDtoMappingService bsonMapper, IExecutionOutputStreamingService? streamingService = null) : base(logger, bsonMapper, streamingService) { }
 
         public override async Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default)
         {
@@ -245,7 +246,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 context.ProjectDirectory,
                 context.Environment,
                 context.ResourceLimits.MaxExecutionTimeMinutes,
-                cancellationToken);
+                cancellationToken,
+                context.ExecutionId);
         }
 
         private async Task<ProcessResult> ExecuteGradleProjectAsync(ProjectExecutionContext context, CancellationToken cancellationToken)
@@ -262,7 +264,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 context.ProjectDirectory,
                 context.Environment,
                 context.ResourceLimits.MaxExecutionTimeMinutes,
-                cancellationToken);
+                cancellationToken,
+                context.ExecutionId);
         }
 
         private async Task<ProcessResult> ExecutePlainJavaProjectAsync(ProjectExecutionContext context, CancellationToken cancellationToken)
@@ -285,7 +288,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 context.ProjectDirectory,
                 context.Environment,
                 context.ResourceLimits.MaxExecutionTimeMinutes,
-                cancellationToken);
+                cancellationToken,
+                context.ExecutionId);
         }
 
         private async Task AnalyzeMavenProjectAsync(string projectDirectory, ProjectStructureAnalysis analysis, CancellationToken cancellationToken)

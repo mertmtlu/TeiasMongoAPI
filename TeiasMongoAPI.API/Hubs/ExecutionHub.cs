@@ -49,10 +49,7 @@ namespace TeiasMongoAPI.API.Hubs
             var groupName = $"execution_{executionId}";
 
             await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-            await Clients.Caller.SendAsync("JoinedExecutionGroup", new {
-                executionId,
-                message = "Successfully joined execution group for live output streaming"
-            });
+            await Clients.Caller.SendAsync("JoinedExecutionGroup", executionId);
 
             _logger.LogInformation("Client {ConnectionId} (User: {UserId}) joined execution group {ExecutionId} for live output streaming",
                 Context.ConnectionId, userId, executionId);
@@ -68,10 +65,7 @@ namespace TeiasMongoAPI.API.Hubs
             var groupName = $"execution_{executionId}";
 
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, groupName);
-            await Clients.Caller.SendAsync("LeftExecutionGroup", new {
-                executionId,
-                message = "Successfully left execution group"
-            });
+            await Clients.Caller.SendAsync("LeftExecutionGroup", executionId);
 
             _logger.LogInformation("Client {ConnectionId} (User: {UserId}) left execution group {ExecutionId}",
                 Context.ConnectionId, userId, executionId);

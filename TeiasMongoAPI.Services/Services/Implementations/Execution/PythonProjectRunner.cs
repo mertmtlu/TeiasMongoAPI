@@ -5,6 +5,7 @@ using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Services.Helpers;
+using TeiasMongoAPI.Services.Interfaces;
 using MongoDB.Bson;
 using TeiasMongoAPI.Services.Services.Implementations;
 
@@ -17,7 +18,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public override string Language => "Python";
         public override int Priority => 20;
 
-        public PythonProjectRunner(ILogger<PythonProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper) : base(logger, bsonMapper)
+        public PythonProjectRunner(ILogger<PythonProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper, IExecutionOutputStreamingService? streamingService = null) : base(logger, bsonMapper, streamingService)
         {
             _unitOfWork = unitOfWork;
         }
@@ -283,7 +284,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     context.ProjectDirectory,
                     context.Environment,
                     context.ResourceLimits.MaxExecutionTimeMinutes,
-                    cancellationToken);
+                    cancellationToken,
+                    context.ExecutionId);
 
                 result.Success = processResult.Success;
                 result.ExitCode = processResult.ExitCode;
