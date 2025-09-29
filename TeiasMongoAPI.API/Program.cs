@@ -262,6 +262,7 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IProgramService, ProgramService>();
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<IExecutionService, ExecutionService>();
+            builder.Services.AddScoped<IExecutionOutputStreamingService, SignalRExecutionOutputStreamingService>();
             builder.Services.AddScoped<IDeploymentService, DeploymentService>();
             builder.Services.AddScoped<IProjectExecutionEngine, ProjectExecutionEngine>();
             builder.Services.AddScoped<IRemoteAppService, RemoteAppService>();
@@ -400,6 +401,7 @@ namespace TeiasMongoAPI.API
 
             // Map SignalR Hubs
             app.MapHub<UIWorkflowHub>("/uiWorkflowHub");
+            app.MapHub<ExecutionHub>("/executionHub"); // LIVE STREAMING: Real-time execution output
 
             // Health Checks
             app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions

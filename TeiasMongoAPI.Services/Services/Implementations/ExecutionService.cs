@@ -28,6 +28,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IDeploymentService _deploymentService;
         private readonly IProjectExecutionEngine _projectExecutionEngine;
         private readonly IGroupService _groupService;
+        private readonly IExecutionOutputStreamingService? _streamingService;
         private readonly ExecutionSettings _settings;
         private readonly Dictionary<string, ExecutionContext> _activeExecutions = new();
 
@@ -41,7 +42,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IProjectExecutionEngine projectExecutionEngine,
             IGroupService groupService,
             IOptions<ExecutionSettings> settings,
-            ILogger<ExecutionService> logger)
+            ILogger<ExecutionService> logger,
+            IExecutionOutputStreamingService? streamingService = null)
             : base(unitOfWork, mapper, logger)
         {
             _fileStorageService = fileStorageService;
@@ -50,6 +52,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _deploymentService = deploymentService;
             _projectExecutionEngine = projectExecutionEngine;
             _groupService = groupService;
+            _streamingService = streamingService;
             _settings = settings.Value;
         }
 
@@ -1839,6 +1842,38 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 _logger.LogInformation("Starting project execution for {ExecutionId}", executionId);
 
+                // LIVE STREAMING: Notify execution started
+                if (_streamingService != null)
+                {
+                    try
+                    {
+                        await _streamingService.StartExecutionStreamingAsync(executionId, execution.UserId, cancellationToken);
+                        await _streamingService.StreamExecutionStartedAsync(executionId, new ExecutionStartedEventArgs
+                        {
+                            ExecutionId = executionId,
+                            ProgramId = execution.ProgramId.ToString(),
+                            VersionId = execution.VersionId.ToString(),
+                            UserId = execution.UserId,
+                            StartedAt = execution.StartedAt,
+                            TimeoutMinutes = dto.TimeoutMinutes,
+                            Parameters = dto.Parameters
+                        }, cancellationToken);
+
+                        await _streamingService.StreamStatusChangeAsync(executionId, new ExecutionStatusChangedEventArgs
+                        {
+                            ExecutionId = executionId,
+                            OldStatus = "pending",
+                            NewStatus = "running",
+                            ChangedAt = DateTime.UtcNow,
+                            Reason = "Execution started"
+                        }, cancellationToken);
+                    }
+                    catch (Exception streamEx)
+                    {
+                        _logger.LogWarning(streamEx, "Failed to stream execution started event for {ExecutionId}", executionId);
+                    }
+                }
+
                 // Create project execution request with proper file paths
                 var projectRequest = new ProjectExecutionRequest
                 {
@@ -1860,6 +1895,29 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 await UpdateExecutionWithProjectResultWithRetryAsync(execution, result, cancellationToken);
                 statusUpdated = true;
 
+                // LIVE STREAMING: Notify execution completed
+                if (_streamingService != null)
+                {
+                    try
+                    {
+                        await _streamingService.StreamExecutionCompletedAsync(executionId, new ExecutionCompletedEventArgs
+                        {
+                            ExecutionId = executionId,
+                            Status = result.Success ? "completed" : "failed",
+                            ExitCode = result.ExitCode,
+                            CompletedAt = result.CompletedAt ?? DateTime.UtcNow,
+                            Duration = result.Duration ?? TimeSpan.Zero,
+                            Success = result.Success,
+                            ErrorMessage = result.Success ? null : result.ErrorOutput,
+                            OutputFiles = result.OutputFiles.ToList()
+                        }, cancellationToken);
+                    }
+                    catch (Exception streamEx)
+                    {
+                        _logger.LogWarning(streamEx, "Failed to stream execution completed event for {ExecutionId}", executionId);
+                    }
+                }
+
                 _logger.LogInformation("Completed project execution for {ExecutionId} with status {Status}", executionId, result.Success ? "completed" : "failed");
             }
             catch (OperationCanceledException)
@@ -1867,6 +1925,38 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 _logger.LogInformation("Project execution {ExecutionId} was cancelled", executionId);
                 await SafeUpdateExecutionStatusAsync(execution._ID, "stopped", executionId, cancellationToken);
                 statusUpdated = true;
+
+                // LIVE STREAMING: Notify execution stopped
+                if (_streamingService != null)
+                {
+                    try
+                    {
+                        await _streamingService.StreamStatusChangeAsync(executionId, new ExecutionStatusChangedEventArgs
+                        {
+                            ExecutionId = executionId,
+                            OldStatus = "running",
+                            NewStatus = "stopped",
+                            ChangedAt = DateTime.UtcNow,
+                            Reason = "Execution was cancelled"
+                        }, cancellationToken);
+
+                        await _streamingService.StreamExecutionCompletedAsync(executionId, new ExecutionCompletedEventArgs
+                        {
+                            ExecutionId = executionId,
+                            Status = "stopped",
+                            ExitCode = -1,
+                            CompletedAt = DateTime.UtcNow,
+                            Duration = DateTime.UtcNow - execution.StartedAt,
+                            Success = false,
+                            ErrorMessage = "Execution was cancelled",
+                            OutputFiles = new List<string>()
+                        }, cancellationToken);
+                    }
+                    catch (Exception streamEx)
+                    {
+                        _logger.LogWarning(streamEx, "Failed to stream execution cancelled event for {ExecutionId}", executionId);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -1881,6 +1971,38 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     executionId,
                     cancellationToken);
                 statusUpdated = true;
+
+                // LIVE STREAMING: Notify execution failed
+                if (_streamingService != null)
+                {
+                    try
+                    {
+                        await _streamingService.StreamStatusChangeAsync(executionId, new ExecutionStatusChangedEventArgs
+                        {
+                            ExecutionId = executionId,
+                            OldStatus = "running",
+                            NewStatus = "failed",
+                            ChangedAt = DateTime.UtcNow,
+                            Reason = $"Execution failed: {ex.Message}"
+                        }, cancellationToken);
+
+                        await _streamingService.StreamExecutionCompletedAsync(executionId, new ExecutionCompletedEventArgs
+                        {
+                            ExecutionId = executionId,
+                            Status = "failed",
+                            ExitCode = -1,
+                            CompletedAt = DateTime.UtcNow,
+                            Duration = DateTime.UtcNow - execution.StartedAt,
+                            Success = false,
+                            ErrorMessage = ex.Message,
+                            OutputFiles = new List<string>()
+                        }, cancellationToken);
+                    }
+                    catch (Exception streamEx)
+                    {
+                        _logger.LogWarning(streamEx, "Failed to stream execution failed event for {ExecutionId}", executionId);
+                    }
+                }
             }
             finally
             {

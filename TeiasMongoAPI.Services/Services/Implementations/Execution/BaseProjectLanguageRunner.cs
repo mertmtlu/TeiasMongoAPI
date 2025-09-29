@@ -7,6 +7,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Execution;
 using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Core.Models.DTOs;
 using TeiasMongoAPI.Services.Services.Implementations;
+using TeiasMongoAPI.Services.Interfaces;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 {
@@ -14,14 +15,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
     {
         protected readonly ILogger _logger;
         protected readonly IBsonToDtoMappingService _bsonMapper;
+        protected readonly IExecutionOutputStreamingService? _streamingService;
 
         public abstract string Language { get; }
         public virtual int Priority => 100;
 
-        protected BaseProjectLanguageRunner(ILogger logger, IBsonToDtoMappingService bsonMapper)
+        protected BaseProjectLanguageRunner(ILogger logger, IBsonToDtoMappingService bsonMapper, IExecutionOutputStreamingService? streamingService = null)
         {
             _logger = logger;
             _bsonMapper = bsonMapper;
+            _streamingService = streamingService;
         }
 
         public abstract Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default);
@@ -63,7 +66,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         }
 
         protected async Task<ProcessResult> RunProcessAsync(string executable, string arguments, string workingDirectory,
-            Dictionary<string, string>? environment = null, int timeoutMinutes = 2880, CancellationToken cancellationToken = default)
+            Dictionary<string, string>? environment = null, int timeoutMinutes = 2880, CancellationToken cancellationToken = default,
+            string? executionId = null)
         {
             var processInfo = new ProcessStartInfo
             {
@@ -99,6 +103,30 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 if (e.Data != null)
                 {
                     output.AppendLine(e.Data);
+
+                    // LIVE STREAMING: Stream stdout output in real-time
+                    if (!string.IsNullOrEmpty(executionId) && _streamingService != null)
+                    {
+                        try
+                        {
+                            // Fire and forget - don't wait for streaming to complete
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    await _streamingService.StreamOutputAsync(executionId, e.Data, DateTime.UtcNow);
+                                }
+                                catch (Exception streamEx)
+                                {
+                                    _logger.LogTrace(streamEx, "Failed to stream stdout output for execution {ExecutionId}", executionId);
+                                }
+                            });
+                        }
+                        catch
+                        {
+                            // Ignore streaming errors to prevent breaking process execution
+                        }
+                    }
                 }
             };
 
@@ -109,10 +137,58 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     if (e.Data.ToLower().Contains("error"))
                     {
                         error.AppendLine(e.Data);
+
+                        // LIVE STREAMING: Stream stderr output in real-time
+                        if (!string.IsNullOrEmpty(executionId) && _streamingService != null)
+                        {
+                            try
+                            {
+                                // Fire and forget - don't wait for streaming to complete
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        await _streamingService.StreamErrorAsync(executionId, e.Data, DateTime.UtcNow);
+                                    }
+                                    catch (Exception streamEx)
+                                    {
+                                        _logger.LogTrace(streamEx, "Failed to stream stderr output for execution {ExecutionId}", executionId);
+                                    }
+                                });
+                            }
+                            catch
+                            {
+                                // Ignore streaming errors to prevent breaking process execution
+                            }
+                        }
                     }
                     else
                     {
                         output.AppendLine(e.Data);
+
+                        // LIVE STREAMING: Stream info output as stdout
+                        if (!string.IsNullOrEmpty(executionId) && _streamingService != null)
+                        {
+                            try
+                            {
+                                // Fire and forget - don't wait for streaming to complete
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        await _streamingService.StreamOutputAsync(executionId, e.Data, DateTime.UtcNow);
+                                    }
+                                    catch (Exception streamEx)
+                                    {
+                                        _logger.LogTrace(streamEx, "Failed to stream info output for execution {ExecutionId}", executionId);
+                                    }
+                                });
+                            }
+                            catch
+                            {
+                                // Ignore streaming errors to prevent breaking process execution
+                            }
+                        }
                     }
                 }
             };
