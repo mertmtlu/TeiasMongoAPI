@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace TeiasMongoAPI.API.Hubs
@@ -7,6 +8,7 @@ namespace TeiasMongoAPI.API.Hubs
     /// Eliminates the need to poll execution status every 2 seconds
     /// Clients receive live stdout/stderr output, status changes, and progress updates
     /// </summary>
+    [Authorize]
     public class ExecutionHub : Hub
     {
         private readonly ILogger<ExecutionHub> _logger;

@@ -218,11 +218,24 @@ namespace TeiasMongoAPI.API
                 {
                     OnMessageReceived = context =>
                     {
-                        // Check for token in cookie as well
+                        // Check for token in cookie first
                         var token = context.Request.Cookies["AccessToken"];
                         if (!string.IsNullOrEmpty(token))
                         {
                             context.Token = token;
+                            return Task.CompletedTask;
+                        }
+
+                        // Check for token in query string for SignalR
+                        var accessToken = context.Request.Query["access_token"];
+
+                        // If the request is for our hub...
+                        var path = context.HttpContext.Request.Path;
+                        if (!string.IsNullOrEmpty(accessToken) &&
+                            (path.StartsWithSegments("/executionHub")))
+                        {
+                            // Read the token from the query string
+                            context.Token = accessToken;
                         }
                         return Task.CompletedTask;
                     }
