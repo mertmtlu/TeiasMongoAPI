@@ -102,6 +102,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             {
                 if (e.Data != null)
                 {
+                    _logger.LogInformation(">>> [PYTHON STDOUT]: {Data}", e.Data);
                     output.AppendLine(e.Data);
 
                     // LIVE STREAMING: Stream stdout output in real-time
@@ -136,6 +137,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 {
                     if (e.Data.ToLower().Contains("error"))
                     {
+                        //_logger.LogError(">>> [PYTHON STDERR]: {Data}", e.Data);
                         error.AppendLine(e.Data);
 
                         // LIVE STREAMING: Stream stderr output in real-time

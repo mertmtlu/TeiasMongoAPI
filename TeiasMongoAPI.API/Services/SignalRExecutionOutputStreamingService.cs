@@ -139,7 +139,12 @@ namespace TeiasMongoAPI.API.Services
                     receivedAt = DateTime.UtcNow.ToString("O")
                 };
 
-                await _hubContext.Clients.Group($"execution_{executionId}")
+                // <<< ADDED FOR DEBUGGING (STEP 2) >>>
+                string groupName = $"execution_{executionId}";
+                //_logger.LogInformation(">>> [SIGNALR SENDING] Event: 'ExecutionOutput' to Group: '{GroupName}'. Payload: '{Payload}'", groupName, output);
+                // <<< END OF ADDITION >>>
+
+                await _hubContext.Clients.Group(groupName)
                     .SendAsync("ExecutionOutput", eventData, cancellationToken);
 
                 // LOG CACHING: Add formatted log line to cache
@@ -167,7 +172,7 @@ namespace TeiasMongoAPI.API.Services
 
         public async Task StreamErrorAsync(string executionId, string error, DateTime timestamp, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(error.Trim())) return; // Skip empty error output
+            if (string.IsNullOrEmpty(error.Trim())) return;
 
             try
             {
@@ -180,16 +185,19 @@ namespace TeiasMongoAPI.API.Services
                     receivedAt = DateTime.UtcNow.ToString("O")
                 };
 
-                await _hubContext.Clients.Group($"execution_{executionId}")
+                // <<< ADDED FOR DEBUGGING (STEP 2) >>>
+                string groupName = $"execution_{executionId}";
+                //_logger.LogInformation(">>> [SIGNALR SENDING] Event: 'ExecutionError' to Group: '{GroupName}'. Payload: '{Payload}'", groupName, error);
+                // <<< END OF ADDITION >>>
+
+                await _hubContext.Clients.Group(groupName)
                     .SendAsync("ExecutionError", eventData, cancellationToken);
 
-                // LOG CACHING: Add formatted error line to cache
                 if (_logCache.TryGetValue(executionId, out var queue))
                 {
                     var formattedLogLine = $"[{timestamp:HH:mm:ss.fff}] [STDERR] {error}";
                     queue.Enqueue(formattedLogLine);
 
-                    // Cap cache size
                     while (queue.Count > MaxCacheSize)
                     {
                         queue.TryDequeue(out _);
@@ -202,7 +210,7 @@ namespace TeiasMongoAPI.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to stream stderr output for {ExecutionId}", executionId);
-                // Don't throw - error output streaming failures shouldn't break execution
+                // Don't throw
             }
         }
 
@@ -263,7 +271,6 @@ namespace TeiasMongoAPI.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to stream progress update for {ExecutionId}", executionId);
-                // Don't throw - progress streaming failures shouldn't break execution
             }
         }
 
@@ -334,24 +341,14 @@ namespace TeiasMongoAPI.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to stream resource usage for {ExecutionId}", executionId);
-                // Don't throw - resource usage streaming failures shouldn't break execution
             }
         }
 
-        /// <summary>
-        /// Helper method to extract user ID from execution context
-        /// In a real implementation, this would lookup the execution in the database
-        /// </summary>
         private string GetUserFromExecution(string executionId)
         {
-            // TODO: Implement proper user lookup from execution
-            // For now, return a placeholder
             return "unknown";
         }
 
-        /// <summary>
-        /// Get statistics about active streams
-        /// </summary>
         public async Task<object> GetStreamingStatsAsync()
         {
             await _streamingSemaphore.WaitAsync();
