@@ -30,11 +30,25 @@ namespace TeiasMongoAPI.API.Middleware
             }
         }
 
+        // The only method that needs to change is HandleExceptionAsync
+
         private async Task HandleExceptionAsync(HttpContext context, Exception exception)
         {
             var errorId = Guid.NewGuid().ToString();
-            _logger.LogError(exception, $"An error occurred. Error ID: {errorId}");
+            _logger.LogError(exception, $"An unhandled exception occurred after the response was started. Error ID: {errorId}");
 
+            // CRITICAL FIX: If the response has already started (e.g., headers sent for a file download),
+            // you CANNOT write a new response. To do so will cause a fatal error.
+            // The best you can do is log the exception and re-throw to let the server handle it gracefully.
+            if (context.Response.HasStarted)
+            {
+                _logger.LogWarning("Cannot write error response. The response has already started. Error ID: {ErrorId}", errorId);
+                // Do not continue. The connection is likely already being terminated by the server.
+                return;
+            }
+
+            // This original logic will now ONLY run for exceptions that happen *before*
+            // a response has started, which is the correct behavior.
             context.Response.ContentType = "application/json";
 
             var response = exception switch

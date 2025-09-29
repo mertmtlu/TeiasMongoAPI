@@ -311,15 +311,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         {
                             var relativePath = Path.GetRelativePath(outputsPath, file);
 
-                            // Read file content to calculate hash (similar to how version files work)
-                            var content = await File.ReadAllBytesAsync(file, cancellationToken);
-                            var hash = CalculateFileHash(content);
 
                             files.Add(new VersionFileDto
                             {
                                 Path = relativePath.Replace('\\', '/'), // Normalize path separators
                                 StorageKey = $"{programId}_{versionId}_{executionId}_{relativePath}",
-                                Hash = hash,
+                                Hash = string.Empty,
                                 Size = fileInfo.Length,
                                 FileType = DetermineFileType(relativePath),
                                 ContentType = GetContentTypeFromExtension(Path.GetExtension(relativePath))
@@ -376,7 +373,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Find the actual execution directory GUID since executionId is the database ID, not the directory name
                 var executionBasePath = Path.Combine(_settings.BasePath, programId, versionId, "execution");
                 var actualExecutionDirectory = await FindExecutionDirectoryAsync(executionBasePath, executionId, cancellationToken);
-                
+
                 if (string.IsNullOrEmpty(actualExecutionDirectory))
                 {
                     throw new FileNotFoundException($"Execution directory not found for execution {executionId}");
@@ -427,13 +424,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
                 // With the fix, execution folders now use the database execution ID directly
                 var executionDirectory = Path.Combine(executionBasePath, executionId);
-                
+
                 if (Directory.Exists(executionDirectory))
                 {
                     return executionDirectory;
                 }
 
-                _logger.LogWarning("Execution directory not found for execution {ExecutionId} at path {ExpectedPath}", 
+                _logger.LogWarning("Execution directory not found for execution {ExecutionId} at path {ExpectedPath}",
                     executionId, executionDirectory);
                 return null;
             }
@@ -550,7 +547,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 await File.Create(zipFilePath).DisposeAsync();
                 return zipFilePath;
             }
-            
+
             await using var fileStream = new FileStream(zipFilePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
             using (var archive = new ZipArchive(fileStream, ZipArchiveMode.Create, leaveOpen: false))
             {
@@ -976,7 +973,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         private string NormalizeFilePath(string filePath)
         {
-            return filePath.Replace('/','\\').Trim('\\');
+            return filePath.Replace('/', '\\').Trim('\\');
         }
 
         private string GetMetadataPath(string storageKey)

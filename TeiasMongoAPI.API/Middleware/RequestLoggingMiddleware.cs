@@ -19,30 +19,26 @@ namespace TeiasMongoAPI.API.Middleware
             var stopwatch = Stopwatch.StartNew();
             var requestId = Guid.NewGuid().ToString();
 
-            // Add request ID to response headers
             context.Response.Headers.Add("X-Request-Id", requestId);
 
-            // Log request
             await LogRequest(context, requestId);
 
-            // Copy original response body stream
-            var originalBodyStream = context.Response.Body;
-
-            using var responseBody = new MemoryStream();
-            context.Response.Body = responseBody;
-
-            try
+            // OnStarting registers a callback that executes just before response headers are sent.
+            // This is the correct place to log response metadata without interfering with the body stream.
+            context.Response.OnStarting(() =>
             {
-                await _next(context);
-            }
-            finally
-            {
-                // Log response
-                await LogResponse(context, requestId, stopwatch.ElapsedMilliseconds, responseBody);
+                stopwatch.Stop();
+                var elapsedMs = stopwatch.ElapsedMilliseconds;
 
-                // Copy the contents of the new memory stream to the original stream
-                await responseBody.CopyToAsync(originalBodyStream);
-            }
+                // We move the LogResponse logic here.
+                // NOTE: We cannot read the response body here because it hasn't been written yet.
+                // This is a necessary trade-off to support streaming file downloads.
+                LogResponseHeaders(context, requestId, elapsedMs);
+
+                return Task.CompletedTask;
+            });
+
+            await _next(context);
         }
 
         private async Task LogRequest(HttpContext context, string requestId)
@@ -50,13 +46,13 @@ namespace TeiasMongoAPI.API.Middleware
             var request = context.Request;
             var requestBody = string.Empty;
 
-            if (request.ContentLength > 0 && request.Body.CanSeek)
+            // This request buffering logic is fine.
+            if (request.ContentLength > 0)
             {
                 request.EnableBuffering();
-
                 using var reader = new StreamReader(request.Body, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
                 requestBody = await reader.ReadToEndAsync();
-                request.Body.Position = 0;
+                request.Body.Position = 0; // Rewind the stream so the controller can read it.
             }
 
             var logMessage = new StringBuilder();
@@ -67,7 +63,7 @@ namespace TeiasMongoAPI.API.Middleware
             logMessage.AppendLine($"  Headers: {string.Join(", ", request.Headers.Select(h => $"{h.Key}={h.Value}"))}");
             logMessage.AppendLine($"  RemoteIP: {context.Connection.RemoteIpAddress}");
 
-            if (!string.IsNullOrEmpty(requestBody) && requestBody.Length < 1000) // Only log small bodies
+            if (!string.IsNullOrEmpty(requestBody) && requestBody.Length < 2000) // Increased limit slightly
             {
                 logMessage.AppendLine($"  Body: {requestBody}");
             }
@@ -75,24 +71,10 @@ namespace TeiasMongoAPI.API.Middleware
             _logger.LogInformation(logMessage.ToString());
         }
 
-        private async Task LogResponse(HttpContext context, string requestId, long elapsedMs, MemoryStream responseBody)
+        // New method to only log headers and metadata, not the body.
+        private void LogResponseHeaders(HttpContext context, string requestId, long elapsedMs)
         {
             var response = context.Response;
-
-            // Check if this is a file stream response - skip body logging to prevent OutOfMemoryException
-            var contentType = response.ContentType?.ToLowerInvariant();
-            var isFileStream = !string.IsNullOrEmpty(contentType) && (
-                contentType.Contains("application/zip") ||
-                contentType.Contains("application/octet-stream") ||
-                contentType.Contains("application/pdf") ||
-                contentType.Contains("image/") ||
-                contentType.Contains("video/") ||
-                contentType.Contains("audio/") ||
-                contentType.Contains("text/csv") ||
-                contentType.Contains("application/vnd.") ||
-                contentType.Contains("application/x-") ||
-                contentType.StartsWith("multipart/")
-            );
 
             var logMessage = new StringBuilder();
             logMessage.AppendLine($"Response {requestId}:");
@@ -100,20 +82,18 @@ namespace TeiasMongoAPI.API.Middleware
             logMessage.AppendLine($"  Duration: {elapsedMs}ms");
             logMessage.AppendLine($"  ContentType: {response.ContentType}");
 
+            // Your check for file streams is still useful to decide if we should even *expect* a body in the logs.
+            var contentType = response.ContentType?.ToLowerInvariant();
+            var isFileStream = !string.IsNullOrEmpty(contentType) && (
+                contentType.Contains("application/zip") ||
+                contentType.Contains("application/octet-stream") ||
+                contentType.Contains("application/pdf")
+            );
+
             if (isFileStream)
             {
+                // This message is accurate; we are skipping because it's a stream we can't buffer.
                 logMessage.AppendLine($"  Body: Skipping response body logging for file stream.");
-            }
-            else
-            {
-                responseBody.Seek(0, SeekOrigin.Begin);
-                var responseText = await new StreamReader(responseBody).ReadToEndAsync();
-                responseBody.Seek(0, SeekOrigin.Begin);
-
-                if (responseText.Length < 1000) // Only log small bodies
-                {
-                    logMessage.AppendLine($"  Body: {responseText}");
-                }
             }
 
             if (response.StatusCode >= 400)
@@ -127,9 +107,7 @@ namespace TeiasMongoAPI.API.Middleware
         }
     }
 
-    /// <summary>
-    /// Extension method to add the request logging middleware to the pipeline
-    /// </summary>
+    // Your extension method remains the same
     public static class RequestLoggingMiddlewareExtensions
     {
         public static IApplicationBuilder UseRequestLogging(this IApplicationBuilder builder)

@@ -4,12 +4,14 @@ using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Net.Http.Headers;
 using TeiasMongoAPI.API.Attributes;
 using TeiasMongoAPI.API.Controllers.Base;
+using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Core.Models.KeyModels;
 using TeiasMongoAPI.Services.DTOs.Request.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Request.Pagination;
 using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Interfaces;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace TeiasMongoAPI.API.Controllers
 {
@@ -20,15 +22,18 @@ namespace TeiasMongoAPI.API.Controllers
     {
         private readonly IExecutionService _executionService;
         private readonly IFileStorageService _fileStorageService;
+        private readonly IWebHostEnvironment _env;
 
         public ExecutionsController(
             IExecutionService executionService,
             IFileStorageService fileStorageService,
-            ILogger<ExecutionsController> logger)
+            ILogger<ExecutionsController> logger,
+            IWebHostEnvironment env)
             : base(logger)
         {
             _executionService = executionService;
             _fileStorageService = fileStorageService;
+            _env = env;
         }
 
         #region Basic CRUD Operations
@@ -1122,13 +1127,12 @@ namespace TeiasMongoAPI.API.Controllers
             }, $"Download file {filePath} for execution {id}");
         }
 
-
         /// <summary>
         /// Downloads all output files from an execution as a ZIP archive.
         /// This action is idempotent; the ZIP is created once and then reused.
         /// </summary>
         [HttpGet("{id}/files/download-all")]
-        [RequirePermission(UserPermissions.ViewExecutionResults)] // Restored authorization
+        [RequirePermission(UserPermissions.ViewExecutionResults)]
         public async Task<IActionResult> DownloadAllExecutionFiles(
             string id,
             CancellationToken cancellationToken = default)
@@ -1136,37 +1140,65 @@ namespace TeiasMongoAPI.API.Controllers
             try
             {
                 var objectIdResult = ParseObjectId(id);
-                if (objectIdResult.Result != null) return objectIdResult.Result;
+                if (objectIdResult.Result != null)
+                {
+                    return objectIdResult.Result;
+                }
 
                 var execution = await _executionService.GetByIdAsync(id, cancellationToken);
+                if (execution == null)
+                {
+                    return NotFound($"Execution with ID '{id}' not found.");
+                }
 
-                // Use the new service method to get the physical path to the zip file.
-                // The service handles creation if it doesn't exist.
+                // Get the relative path to the zip file.
                 var zipFilePath = await _fileStorageService.CreateExecutionZipIfNotExistsAsync(execution, cancellationToken);
 
-                if (!System.IO.File.Exists(zipFilePath))
+                // Convert the relative path to an absolute physical path.
+                var absolutePath = Path.Combine(_env.ContentRootPath, zipFilePath);
+
+                if (!System.IO.File.Exists(absolutePath))
                 {
-                    _logger.LogError("FileStorageService reported a path for a ZIP file that does not exist: {ZipPath}", zipFilePath);
-                    return NotFound("The generated archive could not be found.");
+                    _logger.LogError("Zip file for execution {ExecutionId} not found at path {Path}", id, absolutePath);
+                    return NotFound("The generated archive file could not be found.");
                 }
 
-                var fileInfo = new FileInfo(zipFilePath);
-                if (fileInfo.Length == 0)
-                {
-                    _logger.LogWarning("Execution {ExecutionId} archive exists but is empty. No files to download.", id);
-                    return NoContent(); // Return 204 No Content for an empty zip
-                }
+                // BEST PRACTICE: Create a FileStream that will be passed directly to the response.
+                // The ASP.NET Core framework will take ownership of this stream and ensure it is
+                // properly read from and disposed of *after* the response is complete.
+                var fileStream = new FileStream(
+                    absolutePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    bufferSize: 4096, // Default buffer size, good for streaming
+                    useAsync: true);
 
-                var contentType = "application/zip";
-                var fileName = $"execution-{execution.Id}-output-files.zip";
+                var fileName = $"execution-{id}-all-files.zip";
 
-                // Return a PhysicalFileResult. ASP.NET Core will handle streaming this file from disk efficiently.
-                return PhysicalFile(zipFilePath, contentType, fileName);
+                // This creates a FileStreamResult, which is the correct way to stream files from disk.
+                // It prevents the "Content-Length mismatch" error.
+                return File(fileStream, "application/zip", fileName);
             }
             catch (DirectoryNotFoundException ex)
             {
                 _logger.LogWarning(ex, "Could not find directory for execution {ExecutionId}", id);
                 return NotFound("Execution files directory not found.");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogError(ex, "Access denied while reading file for execution {ExecutionId}", id);
+                return Forbid("Access denied to the requested file.");
+            }
+            catch (IOException ex)
+            {
+                _logger.LogError(ex, "I/O error while streaming file for execution {ExecutionId}", id);
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while reading the file.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Download was cancelled for execution {ExecutionId}", id);
+                return new EmptyResult();
             }
             catch (Exception ex)
             {
@@ -1209,7 +1241,7 @@ namespace TeiasMongoAPI.API.Controllers
                 var skippedFiles = new List<string>();
                 var errors = new List<string>();
                 long totalSize = 0;
-                
+
                 using var memoryStream = new MemoryStream();
                 using (var archive = new System.IO.Compression.ZipArchive(memoryStream, System.IO.Compression.ZipArchiveMode.Create, true))
                 {
@@ -1227,7 +1259,7 @@ namespace TeiasMongoAPI.API.Controllers
                             var entry = archive.CreateEntry(filePath);
                             using var entryStream = entry.Open();
                             await entryStream.WriteAsync(fileContent.Content, cancellationToken);
-                            
+
                             includedFiles.Add(filePath);
                             totalSize += fileContent.Content.Length;
                         }
