@@ -89,6 +89,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             var error = new StringBuilder();
             var startTime = DateTime.UtcNow;
 
+            // COMPREHENSIVE LOGGING: Process execution start
+            LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "Starting", startTime, cancellationToken.IsCancellationRequested);
+
             using var process = new Process { StartInfo = processInfo };
 
             process.OutputDataReceived += (_, e) =>
@@ -122,30 +125,110 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                await process.WaitForExitAsync(cancellationToken); //TODO: CHECK HERE!!
+                // FIXED: Robust handling for long-running processes
+                LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "WaitingForExit", DateTime.UtcNow, cancellationToken.IsCancellationRequested);
 
-                // Process timeout or cancellation
+                try
+                {
+                    await process.WaitForExitAsync(cancellationToken);
+                    LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "WaitCompleted", DateTime.UtcNow, cancellationToken.IsCancellationRequested, processHasExited: process.HasExited);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    var cancelTime = DateTime.UtcNow;
+                    var partialDuration = cancelTime - startTime;
+
+                    LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "Cancelled", cancelTime, true,
+                        duration: partialDuration, processHasExited: process.HasExited);
+
+                    // Critical fix: Check if process actually completed despite cancellation
+                    if (process.HasExited)
+                    {
+                        LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "CompletedDespiteCancellation",
+                            cancelTime, true, exitCode: process.ExitCode, duration: partialDuration, processHasExited: true);
+                        // Process completed naturally - continue to return success/failure based on exit code
+                    }
+                    else
+                    {
+                        LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "TerminatingAfterCancellation",
+                            cancelTime, true, duration: partialDuration, processHasExited: false);
+
+                        // Process still running - kill it and wait for termination
+                        process.Kill(true);
+                        await process.WaitForExitAsync(CancellationToken.None);
+
+                        var terminationDuration = DateTime.UtcNow - startTime;
+                        LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "TerminatedAfterCancellation",
+                            DateTime.UtcNow, true, exitCode: -1, duration: terminationDuration, processHasExited: true);
+
+                        return new ProcessResult
+                        {
+                            ExitCode = -1,
+                            Output = output.ToString(),
+                            Error = "Process was cancelled due to timeout or user request",
+                            Duration = terminationDuration,
+                            Success = false
+                        };
+                    }
+                }
+
+                // Process timeout or other cancellation scenarios
                 if (!process.HasExited)
                 {
+                    LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "UnexpectedNotExited",
+                        DateTime.UtcNow, cancellationToken.IsCancellationRequested, processHasExited: false);
+
                     process.Kill(true);
                     await process.WaitForExitAsync(CancellationToken.None);
                 }
 
-                var endTime = DateTime.UtcNow;
-                var duration = endTime - startTime;
+                var finalEndTime = DateTime.UtcNow;
+                var finalDuration = finalEndTime - startTime;
 
-                return new ProcessResult
+                var result = new ProcessResult
                 {
                     ExitCode = process.ExitCode,
                     Output = output.ToString(),
                     Error = error.ToString(),
-                    Duration = duration,
+                    Duration = finalDuration,
                     Success = process.ExitCode == 0
                 };
+
+                LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "Completed",
+                    finalEndTime, cancellationToken.IsCancellationRequested, exitCode: result.ExitCode,
+                    duration: finalDuration, processHasExited: true);
+
+                return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Process execution failed: {Executable} {Arguments}", executable, arguments);
+                var errorTime = DateTime.UtcNow;
+                var errorDuration = errorTime - startTime;
+
+                LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "Failed",
+                    errorTime, cancellationToken.IsCancellationRequested, exitCode: -1,
+                    duration: errorDuration, processHasExited: process.HasExited);
+
+                _logger.LogError(ex, "Process execution failed: {Executable} {Arguments} after {Duration}",
+                    executable, arguments, errorDuration);
+
+                // Ensure process is cleaned up even in case of unexpected errors
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        LogProcessExecution(executable, arguments, workingDirectory, timeoutMinutes, "CleanupKillAfterError",
+                            DateTime.UtcNow, cancellationToken.IsCancellationRequested, processHasExited: false);
+
+                        process.Kill(true);
+                        await process.WaitForExitAsync(CancellationToken.None);
+                    }
+                }
+                catch (Exception killEx)
+                {
+                    _logger.LogWarning(killEx, "Failed to kill process {Executable} during error cleanup", executable);
+                }
+
                 return new ProcessResult
                 {
                     ExitCode = -1,
@@ -336,6 +419,60 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             // - Check against known table element names from component configuration
 
             return true; // Likely a table element
+        }
+
+        /// <summary>
+        /// COMPREHENSIVE LOGGING: Detailed logging for long-running execution debugging
+        /// </summary>
+        private void LogProcessExecution(string executable, string arguments, string workingDirectory,
+            int timeoutMinutes, string phase, DateTime timestamp, bool cancellationRequested,
+            int? exitCode = null, TimeSpan? duration = null, bool? processHasExited = null)
+        {
+            var logLevel = phase switch
+            {
+                "Starting" => LogLevel.Information,
+                "WaitingForExit" => LogLevel.Debug,
+                "Completed" => LogLevel.Information,
+                "Cancelled" => LogLevel.Warning,
+                "Failed" => LogLevel.Error,
+                "Timeout" => LogLevel.Warning,
+                _ => LogLevel.Debug
+            };
+
+            using var scope = _logger.BeginScope(new Dictionary<string, object>
+            {
+                ["ProcessExecutable"] = executable,
+                ["ProcessArguments"] = arguments.Length > 100 ? arguments[..100] + "..." : arguments,
+                ["WorkingDirectory"] = workingDirectory,
+                ["TimeoutMinutes"] = timeoutMinutes,
+                ["Phase"] = phase,
+                ["Timestamp"] = timestamp.ToString("O"),
+                ["CancellationRequested"] = cancellationRequested
+            });
+
+            var message = $"Process execution {phase}: {executable} " +
+                         $"(timeout: {timeoutMinutes}min, cancellation: {cancellationRequested}";
+
+            if (exitCode.HasValue)
+                message += $", exit code: {exitCode.Value}";
+
+            if (duration.HasValue)
+                message += $", duration: {duration.Value.TotalMinutes:F2}min";
+
+            if (processHasExited.HasValue)
+                message += $", has exited: {processHasExited.Value}";
+
+            message += ")";
+
+            _logger.Log(logLevel, message);
+
+            // Additional detailed logging for critical phases
+            if (phase == "Cancelled" || phase == "Timeout" || (phase == "Completed" && duration?.TotalHours >= 1))
+            {
+                _logger.LogInformation("LONG_RUNNING_EXECUTION_DETAILS: Process {Executable} {Phase} after {Duration} " +
+                                     "with cancellation_requested={CancellationRequested}, process_exited={ProcessExited}, exit_code={ExitCode}",
+                    executable, phase, duration?.ToString() ?? "unknown", cancellationRequested, processHasExited, exitCode);
+            }
         }
         protected class InputFileData
         {

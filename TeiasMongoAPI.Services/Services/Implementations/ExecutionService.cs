@@ -1833,6 +1833,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             };
 
             _activeExecutions[executionId] = context;
+            bool statusUpdated = false;
 
             try
             {
@@ -1855,31 +1856,43 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 // Execute using project execution engine
                 var result = await _projectExecutionEngine.ExecuteProjectAsync(projectRequest, executionId, context.CancellationTokenSource.Token);
 
-                // Update execution record with results
-                await UpdateExecutionWithProjectResultAsync(execution, result, cancellationToken);
+                // DEFENSIVE: Update execution record with results using retry logic
+                await UpdateExecutionWithProjectResultWithRetryAsync(execution, result, cancellationToken);
+                statusUpdated = true;
 
-                _logger.LogInformation("Completed project execution for {ExecutionId}", executionId);
+                _logger.LogInformation("Completed project execution for {ExecutionId} with status {Status}", executionId, result.Success ? "completed" : "failed");
             }
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Project execution {ExecutionId} was cancelled", executionId);
-                await _unitOfWork.Executions.UpdateStatusAsync(execution._ID, "stopped", cancellationToken);
+                await SafeUpdateExecutionStatusAsync(execution._ID, "stopped", executionId, cancellationToken);
+                statusUpdated = true;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Project execution failed for {ExecutionId}", executionId);
 
-                await _unitOfWork.Executions.CompleteExecutionAsync(
+                await SafeCompleteExecutionAsync(
                     execution._ID,
                     -1,
                     "Project execution failed",
                     new List<string>(),
                     ex.Message,
+                    executionId,
                     cancellationToken);
+                statusUpdated = true;
             }
             finally
             {
+                // DEFENSIVE: Ensure execution status is never left as "running"
+                if (!statusUpdated)
+                {
+                    _logger.LogWarning("Execution {ExecutionId} completed without proper status update. Performing defensive status update...", executionId);
+                    await SafeUpdateExecutionStatusAsync(execution._ID, "failed", executionId, CancellationToken.None);
+                }
+
                 _activeExecutions.Remove(executionId);
+                _logger.LogDebug("Cleaned up execution context for {ExecutionId}", executionId);
             }
         }
 
@@ -1906,6 +1919,108 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             }
 
             await _unitOfWork.Executions.UpdateAsync(execution._ID, execution, cancellationToken);
+        }
+
+        /// <summary>
+        /// DEFENSIVE: Update execution with project result using retry logic for long-running executions
+        /// </summary>
+        private async Task UpdateExecutionWithProjectResultWithRetryAsync(ExecutionModel execution,
+            DTOs.Response.Execution.ProjectExecutionResult result,
+            CancellationToken cancellationToken)
+        {
+            const int maxRetries = 3;
+            const int delayMs = 1000;
+            var executionId = execution._ID.ToString();
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    await UpdateExecutionWithProjectResultAsync(execution, result, cancellationToken);
+                    _logger.LogDebug("Successfully updated execution {ExecutionId} on attempt {Attempt}", executionId, attempt);
+                    return;
+                }
+                catch (Exception ex) when (attempt < maxRetries)
+                {
+                    _logger.LogWarning(ex, "Failed to update execution {ExecutionId} on attempt {Attempt}. Retrying...", executionId, attempt);
+                    await Task.Delay(delayMs * attempt, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to update execution {ExecutionId} after {MaxRetries} attempts", executionId, maxRetries);
+
+                    // Final fallback: at least update the status
+                    await SafeUpdateExecutionStatusAsync(execution._ID, result.Success ? "completed" : "failed", executionId, cancellationToken);
+                    throw;
+                }
+            }
+        }
+
+        /// <summary>
+        /// DEFENSIVE: Safe status update that never throws exceptions
+        /// </summary>
+        private async Task SafeUpdateExecutionStatusAsync(ObjectId executionId, string status, string executionIdStr, CancellationToken cancellationToken)
+        {
+            const int maxRetries = 3;
+            const int delayMs = 500;
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    await _unitOfWork.Executions.UpdateStatusAsync(executionId, status, cancellationToken);
+                    _logger.LogInformation("Successfully updated execution {ExecutionId} to status {Status} on attempt {Attempt}", executionIdStr, status, attempt);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update execution {ExecutionId} status to {Status} on attempt {Attempt}", executionIdStr, status, attempt);
+
+                    if (attempt < maxRetries)
+                    {
+                        await Task.Delay(delayMs * attempt, CancellationToken.None);
+                    }
+                    else
+                    {
+                        _logger.LogError(ex, "CRITICAL: Failed to update execution {ExecutionId} status after {MaxRetries} attempts. Status may be inconsistent!", executionIdStr, maxRetries);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// DEFENSIVE: Safe completion update that never throws exceptions
+        /// </summary>
+        private async Task SafeCompleteExecutionAsync(ObjectId executionId, int exitCode, string output, List<string> outputFiles, string error, string executionIdStr, CancellationToken cancellationToken)
+        {
+            const int maxRetries = 3;
+            const int delayMs = 500;
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    await _unitOfWork.Executions.CompleteExecutionAsync(executionId, exitCode, output, outputFiles, error, cancellationToken);
+                    _logger.LogInformation("Successfully completed execution {ExecutionId} with exit code {ExitCode} on attempt {Attempt}", executionIdStr, exitCode, attempt);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to complete execution {ExecutionId} on attempt {Attempt}", executionIdStr, attempt);
+
+                    if (attempt < maxRetries)
+                    {
+                        await Task.Delay(delayMs * attempt, CancellationToken.None);
+                    }
+                    else
+                    {
+                        _logger.LogError(ex, "CRITICAL: Failed to complete execution {ExecutionId} after {MaxRetries} attempts. Trying fallback status update...", executionIdStr, maxRetries);
+
+                        // Final fallback: just update status to failed
+                        await SafeUpdateExecutionStatusAsync(executionId, "failed", executionIdStr, CancellationToken.None);
+                    }
+                }
+            }
         }
 
         private ProjectResourceLimits? MapToProjectResourceLimits(ExecutionResourceLimitsDto? dto)

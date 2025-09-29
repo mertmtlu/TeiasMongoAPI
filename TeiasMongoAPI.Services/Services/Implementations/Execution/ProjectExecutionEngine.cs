@@ -115,14 +115,52 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
                 session.InitialFiles = initialFiles;
 
-                // Step 9: Execute project
+                // Step 9: Execute project with enhanced exception handling for long-running processes
                 var executionContext = CreateExecutionContext(executionId, projectDirectory, request, projectStructure, timeoutCts.Token);
-                var result = await runner.ExecuteAsync(executionContext, timeoutCts.Token);
+                ProjectExecutionResult result;
 
-                // Step 10: Collect and store output files
+                try
+                {
+                    result = await runner.ExecuteAsync(executionContext, timeoutCts.Token);
+                    _logger.LogInformation("Project execution completed for {ExecutionId} with success: {Success}, exit code: {ExitCode}",
+                        executionId, result.Success, result.ExitCode);
+                }
+                catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    // Timeout occurred but not user cancellation
+                    _logger.LogWarning("Project execution {ExecutionId} timed out after {TimeoutMinutes} minutes", executionId, request.TimeoutMinutes);
+                    return CreateFailureResult(executionId, session, $"Execution timed out after {request.TimeoutMinutes} minutes");
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // User/system cancellation
+                    _logger.LogInformation("Project execution {ExecutionId} was cancelled by user/system", executionId);
+                    return CreateFailureResult(executionId, session, "Execution was cancelled");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Project execution {ExecutionId} failed during runner execution", executionId);
+                    return CreateFailureResult(executionId, session, $"Execution failed: {ex.Message}");
+                }
+
+                // Step 10: Collect and store output files with cancellation safety
                 if (request.SaveResults)
                 {
-                    result.OutputFiles = await CollectAndStoreOutputFilesAsync(projectDirectory, executionDirectory, session.InitialFiles, timeoutCts.Token);
+                    try
+                    {
+                        result.OutputFiles = await CollectAndStoreOutputFilesAsync(projectDirectory, executionDirectory, session.InitialFiles, timeoutCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogWarning("File collection was cancelled for {ExecutionId}, but execution completed successfully", executionId);
+                        // Don't fail the entire execution for file collection issues
+                        result.OutputFiles = new List<string>();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to collect output files for {ExecutionId}, but execution completed successfully", executionId);
+                        result.OutputFiles = new List<string>();
+                    }
                 }
 
                 // Step 11: Update result with session info
@@ -132,22 +170,34 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 result.Duration = result.CompletedAt - result.StartedAt;
                 result.BuildResult = buildResult;
 
-                // Step 12: Store execution logs
-                await StoreExecutionLogsAsync(executionDirectory, result, timeoutCts.Token);
+                // Step 12: Store execution logs with cancellation safety
+                try
+                {
+                    await StoreExecutionLogsAsync(executionDirectory, result, timeoutCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogWarning("Log storage was cancelled for {ExecutionId}, but execution completed successfully", executionId);
+                    // Don't fail the entire execution for log storage issues
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to store execution logs for {ExecutionId}, but execution completed successfully", executionId);
+                }
 
-                _logger.LogInformation("Completed project execution {ExecutionId} with exit code {ExitCode}",
-                    executionId, result.ExitCode);
+                _logger.LogInformation("Completed project execution {ExecutionId} with exit code {ExitCode} and duration {Duration}",
+                    executionId, result.ExitCode, result.Duration?.TotalMinutes);
 
                 return result;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                _logger.LogInformation("Project execution {ExecutionId} was cancelled", executionId);
+                _logger.LogInformation("Project execution {ExecutionId} was cancelled during setup/cleanup", executionId);
                 return CreateFailureResult(executionId, session, "Execution was cancelled");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Project execution {ExecutionId} failed with exception", executionId);
+                _logger.LogError(ex, "Project execution {ExecutionId} failed with unexpected exception", executionId);
                 return CreateFailureResult(executionId, session, $"Execution failed: {ex.Message}");
             }
             finally
