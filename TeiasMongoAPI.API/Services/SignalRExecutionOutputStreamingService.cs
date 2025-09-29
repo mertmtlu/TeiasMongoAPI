@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using System.Collections.Concurrent;
 using TeiasMongoAPI.API.Hubs;
 using TeiasMongoAPI.Services.Interfaces;
 
@@ -15,6 +16,10 @@ namespace TeiasMongoAPI.API.Services
         private readonly Dictionary<string, DateTime> _activeStreams = new();
         private readonly SemaphoreSlim _streamingSemaphore = new(1, 1);
 
+        // LOG CACHING: Store recent log lines for each execution to provide historical context
+        private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _logCache = new();
+        private const int MaxCacheSize = 200;
+
         public SignalRExecutionOutputStreamingService(
             IHubContext<ExecutionHub> hubContext,
             ILogger<SignalRExecutionOutputStreamingService> logger)
@@ -29,11 +34,16 @@ namespace TeiasMongoAPI.API.Services
             try
             {
                 _activeStreams[executionId] = DateTime.UtcNow;
+
+                // LOG CACHING: Initialize log cache for this execution
+                _logCache[executionId] = new ConcurrentQueue<string>();
+
                 _logger.LogInformation("Started execution streaming for {ExecutionId} by user {UserId}", executionId, userId);
 
                 // Notify execution group that streaming has started
                 await _hubContext.Clients.Group($"execution_{executionId}")
-                    .SendAsync("ExecutionStreamingStarted", new {
+                    .SendAsync("ExecutionStreamingStarted", new
+                    {
                         executionId,
                         userId,
                         startedAt = DateTime.UtcNow
@@ -51,11 +61,16 @@ namespace TeiasMongoAPI.API.Services
             try
             {
                 _activeStreams.Remove(executionId);
+
+                // LOG CACHING: Clean up log cache to prevent memory leaks
+                _logCache.TryRemove(executionId, out _);
+
                 _logger.LogInformation("Stopped execution streaming for {ExecutionId}", executionId);
 
                 // Notify execution group that streaming has stopped
                 await _hubContext.Clients.Group($"execution_{executionId}")
-                    .SendAsync("ExecutionStreamingStopped", new {
+                    .SendAsync("ExecutionStreamingStopped", new
+                    {
                         executionId,
                         stoppedAt = DateTime.UtcNow
                     }, cancellationToken);
@@ -100,6 +115,15 @@ namespace TeiasMongoAPI.API.Services
             }
         }
 
+        public IEnumerable<string> GetCachedLogs(string executionId)
+        {
+            if (_logCache.TryGetValue(executionId, out var queue))
+            {
+                return queue.ToList();
+            }
+            return Enumerable.Empty<string>();
+        }
+
         public async Task StreamOutputAsync(string executionId, string output, DateTime timestamp, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(output.Trim())) return; // Skip empty output
@@ -117,6 +141,19 @@ namespace TeiasMongoAPI.API.Services
 
                 await _hubContext.Clients.Group($"execution_{executionId}")
                     .SendAsync("ExecutionOutput", eventData, cancellationToken);
+
+                // LOG CACHING: Add formatted log line to cache
+                if (_logCache.TryGetValue(executionId, out var queue))
+                {
+                    var formattedLogLine = $"[{timestamp:HH:mm:ss.fff}] [STDOUT] {output}";
+                    queue.Enqueue(formattedLogLine);
+
+                    // Cap cache size to prevent memory leaks
+                    while (queue.Count > MaxCacheSize)
+                    {
+                        queue.TryDequeue(out _);
+                    }
+                }
 
                 _logger.LogTrace("Streamed stdout output for {ExecutionId}: {OutputLength} chars",
                     executionId, output.Length);
@@ -145,6 +182,19 @@ namespace TeiasMongoAPI.API.Services
 
                 await _hubContext.Clients.Group($"execution_{executionId}")
                     .SendAsync("ExecutionError", eventData, cancellationToken);
+
+                // LOG CACHING: Add formatted error line to cache
+                if (_logCache.TryGetValue(executionId, out var queue))
+                {
+                    var formattedLogLine = $"[{timestamp:HH:mm:ss.fff}] [STDERR] {error}";
+                    queue.Enqueue(formattedLogLine);
+
+                    // Cap cache size
+                    while (queue.Count > MaxCacheSize)
+                    {
+                        queue.TryDequeue(out _);
+                    }
+                }
 
                 _logger.LogTrace("Streamed stderr output for {ExecutionId}: {ErrorLength} chars",
                     executionId, error.Length);

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using TeiasMongoAPI.Services.Interfaces;
 
 namespace TeiasMongoAPI.API.Hubs
 {
@@ -12,10 +13,11 @@ namespace TeiasMongoAPI.API.Hubs
     public class ExecutionHub : Hub
     {
         private readonly ILogger<ExecutionHub> _logger;
+        private readonly IExecutionOutputStreamingService _streamingService;
 
-        public ExecutionHub(ILogger<ExecutionHub> logger)
+        public ExecutionHub(ILogger<ExecutionHub> logger, IExecutionOutputStreamingService streamingService)
         {
-            _logger = logger;
+            _logger = logger; _streamingService = streamingService;
         }
 
         public override async Task OnConnectedAsync()
@@ -24,6 +26,16 @@ namespace TeiasMongoAPI.API.Hubs
             _logger.LogInformation("Client connected to ExecutionHub with ConnectionID {ConnectionId} for UserID {UserId}",
                 Context.ConnectionId, userId);
             await base.OnConnectedAsync();
+        }
+
+        public async Task RequestInitialLogs(string executionId)
+        {
+            var userId = Context.UserIdentifier ?? "Unknown";
+            _logger.LogInformation("Client {ConnectionId} (User: {UserId}) requested initial logs for execution {ExecutionId}",
+                Context.ConnectionId, userId, executionId);
+
+            var cachedLogs = _streamingService.GetCachedLogs(executionId);
+            await Clients.Caller.SendAsync("InitialLogs", cachedLogs);
         }
 
         public override async Task OnDisconnectedAsync(Exception? exception)

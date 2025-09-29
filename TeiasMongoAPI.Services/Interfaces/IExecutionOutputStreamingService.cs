@@ -17,6 +17,11 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task StartExecutionStreamingAsync(string executionId, string userId, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Retrieve cached logs for a specific execution ID
+        /// >/summary>
+        IEnumerable<string> GetCachedLogs(string executionId);
+
+        /// <summary>
         /// Stop streaming for a specific execution ID
         /// </summary>
         Task StopExecutionStreamingAsync(string executionId, CancellationToken cancellationToken = default);
