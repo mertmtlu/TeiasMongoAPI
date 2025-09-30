@@ -199,6 +199,23 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             {
                 _logger.LogDebug("Running: {Executable} {Arguments} in {WorkingDirectory}", executable, arguments, workingDirectory);
 
+                // Register cancellation callback to ensure process is killed immediately when cancellation is triggered
+                cancellationToken.Register(() =>
+                {
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            _logger.LogWarning("Terminating process {Executable} due to cancellation (timeout or user request)", executable);
+                            process.Kill(true); // Kill entire process tree
+                        }
+                    }
+                    catch (Exception killEx)
+                    {
+                        _logger.LogWarning(killEx, "Failed to kill process {Executable} in cancellation callback", executable);
+                    }
+                });
+
                 process.Start();
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();

@@ -21,6 +21,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         private readonly IVersionService _versionService;
         private readonly IEnumerable<IProjectLanguageRunner> _languageRunners;
         private readonly ProjectExecutionSettings _settings;
+        private readonly IExecutionOutputStreamingService? _streamingService;
         private readonly Dictionary<string, ExecutionSession> _activeSessions = new();
 
         public ProjectExecutionEngine(
@@ -31,7 +32,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             IVersionService versionService,
             IEnumerable<IProjectLanguageRunner> languageRunners,
             IOptions<ProjectExecutionSettings> settings,
-            ILogger<ProjectExecutionEngine> logger)
+            ILogger<ProjectExecutionEngine> logger,
+            IExecutionOutputStreamingService? streamingService = null)
             : base(unitOfWork, mapper, logger)
         {
             _fileStorageService = fileStorageService;
@@ -39,6 +41,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             _versionService = versionService;
             _languageRunners = languageRunners.OrderBy(r => r.Priority);
             _settings = settings.Value;
+            _streamingService = streamingService;
         }
 
         public async Task<ProjectExecutionResult> ExecuteProjectAsync(ProjectExecutionRequest request, string executionId, CancellationToken cancellationToken = default)
@@ -59,9 +62,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     executionId, request.ProgramId);
 
                 // Set up execution timeout
+                var timeoutMinutes = request.TimeoutMinutes > 0 ? request.TimeoutMinutes : _settings.DefaultTimeoutMinutes;
                 var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken, session.CancellationTokenSource.Token);
-                timeoutCts.CancelAfter(TimeSpan.FromMinutes(request.TimeoutMinutes));
+                timeoutCts.CancelAfter(TimeSpan.FromMinutes(timeoutMinutes));
 
                 // Step 1: Resolve version to execute
                 var versionId = await ResolveExecutionVersionAsync(request.ProgramId, request.VersionId, timeoutCts.Token);
@@ -128,8 +132,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
                     // Timeout occurred but not user cancellation
-                    _logger.LogWarning("Project execution {ExecutionId} timed out after {TimeoutMinutes} minutes", executionId, request.TimeoutMinutes);
-                    return CreateFailureResult(executionId, session, $"Execution timed out after {request.TimeoutMinutes} minutes");
+                    _logger.LogWarning("Project execution {ExecutionId} timed out after {TimeoutMinutes} minutes", executionId, timeoutMinutes);
+
+                    // Notify client of timeout via streaming service
+                    if (_streamingService != null)
+                    {
+                        try
+                        {
+                            var completedArgs = new ExecutionCompletedEventArgs
+                            {
+                                ExecutionId = executionId,
+                                Status = "timed_out",
+                                ExitCode = -1,
+                                ErrorMessage = "Execution timed out.",
+                                CompletedAt = DateTime.UtcNow,
+                                Duration = DateTime.UtcNow - session.StartedAt,
+                                Success = false,
+                                OutputFiles = new List<string>()
+                            };
+                            await _streamingService.StreamExecutionCompletedAsync(executionId, completedArgs, cancellationToken);
+                        }
+                        catch (Exception streamEx)
+                        {
+                            _logger.LogWarning(streamEx, "Failed to stream timeout notification for execution {ExecutionId}", executionId);
+                        }
+                    }
+
+                    return CreateFailureResult(executionId, session, $"Execution timed out after {timeoutMinutes} minutes");
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -635,6 +664,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         /// </summary>
         private ProjectExecutionContext CreateExecutionContext(string executionId, string projectDirectory, ProjectExecutionRequest request, ProjectStructureAnalysis projectStructure, CancellationToken cancellationToken)
         {
+            var resourceLimits = request.ResourceLimits ?? new ProjectResourceLimits();
+            if (resourceLimits.MaxExecutionTimeMinutes <= 0)
+            {
+                resourceLimits.MaxExecutionTimeMinutes = _settings.DefaultTimeoutMinutes;
+            }
+
             return new ProjectExecutionContext
             {
                 ExecutionId = executionId,
@@ -642,7 +677,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 UserId = request.UserId,
                 Parameters = request.Parameters,
                 Environment = request.Environment,
-                ResourceLimits = request.ResourceLimits ?? new ProjectResourceLimits(),
+                ResourceLimits = resourceLimits,
                 ProjectStructure = projectStructure,
                 CancellationToken = cancellationToken,
                 WorkingDirectory = projectDirectory,
