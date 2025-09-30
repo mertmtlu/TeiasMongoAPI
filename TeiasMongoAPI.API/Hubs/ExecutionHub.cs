@@ -58,7 +58,32 @@ namespace TeiasMongoAPI.API.Hubs
             _logger.LogInformation("Pushing {LogCount} cached log lines to client {ConnectionId} for execution {ExecutionId}", cachedLogs.Count, connectionId, executionId);
 
             // 3. Send the historical logs ONLY to the client that just called this method
-            await Clients.Caller.SendAsync("InitialLogs", cachedLogs);
+            // Use the same event format as live streaming (ExecutionOutput/ExecutionError)
+            foreach (var log in cachedLogs)
+            {
+                if (log.Type == "stdout")
+                {
+                    await Clients.Caller.SendAsync("ExecutionOutput", new
+                    {
+                        type = log.Type,
+                        executionId = log.ExecutionId,
+                        output = log.Content,
+                        timestamp = log.Timestamp.ToString("O"),
+                        receivedAt = log.ReceivedAt.ToString("O")
+                    });
+                }
+                else if (log.Type == "stderr")
+                {
+                    await Clients.Caller.SendAsync("ExecutionError", new
+                    {
+                        type = log.Type,
+                        executionId = log.ExecutionId,
+                        error = log.Content,
+                        timestamp = log.Timestamp.ToString("O"),
+                        receivedAt = log.ReceivedAt.ToString("O")
+                    });
+                }
+            }
         }
 
         /// <summary>

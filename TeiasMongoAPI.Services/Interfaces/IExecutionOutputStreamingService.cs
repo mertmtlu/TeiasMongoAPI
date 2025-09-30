@@ -5,6 +5,17 @@ using System.Threading.Tasks;
 namespace TeiasMongoAPI.Services.Interfaces
 {
     /// <summary>
+    /// Represents a cached log entry with structured data
+    /// </summary>
+    public record CachedLogEntry(
+        string Type,
+        string ExecutionId,
+        string Content,
+        DateTime Timestamp,
+        DateTime ReceivedAt
+    );
+
+    /// <summary>
     /// Service for streaming live execution output in real-time via SignalR
     /// Eliminates need for polling execution status/output every 2 seconds
     /// </summary>
@@ -18,8 +29,8 @@ namespace TeiasMongoAPI.Services.Interfaces
 
         /// <summary>
         /// Retrieve cached logs for a specific execution ID
-        /// >/summary>
-        IEnumerable<string> GetCachedLogs(string executionId);
+        /// </summary>
+        IEnumerable<CachedLogEntry> GetCachedLogs(string executionId);
 
         /// <summary>
         /// Stop streaming for a specific execution ID

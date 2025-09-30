@@ -17,7 +17,7 @@ namespace TeiasMongoAPI.API.Services
         private readonly SemaphoreSlim _streamingSemaphore = new(1, 1);
 
         // LOG CACHING: Store recent log lines for each execution to provide historical context
-        private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _logCache = new();
+        private readonly ConcurrentDictionary<string, ConcurrentQueue<CachedLogEntry>> _logCache = new();
         private const int MaxCacheSize = 200;
 
         public SignalRExecutionOutputStreamingService(
@@ -36,7 +36,7 @@ namespace TeiasMongoAPI.API.Services
                 _activeStreams[executionId] = DateTime.UtcNow;
 
                 // LOG CACHING: Initialize log cache for this execution
-                _logCache[executionId] = new ConcurrentQueue<string>();
+                _logCache[executionId] = new ConcurrentQueue<CachedLogEntry>();
 
                 _logger.LogInformation("Started execution streaming for {ExecutionId} by user {UserId}", executionId, userId);
 
@@ -115,13 +115,13 @@ namespace TeiasMongoAPI.API.Services
             }
         }
 
-        public IEnumerable<string> GetCachedLogs(string executionId)
+        public IEnumerable<CachedLogEntry> GetCachedLogs(string executionId)
         {
             if (_logCache.TryGetValue(executionId, out var queue))
             {
                 return queue.ToList();
             }
-            return Enumerable.Empty<string>();
+            return Enumerable.Empty<CachedLogEntry>();
         }
 
         public async Task StreamOutputAsync(string executionId, string output, DateTime timestamp, CancellationToken cancellationToken = default)
@@ -130,13 +130,14 @@ namespace TeiasMongoAPI.API.Services
 
             try
             {
+                var receivedAt = DateTime.UtcNow;
                 var eventData = new
                 {
                     type = "stdout",
                     executionId,
                     output,
                     timestamp = timestamp.ToString("O"),
-                    receivedAt = DateTime.UtcNow.ToString("O")
+                    receivedAt = receivedAt.ToString("O")
                 };
 
                 // <<< ADDED FOR DEBUGGING (STEP 2) >>>
@@ -147,11 +148,11 @@ namespace TeiasMongoAPI.API.Services
                 await _hubContext.Clients.Group(groupName)
                     .SendAsync("ExecutionOutput", eventData, cancellationToken);
 
-                // LOG CACHING: Add formatted log line to cache
+                // LOG CACHING: Add structured log entry to cache
                 if (_logCache.TryGetValue(executionId, out var queue))
                 {
-                    var formattedLogLine = $"[{timestamp:HH:mm:ss.fff}] [STDOUT] {output}";
-                    queue.Enqueue(formattedLogLine);
+                    var cachedEntry = new CachedLogEntry("stdout", executionId, output, timestamp, receivedAt);
+                    queue.Enqueue(cachedEntry);
 
                     // Cap cache size to prevent memory leaks
                     while (queue.Count > MaxCacheSize)
@@ -176,13 +177,14 @@ namespace TeiasMongoAPI.API.Services
 
             try
             {
+                var receivedAt = DateTime.UtcNow;
                 var eventData = new
                 {
                     type = "stderr",
                     executionId,
                     error,
                     timestamp = timestamp.ToString("O"),
-                    receivedAt = DateTime.UtcNow.ToString("O")
+                    receivedAt = receivedAt.ToString("O")
                 };
 
                 // <<< ADDED FOR DEBUGGING (STEP 2) >>>
@@ -195,8 +197,8 @@ namespace TeiasMongoAPI.API.Services
 
                 if (_logCache.TryGetValue(executionId, out var queue))
                 {
-                    var formattedLogLine = $"[{timestamp:HH:mm:ss.fff}] [STDERR] {error}";
-                    queue.Enqueue(formattedLogLine);
+                    var cachedEntry = new CachedLogEntry("stderr", executionId, error, timestamp, receivedAt);
+                    queue.Enqueue(cachedEntry);
 
                     while (queue.Count > MaxCacheSize)
                     {
