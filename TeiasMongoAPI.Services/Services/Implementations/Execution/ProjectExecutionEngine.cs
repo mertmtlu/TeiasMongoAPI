@@ -61,8 +61,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 _logger.LogInformation("Starting project execution {ExecutionId} for program {ProgramId}",
                     executionId, request.ProgramId);
 
-                // Set up execution timeout
-                var timeoutMinutes = request.TimeoutMinutes > 0 ? request.TimeoutMinutes : _settings.DefaultTimeoutMinutes;
+                // Set up execution timeout using settings
+                var timeoutMinutes = _settings.DefaultTimeoutMinutes;
                 var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken, session.CancellationTokenSource.Token);
                 timeoutCts.CancelAfter(TimeSpan.FromMinutes(timeoutMinutes));
@@ -665,10 +665,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         private ProjectExecutionContext CreateExecutionContext(string executionId, string projectDirectory, ProjectExecutionRequest request, ProjectStructureAnalysis projectStructure, CancellationToken cancellationToken)
         {
             var resourceLimits = request.ResourceLimits ?? new ProjectResourceLimits();
-            if (resourceLimits.MaxExecutionTimeMinutes <= 0)
-            {
-                resourceLimits.MaxExecutionTimeMinutes = _settings.DefaultTimeoutMinutes;
-            }
 
             return new ProjectExecutionContext
             {

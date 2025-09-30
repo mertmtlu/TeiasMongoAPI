@@ -432,8 +432,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Parameters = dto.Parameters,
                 Environment = dto.Environment,
                 ResourceLimits = dto.ResourceLimits,
-                SaveResults = dto.SaveResults,
-                TimeoutMinutes = dto.TimeoutMinutes
+                SaveResults = dto.SaveResults
             };
 
             _ = Task.Run(async () => await ExecuteProjectInBackgroundAsync(createdExecution, programRequest, cancellationToken));
@@ -448,8 +447,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Parameters = dto.Parameters,
                 Environment = dto.Environment,
                 ResourceLimits = dto.ResourceLimits,
-                SaveResults = dto.SaveResults,
-                TimeoutMinutes = dto.TimeoutMinutes
+                SaveResults = dto.SaveResults
             };
 
             // Use specific version if provided, otherwise use current/latest
@@ -460,8 +458,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     Parameters = dto.Parameters,
                     Environment = dto.Environment,
                     ResourceLimits = dto.ResourceLimits,
-                    SaveResults = dto.SaveResults,
-                    TimeoutMinutes = dto.TimeoutMinutes
+                    SaveResults = dto.SaveResults
                 };
                 return await ExecuteVersionAsync(dto.VersionId, versionRequest, currentUser, cancellationToken);
             }
@@ -960,7 +957,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 MaxCpuPercentage = _settings.DefaultMaxCpuPercentage,
                 MaxMemoryMb = _settings.DefaultMaxMemoryMb,
                 MaxDiskMb = _settings.DefaultMaxDiskMb,
-                MaxExecutionTimeMinutes = _settings.DefaultMaxExecutionTimeMinutes,
                 MaxConcurrentExecutions = _settings.DefaultMaxConcurrentExecutions
             };
         }
@@ -1226,8 +1222,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     DefaultResourceLimits = new ExecutionResourceLimitsDto
                     {
                         MaxCpuPercentage = 50,
-                        MaxMemoryMb = 512,
-                        MaxExecutionTimeMinutes = 10
+                        MaxMemoryMb = 512
                     }
                 },
                 new ExecutionTemplateDto
@@ -1241,8 +1236,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     DefaultResourceLimits = new ExecutionResourceLimitsDto
                     {
                         MaxCpuPercentage = 70,
-                        MaxMemoryMb = 1024,
-                        MaxExecutionTimeMinutes = 15
+                        MaxMemoryMb = 1024
                     }
                 }
             };
@@ -1267,19 +1261,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     result.Errors.Add($"Memory limit exceeds maximum allowed ({_settings.MaxAllowedMemoryMb} MB)");
                     result.IsValid = false;
                 }
-
-                if (dto.ResourceLimits.MaxExecutionTimeMinutes > _settings.MaxAllowedExecutionTimeMinutes)
-                {
-                    result.Errors.Add($"Execution time limit exceeds maximum allowed ({_settings.MaxAllowedExecutionTimeMinutes} minutes)");
-                    result.IsValid = false;
-                }
-            }
-
-            // Validate timeout
-            if (dto.TimeoutMinutes > _settings.MaxAllowedExecutionTimeMinutes)
-            {
-                result.Errors.Add($"Timeout exceeds maximum allowed ({_settings.MaxAllowedExecutionTimeMinutes} minutes)");
-                result.IsValid = false;
             }
 
             // Recommend optimal resource limits based on default settings
@@ -1288,7 +1269,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 MaxCpuPercentage = _settings.DefaultMaxCpuPercentage,
                 MaxMemoryMb = _settings.DefaultMaxMemoryMb,
                 MaxDiskMb = _settings.DefaultMaxDiskMb,
-                MaxExecutionTimeMinutes = Math.Min(dto.TimeoutMinutes, _settings.DefaultMaxExecutionTimeMinutes),
                 MaxConcurrentExecutions = _settings.DefaultMaxConcurrentExecutions
             };
 
@@ -1855,7 +1835,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                             VersionId = execution.VersionId.ToString(),
                             UserId = execution.UserId,
                             StartedAt = execution.StartedAt,
-                            TimeoutMinutes = dto.TimeoutMinutes,
+                            TimeoutMinutes = _settings.DefaultMaxExecutionTimeMinutes,
                             Parameters = dto.Parameters
                         }, cancellationToken);
 
@@ -1884,7 +1864,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     Environment = dto.Environment,
                     ResourceLimits = MapToProjectResourceLimits(dto.ResourceLimits),
                     SaveResults = dto.SaveResults,
-                    TimeoutMinutes = dto.TimeoutMinutes,
                     CleanupOnCompletion = true
                 };
 
@@ -2154,7 +2133,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 MaxCpuPercentage = dto.MaxCpuPercentage,
                 MaxMemoryMb = dto.MaxMemoryMb,
                 MaxDiskMb = dto.MaxDiskMb,
-                MaxExecutionTimeMinutes = dto.MaxExecutionTimeMinutes,
                 MaxProcesses = dto.MaxConcurrentExecutions,
                 MaxOutputSizeBytes = 100 * 1024 * 1024 // 100MB default
             };

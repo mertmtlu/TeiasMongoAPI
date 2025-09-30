@@ -23,8 +23,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Execution
 
         public bool SaveResults { get; set; } = true;
 
-        public int TimeoutMinutes { get; set; } = 2880;
-
         public string? ExecutionName { get; set; }
 
         public bool CleanupOnCompletion { get; set; } = true;
@@ -37,7 +35,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Execution
         public int MaxCpuPercentage { get; set; } = 80;
         public long MaxMemoryMb { get; set; } = 1024;
         public long MaxDiskMb { get; set; } = 2048;
-        public int MaxExecutionTimeMinutes { get; set; } = 60;
         public int MaxProcesses { get; set; } = 10;
         public long MaxOutputSizeBytes { get; set; } = 100 * 1024 * 1024; // 100MB
     }

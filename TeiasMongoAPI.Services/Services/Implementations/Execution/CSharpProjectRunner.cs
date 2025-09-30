@@ -275,7 +275,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         runArgs,
                         context.ProjectDirectory,
                         context.Environment,
-                        context.ResourceLimits.MaxExecutionTimeMinutes,
+                        2880, // Timeout managed by ProjectExecutionEngine using appsettings
                         cancellationToken,
                         context.ExecutionId);
 
@@ -302,7 +302,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         arguments,
                         context.ProjectDirectory,
                         context.Environment,
-                        context.ResourceLimits.MaxExecutionTimeMinutes,
+                        2880, // Timeout managed by ProjectExecutionEngine using appsettings
                         cancellationToken,
                         context.ExecutionId);
 

@@ -997,7 +997,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     UserId = session.Execution.ExecutedBy,
                     Parameters = inputData.Data,
                     Environment = enhancedEnvironment,
-                    TimeoutMinutes = node.ExecutionSettings.TimeoutMinutes,
                     ResourceLimits = new ProjectResourceLimits
                     {
                         MaxCpuPercentage = node.ExecutionSettings.ResourceLimits.MaxCpuPercentage,
@@ -2256,7 +2255,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 UserId = session.Execution.ExecutedBy,
                 Parameters = inputData.Data,
                 Environment = enhancedEnvironment,
-                TimeoutMinutes = node.ExecutionSettings.TimeoutMinutes,
                 ResourceLimits = new ProjectResourceLimits
                 {
                     MaxCpuPercentage = node.ExecutionSettings.ResourceLimits.MaxCpuPercentage,

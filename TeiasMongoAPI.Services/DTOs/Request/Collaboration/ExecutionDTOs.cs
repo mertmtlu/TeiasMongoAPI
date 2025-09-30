@@ -8,7 +8,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public Dictionary<string, string> Environment { get; set; } = new();
         public ExecutionResourceLimitsDto? ResourceLimits { get; set; }
         public bool SaveResults { get; set; } = true;
-        public int TimeoutMinutes { get; set; } = 2880;
     }
 
     public class VersionExecutionRequestDto
@@ -17,7 +16,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public Dictionary<string, string> Environment { get; set; } = new();
         public ExecutionResourceLimitsDto? ResourceLimits { get; set; }
         public bool SaveResults { get; set; } = true;
-        public int TimeoutMinutes { get; set; } = 2880;
     }
 
     public class ExecutionParametersDto
@@ -30,7 +28,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public Dictionary<string, string> Environment { get; set; } = new();
         public ExecutionResourceLimitsDto? ResourceLimits { get; set; }
         public bool SaveResults { get; set; } = true;
-        public int TimeoutMinutes { get; set; } = 2880;
         public string? ExecutionName { get; set; }
     }
 
@@ -73,7 +70,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public int MaxCpuPercentage { get; set; } = 80;
         public long MaxMemoryMb { get; set; } = 1024;
         public long MaxDiskMb { get; set; } = 2048;
-        public int MaxExecutionTimeMinutes { get; set; } = 60;
         public int MaxConcurrentExecutions { get; set; } = 5;
     }
 
@@ -82,7 +78,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public int? MaxCpuPercentage { get; set; }
         public long? MaxMemoryMb { get; set; }
         public long? MaxDiskMb { get; set; }
-        public int? MaxExecutionTimeMinutes { get; set; }
         public int? MaxConcurrentExecutions { get; set; }
     }
 
