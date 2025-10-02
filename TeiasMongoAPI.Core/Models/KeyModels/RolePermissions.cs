@@ -108,7 +108,7 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
                  UserPermissions.GroupEdit,
                  UserPermissions.GroupDelete,
                  UserPermissions.GroupMemberManage,
-                 UserPermissions.GroupPermissionManage
+                 UserPermissions.GroupPermissionManage,
             },
 
             [UserRoles.ExternalDev] = new List<string>

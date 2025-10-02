@@ -189,6 +189,10 @@ namespace TeiasMongoAPI.API
             builder.Services.Configure<RefreshTokenSettings>(
                 builder.Configuration.GetSection("RefreshToken"));
 
+            // Configure DemoShowcase settings
+            builder.Services.Configure<TeiasMongoAPI.Core.Configuration.DemoShowcaseSettings>(
+                builder.Configuration.GetSection("DemoShowcase"));
+
             // Configure Authentication
             var jwtSettings = builder.Configuration.GetSection("Jwt");
             var secretKey = Encoding.ASCII.GetBytes(jwtSettings["Secret"] ?? throw new InvalidOperationException("JWT Secret not configured"));
@@ -279,6 +283,7 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IDeploymentService, DeploymentService>();
             builder.Services.AddScoped<IProjectExecutionEngine, ProjectExecutionEngine>();
             builder.Services.AddScoped<IRemoteAppService, RemoteAppService>();
+            builder.Services.AddScoped<IDemoShowcaseService, DemoShowcaseService>();
 
             builder.Services.AddScoped<IProjectLanguageRunner, CSharpProjectRunner>();
             builder.Services.AddScoped<IProjectLanguageRunner, JavaProjectRunner>();
@@ -401,6 +406,8 @@ namespace TeiasMongoAPI.API
 
             }
 
+            // Static Files (for serving videos)
+            app.UseStaticFiles();
 
             // CORS
             app.UseCors("AllowSpecificOrigins");

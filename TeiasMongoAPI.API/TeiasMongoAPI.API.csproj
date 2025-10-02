@@ -11,12 +11,16 @@
 	<ItemGroup>
 	  <Compile Remove="HealthChecks\**" />
 	  <Compile Remove="storage\**" />
+	  <Compile Remove="wwwroot\videos\**" />
 	  <Content Remove="HealthChecks\**" />
 	  <Content Remove="storage\**" />
+	  <Content Remove="wwwroot\videos\**" />
 	  <EmbeddedResource Remove="HealthChecks\**" />
 	  <EmbeddedResource Remove="storage\**" />
+	  <EmbeddedResource Remove="wwwroot\videos\**" />
 	  <None Remove="HealthChecks\**" />
 	  <None Remove="storage\**" />
+	  <None Remove="wwwroot\videos\**" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -38,6 +42,7 @@
 
 	<ItemGroup>
 	  <Folder Include="logs\" />
+	  <Folder Include="wwwroot\" />
 	</ItemGroup>
 
 </Project>

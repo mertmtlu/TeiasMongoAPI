@@ -23,6 +23,7 @@ namespace TeiasMongoAPI.Core.Interfaces.Repositories
         IUIInteractionRepository UIInteractions { get; }
         IRemoteAppRepository RemoteApps { get; }
         IIconRepository Icons { get; }
+        IDemoShowcaseRepository DemoShowcases { get; }
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
         Task BeginTransactionAsync(CancellationToken cancellationToken = default);

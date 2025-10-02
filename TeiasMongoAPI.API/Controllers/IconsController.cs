@@ -125,6 +125,7 @@ namespace TeiasMongoAPI.API.Controllers
         }
 
         [HttpPost("batch/entities")]
+        [AllowAnonymous]
         public async Task<ActionResult<ApiResponse<IEnumerable<IconResponseDto>>>> GetIconsByEntityIds([FromBody] IconEntityBatchRequestDto batchRequest, CancellationToken cancellationToken = default)
         {
             var validationResult = ValidateModelState<IEnumerable<IconResponseDto>>();

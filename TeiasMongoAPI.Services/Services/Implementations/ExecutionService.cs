@@ -1445,6 +1445,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var objectId = ParseObjectId(programId);
             var program = await _unitOfWork.Programs.GetByIdAsync(objectId, cancellationToken);
 
+            if (program.IsPublic) return true;
+
             if (program?.Permissions?.Groups == null || !program.Permissions.Groups.Any())
                 return false;
 

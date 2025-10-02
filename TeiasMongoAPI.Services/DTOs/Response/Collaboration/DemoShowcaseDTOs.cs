@@ -1,0 +1,111 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
+{
+    // Root response for GET /api/demoshowcase - Public nested structure
+    public class PublicDemoShowcaseResponse
+    {
+        public List<TabGroupDto> Tabs { get; set; } = new();
+    }
+
+    public class TabGroupDto
+    {
+        public required string TabName { get; set; }
+        public List<PrimaryGroupDto> PrimaryGroups { get; set; } = new();
+    }
+
+    public class PrimaryGroupDto
+    {
+        public required string PrimaryGroupName { get; set; }
+        public List<SecondaryGroupDto> SecondaryGroups { get; set; } = new();
+    }
+
+    public class SecondaryGroupDto
+    {
+        public required string SecondaryGroupName { get; set; }
+        public List<DemoShowcaseItemDto> Items { get; set; } = new();
+    }
+
+    public class DemoShowcaseItemDto
+    {
+        public required string Id { get; set; }
+        public required string Name { get; set; }
+        public required string Description { get; set; }
+        public string? IconUrl { get; set; }
+        public required string AppId { get; set; }
+        public required string AppType { get; set; }
+        public required string VideoPath { get; set; }
+        public DateTime CreatedAt { get; set; }
+
+        // NEW FIELDS
+        public required string CreatorFullName { get; set; }
+        public bool HasPublicUiComponent { get; set; }
+    }
+
+    // Legacy Public DTO for /demo page (deprecated - kept for compatibility)
+    public class DemoShowcasePublicDto
+    {
+        public required string Id { get; set; }
+        public required string Group { get; set; }
+        public required string VideoPath { get; set; }
+
+        // From associated app
+        public required string AppType { get; set; }
+        public required string AppId { get; set; }
+        public required string Name { get; set; }
+        public required string Description { get; set; }
+        public required string Creator { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    // Admin DTO for management
+    public class DemoShowcaseDto
+    {
+        public required string Id { get; set; }
+        public required string AssociatedAppId { get; set; }
+        public required string AppType { get; set; }
+        public required string Tab { get; set; }
+        public required string PrimaryGroup { get; set; }
+        public required string SecondaryGroup { get; set; }
+        public required string VideoPath { get; set; }
+    }
+
+    // UI Component response DTO
+    public class UiComponentResponseDto
+    {
+        public required string Id { get; set; }
+        public required string ProgramId { get; set; }
+        public object? Schema { get; set; }
+        public object? Configuration { get; set; }
+    }
+
+    // Execution response DTO
+    public class ExecutionResponseDto
+    {
+        public required string ExecutionId { get; set; }
+        public required string Status { get; set; }
+        public object? Result { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
+
+    // Video upload response
+    public class VideoUploadResponseDto
+    {
+        public required string VideoPath { get; set; }
+        public long FileSize { get; set; }
+    }
+
+    // Available apps for dropdown
+    public class AvailableAppsDto
+    {
+        public List<AppOptionDto> Programs { get; set; } = new();
+        public List<AppOptionDto> Workflows { get; set; } = new();
+        public List<AppOptionDto> RemoteApps { get; set; } = new();
+    }
+
+    public class AppOptionDto
+    {
+        public required string Id { get; set; }
+        public required string Name { get; set; }
+    }
+}

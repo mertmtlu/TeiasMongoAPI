@@ -19,6 +19,12 @@ namespace TeiasMongoAPI.API.Filters
 
         public void Apply(OpenApiSchema schema, SchemaFilterContext context)
         {
+            if (context.Type == typeof(IFormFile))
+            {
+                schema.Type = "string";
+                schema.Format = "binary";
+            }
+
             // Force registration of additional types by referencing them
             foreach (var type in AdditionalTypes)
             {
