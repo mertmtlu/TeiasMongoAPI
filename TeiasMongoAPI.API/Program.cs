@@ -332,16 +332,11 @@ namespace TeiasMongoAPI.API
                     {
                         if (builder.Environment.IsDevelopment())
                         {
-                            // Get allowed origins from your appsettings.json
-                            var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-                                                 ?? new[] { "http://localhost:3000" }; // Fallback
-
-                            // This single, correct policy will now be used for ALL environments
+                            // More permissive for development
                             corsPolicyBuilder
-                                .WithOrigins(allowedOrigins)
+                                .AllowAnyOrigin()
                                 .AllowAnyMethod()
-                                .AllowAnyHeader()
-                                .AllowCredentials(); // This is the crucial part
+                                .AllowAnyHeader();
                         }
                         else
                         {
