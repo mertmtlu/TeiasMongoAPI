@@ -85,7 +85,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         new DemoShowcasePublicDto
                         {
                             Id = showcase._ID.ToString(),
-                            Group = $"{showcase.Tab} > {showcase.PrimaryGroup} > {showcase.SecondaryGroup}",
+                            Group = string.IsNullOrEmpty(showcase.TertiaryGroup)
+                                ? $"{showcase.Tab} > {showcase.PrimaryGroup} > {showcase.SecondaryGroup}"
+                                : $"{showcase.Tab} > {showcase.PrimaryGroup} > {showcase.SecondaryGroup} > {showcase.TertiaryGroup}",
                             VideoPath = showcase.VideoPath,
                             AppType = "Program",
                             AppId = program._ID.ToString(),
@@ -98,7 +100,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         new DemoShowcasePublicDto
                         {
                             Id = showcase._ID.ToString(),
-                            Group = $"{showcase.Tab} > {showcase.PrimaryGroup} > {showcase.SecondaryGroup}",
+                            Group = string.IsNullOrEmpty(showcase.TertiaryGroup)
+                                ? $"{showcase.Tab} > {showcase.PrimaryGroup} > {showcase.SecondaryGroup}"
+                                : $"{showcase.Tab} > {showcase.PrimaryGroup} > {showcase.SecondaryGroup} > {showcase.TertiaryGroup}",
                             VideoPath = showcase.VideoPath,
                             AppType = "Workflow",
                             AppId = workflow._ID.ToString(),
@@ -111,7 +115,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                         new DemoShowcasePublicDto
                         {
                             Id = showcase._ID.ToString(),
-                            Group = $"{showcase.Tab} > {showcase.PrimaryGroup} > {showcase.SecondaryGroup}",
+                            Group = string.IsNullOrEmpty(showcase.TertiaryGroup)
+                                ? $"{showcase.Tab} > {showcase.PrimaryGroup} > {showcase.SecondaryGroup}"
+                                : $"{showcase.Tab} > {showcase.PrimaryGroup} > {showcase.SecondaryGroup} > {showcase.TertiaryGroup}",
                             VideoPath = showcase.VideoPath,
                             AppType = "RemoteApp",
                             AppId = remoteApp._ID.ToString(),
@@ -142,6 +148,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Tab = s.Tab,
                 PrimaryGroup = s.PrimaryGroup,
                 SecondaryGroup = s.SecondaryGroup,
+                TertiaryGroup = s.TertiaryGroup,
                 VideoPath = s.VideoPath
             }).ToList();
         }
@@ -171,6 +178,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Tab = dto.Tab,
                 PrimaryGroup = dto.PrimaryGroup,
                 SecondaryGroup = dto.SecondaryGroup,
+                TertiaryGroup = dto.TertiaryGroup,
                 VideoPath = dto.VideoPath
             };
 
@@ -184,6 +192,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Tab = created.Tab,
                 PrimaryGroup = created.PrimaryGroup,
                 SecondaryGroup = created.SecondaryGroup,
+                TertiaryGroup = created.TertiaryGroup,
                 VideoPath = created.VideoPath
             };
         }
@@ -231,6 +240,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (dto.SecondaryGroup != null)
                 showcase.SecondaryGroup = dto.SecondaryGroup;
 
+            if (dto.TertiaryGroup != null)
+                showcase.TertiaryGroup = dto.TertiaryGroup;
+
             if (dto.VideoPath != null)
                 showcase.VideoPath = dto.VideoPath;
 
@@ -244,6 +256,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Tab = showcase.Tab,
                 PrimaryGroup = showcase.PrimaryGroup,
                 SecondaryGroup = showcase.SecondaryGroup,
+                TertiaryGroup = showcase.TertiaryGroup,
                 VideoPath = showcase.VideoPath
             };
         }
@@ -471,7 +484,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     items.Add((showcase, item));
             }
 
-            // Group by Tab -> PrimaryGroup -> SecondaryGroup
+            // Group by Tab -> PrimaryGroup -> SecondaryGroup -> (Optional) TertiaryGroup
             var response = new PublicDemoShowcaseResponse
             {
                 Tabs = items
@@ -486,10 +499,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                                 PrimaryGroupName = primaryGroup.Key,
                                 SecondaryGroups = primaryGroup
                                     .GroupBy(x => x.showcase.SecondaryGroup)
-                                    .Select(secondaryGroup => new SecondaryGroupDto
+                                    .Select(secondaryGroup =>
                                     {
-                                        SecondaryGroupName = secondaryGroup.Key,
-                                        Items = secondaryGroup.Select(x => x.item).ToList()
+                                        var secondaryItems = secondaryGroup.ToList();
+
+                                        // Items without TertiaryGroup go directly into SecondaryGroup.Items
+                                        var directItems = secondaryItems
+                                            .Where(x => string.IsNullOrEmpty(x.showcase.TertiaryGroup))
+                                            .Select(x => x.item)
+                                            .ToList();
+
+                                        // Items with TertiaryGroup go into TertiaryGroups
+                                        var tertiaryGroups = secondaryItems
+                                            .Where(x => !string.IsNullOrEmpty(x.showcase.TertiaryGroup))
+                                            .GroupBy(x => x.showcase.TertiaryGroup!)
+                                            .Select(tertiaryGroup => new TertiaryGroupDto
+                                            {
+                                                TertiaryGroupName = tertiaryGroup.Key,
+                                                Items = tertiaryGroup.Select(x => x.item).ToList()
+                                            })
+                                            .ToList();
+
+                                        return new SecondaryGroupDto
+                                        {
+                                            SecondaryGroupName = secondaryGroup.Key,
+                                            Items = directItems,
+                                            TertiaryGroups = tertiaryGroups
+                                        };
                                     })
                                     .ToList()
                             })

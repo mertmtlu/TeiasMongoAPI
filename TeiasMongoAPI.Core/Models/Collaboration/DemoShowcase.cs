@@ -20,6 +20,9 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         [BsonElement("secondaryGroup")]
         public required string SecondaryGroup { get; set; }  // e.g., "Sentiment", "Translation"
 
+        [BsonElement("tertiaryGroup")]
+        public string? TertiaryGroup { get; set; }  // Optional third-level grouping
+
         [BsonElement("videoPath")]
         public required string VideoPath { get; set; }  // e.g., "/videos/abc123.mp4"
     }

@@ -21,6 +21,8 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         [Required]
         public required string SecondaryGroup { get; set; }
 
+        public string? TertiaryGroup { get; set; }
+
         [Required]
         public required string VideoPath { get; set; }
     }
@@ -32,6 +34,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public string? Tab { get; set; }
         public string? PrimaryGroup { get; set; }
         public string? SecondaryGroup { get; set; }
+        public string? TertiaryGroup { get; set; }
         public string? VideoPath { get; set; }
     }
 

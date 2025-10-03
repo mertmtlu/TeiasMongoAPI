@@ -24,6 +24,13 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
     {
         public required string SecondaryGroupName { get; set; }
         public List<DemoShowcaseItemDto> Items { get; set; } = new();
+        public List<TertiaryGroupDto> TertiaryGroups { get; set; } = new();
+    }
+
+    public class TertiaryGroupDto
+    {
+        public required string TertiaryGroupName { get; set; }
+        public List<DemoShowcaseItemDto> Items { get; set; } = new();
     }
 
     public class DemoShowcaseItemDto
@@ -67,6 +74,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public required string Tab { get; set; }
         public required string PrimaryGroup { get; set; }
         public required string SecondaryGroup { get; set; }
+        public string? TertiaryGroup { get; set; }
         public required string VideoPath { get; set; }
     }
 
