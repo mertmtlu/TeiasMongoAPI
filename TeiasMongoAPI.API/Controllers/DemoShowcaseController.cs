@@ -98,6 +98,24 @@ namespace TeiasMongoAPI.API.Controllers
             }, "Get all demo showcases (legacy)");
         }
 
+        /// <summary>
+        /// Launch a remote app with optional SSO credentials
+        /// </summary>
+        [HttpPost("remoteapp/{appId}/launch")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<RemoteAppLaunchResponseDto>), 200)]
+        [ProducesResponseType(403)]
+        [ProducesResponseType(404)]
+        public async Task<ActionResult<ApiResponse<RemoteAppLaunchResponseDto>>> LaunchRemoteApp(
+            string appId,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _demoShowcaseService.LaunchRemoteAppAsync(appId, cancellationToken);
+            }, $"Launch remote app {appId}");
+        }
+
         #endregion
 
         #region Public Execution Monitoring
@@ -174,6 +192,58 @@ namespace TeiasMongoAPI.API.Controllers
             {
                 return await _demoShowcaseService.DownloadPublicExecutionFileAsync(executionId, filePath, cancellationToken);
             }, $"Download public execution file {executionId}/{filePath}");
+        }
+
+        /// <summary>
+        /// Download all output files from public execution as ZIP
+        /// </summary>
+        [HttpGet("execution/{executionId}/files/download-all")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(FileStreamResult), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(404)]
+        public async Task<IActionResult> DownloadAllPublicExecutionFiles(
+            string executionId,
+            CancellationToken cancellationToken = default)
+        {
+            var result = await _demoShowcaseService.DownloadAllPublicExecutionFilesAsync(executionId, cancellationToken);
+            return File(result.FileStream, "application/zip", result.FileName);
+        }
+
+        /// <summary>
+        /// Get detailed execution information with resource usage and results
+        /// </summary>
+        [HttpGet("execution/{executionId}/details")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<PublicExecutionDetailExtendedDto>), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(404)]
+        public async Task<ActionResult<ApiResponse<PublicExecutionDetailExtendedDto>>> GetPublicExecutionDetails(
+            string executionId,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _demoShowcaseService.GetPublicExecutionDetailsAsync(executionId, cancellationToken);
+            }, $"Get public execution details {executionId}");
+        }
+
+        /// <summary>
+        /// Stop a running public execution
+        /// </summary>
+        [HttpPost("execution/{executionId}/stop")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<ExecutionStopResponseDto>), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(404)]
+        public async Task<ActionResult<ApiResponse<ExecutionStopResponseDto>>> StopPublicExecution(
+            string executionId,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _demoShowcaseService.StopPublicExecutionAsync(executionId, cancellationToken);
+            }, $"Stop public execution {executionId}");
         }
 
         #endregion

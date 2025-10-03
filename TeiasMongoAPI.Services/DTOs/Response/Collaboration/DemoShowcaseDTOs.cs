@@ -135,4 +135,52 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public required string Id { get; set; }
         public required string Name { get; set; }
     }
+
+    // Remote app launch response
+    public class RemoteAppLaunchResponseDto
+    {
+        public required string RedirectUrl { get; set; }
+        public bool RequiresSso { get; set; }
+    }
+
+    // Extended execution details with resource usage and results
+    public class PublicExecutionDetailExtendedDto
+    {
+        public required string ExecutionId { get; set; }
+        public required string Status { get; set; }
+        public DateTime StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public object? Parameters { get; set; }
+        public string? ErrorMessage { get; set; }
+        public double? Duration { get; set; }
+        public ExecutionResourceUsageExtendedDto? ResourceUsage { get; set; }
+        public ExecutionResultExtendedDto? Result { get; set; }
+    }
+
+    public class ExecutionResourceUsageExtendedDto
+    {
+        public double MaxMemoryUsedMb { get; set; }
+        public double MaxCpuPercent { get; set; }
+        public double ExecutionTimeMinutes { get; set; }
+    }
+
+    public class ExecutionResultExtendedDto
+    {
+        public int ExitCode { get; set; }
+        public string Output { get; set; } = string.Empty;
+        public string ErrorOutput { get; set; } = string.Empty;
+    }
+
+    // Execution stop response
+    public class ExecutionStopResponseDto
+    {
+        public bool Success { get; set; }
+    }
+
+    // File download response for ZIP
+    public class FileDownloadResponseDto
+    {
+        public required Stream FileStream { get; set; }
+        public required string FileName { get; set; }
+    }
 }

@@ -14,6 +14,9 @@ namespace TeiasMongoAPI.Services.Interfaces
         // Public endpoint - Legacy
         Task<List<DemoShowcasePublicDto>> GetAllPublicAsync(CancellationToken cancellationToken = default);
 
+        // Remote app launch
+        Task<RemoteAppLaunchResponseDto> LaunchRemoteAppAsync(string appId, CancellationToken cancellationToken = default);
+
         // Admin endpoints
         Task<List<DemoShowcaseDto>> GetAllAdminAsync(CancellationToken cancellationToken = default);
         Task<DemoShowcaseDto> CreateAsync(DemoShowcaseCreateDto dto, CancellationToken cancellationToken = default);
@@ -31,5 +34,8 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<PublicExecutionLogsDto> GetPublicExecutionLogsAsync(string executionId, int lines = 100, CancellationToken cancellationToken = default);
         Task<PublicExecutionFilesDto> GetPublicExecutionFilesAsync(string executionId, CancellationToken cancellationToken = default);
         Task<VersionFileDetailDto> DownloadPublicExecutionFileAsync(string executionId, string filePath, CancellationToken cancellationToken = default);
+        Task<FileDownloadResponseDto> DownloadAllPublicExecutionFilesAsync(string executionId, CancellationToken cancellationToken = default);
+        Task<PublicExecutionDetailExtendedDto> GetPublicExecutionDetailsAsync(string executionId, CancellationToken cancellationToken = default);
+        Task<ExecutionStopResponseDto> StopPublicExecutionAsync(string executionId, CancellationToken cancellationToken = default);
     }
 }

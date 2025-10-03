@@ -700,6 +700,144 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 cancellationToken);
         }
 
+        public async Task<FileDownloadResponseDto> DownloadAllPublicExecutionFilesAsync(string executionId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(executionId, out _))
+                throw new ArgumentException("Invalid execution ID format", nameof(executionId));
+
+            // Get execution to verify ownership
+            var execution = await _executionService.GetByIdAsync(executionId, cancellationToken);
+            if (execution == null)
+                throw new KeyNotFoundException($"Execution with ID {executionId} not found");
+
+            // Load program and verify IsPublic
+            if (!ObjectId.TryParse(execution.ProgramId, out var programId))
+                throw new InvalidOperationException("Invalid program ID in execution");
+
+            var program = await _unitOfWork.Programs.GetByIdAsync(programId, cancellationToken);
+            if (program == null || !program.IsPublic)
+                throw new UnauthorizedAccessException("This execution is not publicly accessible");
+
+            // Get all execution files as ZIP using the existing method
+            var zipResult = await _fileStorageService.CreateExecutionZipArchiveAsync(execution, cancellationToken);
+
+            // Convert byte array to stream
+            var zipStream = new MemoryStream(zipResult.ZipContent);
+
+            return new FileDownloadResponseDto
+            {
+                FileStream = zipStream,
+                FileName = $"execution-{executionId}-files.zip"
+            };
+        }
+
+        public async Task<PublicExecutionDetailExtendedDto> GetPublicExecutionDetailsAsync(string executionId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(executionId, out _))
+                throw new ArgumentException("Invalid execution ID format", nameof(executionId));
+
+            // Get execution details
+            var execution = await _executionService.GetByIdAsync(executionId, cancellationToken);
+            if (execution == null)
+                throw new KeyNotFoundException($"Execution with ID {executionId} not found");
+
+            // Load program and verify IsPublic
+            if (!ObjectId.TryParse(execution.ProgramId, out var programId))
+                throw new InvalidOperationException("Invalid program ID in execution");
+
+            var program = await _unitOfWork.Programs.GetByIdAsync(programId, cancellationToken);
+            if (program == null || !program.IsPublic)
+                throw new UnauthorizedAccessException("This execution is not publicly accessible");
+
+            // Map to extended public DTO with resource usage and results
+            return new PublicExecutionDetailExtendedDto
+            {
+                ExecutionId = execution.Id,
+                Status = execution.Status,
+                StartedAt = execution.StartedAt,
+                CompletedAt = execution.CompletedAt,
+                Parameters = execution.Parameters,
+                ErrorMessage = execution.Results?.Error,
+                Duration = execution.CompletedAt.HasValue
+                    ? (execution.CompletedAt.Value - execution.StartedAt).TotalSeconds
+                    : null,
+                ResourceUsage = execution.ResourceUsage != null ? new ExecutionResourceUsageExtendedDto
+                {
+                    MaxMemoryUsedMb = execution.ResourceUsage.MemoryUsed / (1024.0 * 1024.0),
+                    MaxCpuPercent = execution.ResourceUsage.CpuPercentage,
+                    ExecutionTimeMinutes = execution.CompletedAt.HasValue
+                        ? (execution.CompletedAt.Value - execution.StartedAt).TotalMinutes
+                        : 0
+                } : null,
+                Result = execution.Results != null ? new ExecutionResultExtendedDto
+                {
+                    ExitCode = execution.Results.ExitCode,
+                    Output = execution.Results.Output ?? string.Empty,
+                    ErrorOutput = execution.Results.Error ?? string.Empty
+                } : null
+            };
+        }
+
+        public async Task<ExecutionStopResponseDto> StopPublicExecutionAsync(string executionId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(executionId, out _))
+                throw new ArgumentException("Invalid execution ID format", nameof(executionId));
+
+            // Get execution to verify ownership
+            var execution = await _executionService.GetByIdAsync(executionId, cancellationToken);
+            if (execution == null)
+                throw new KeyNotFoundException($"Execution with ID {executionId} not found");
+
+            // Load program and verify IsPublic
+            if (!ObjectId.TryParse(execution.ProgramId, out var programId))
+                throw new InvalidOperationException("Invalid program ID in execution");
+
+            var program = await _unitOfWork.Programs.GetByIdAsync(programId, cancellationToken);
+            if (program == null || !program.IsPublic)
+                throw new UnauthorizedAccessException("This execution is not publicly accessible");
+
+            // Stop the execution
+            var success = await _executionService.StopExecutionAsync(executionId, cancellationToken);
+
+            return new ExecutionStopResponseDto
+            {
+                Success = success
+            };
+        }
+
+        public async Task<RemoteAppLaunchResponseDto> LaunchRemoteAppAsync(string appId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(appId, out var remoteAppId))
+                throw new ArgumentException("Invalid app ID format", nameof(appId));
+
+            // Fetch the remote app
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(remoteAppId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {appId} not found");
+
+            // Verify IsPublic
+            if (!remoteApp.IsPublic)
+                throw new UnauthorizedAccessException("This remote application is not publicly accessible");
+
+            // Build redirect URL with SSO credentials if configured
+            var redirectUrl = remoteApp.Url;
+            var requiresSso = false;
+
+            // Check if SSO URL is configured
+            if (!string.IsNullOrEmpty(remoteApp.SsoUrl))
+            {
+                requiresSso = true;
+                var separator = redirectUrl.Contains("?") ? "&" : "?";
+                redirectUrl = $"{remoteApp.SsoUrl}{separator}username={Uri.EscapeDataString(remoteApp.DefaultUsername)}&password={Uri.EscapeDataString(remoteApp.DefaultPassword)}";
+            }
+
+            return new RemoteAppLaunchResponseDto
+            {
+                RedirectUrl = redirectUrl,
+                RequiresSso = requiresSso
+            };
+        }
+
         // Helper methods to fetch apps by IDs
         private async Task<List<Program>> GetProgramsByIdsAsync(List<ObjectId> ids, CancellationToken cancellationToken)
         {
