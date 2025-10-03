@@ -100,6 +100,84 @@ namespace TeiasMongoAPI.API.Controllers
 
         #endregion
 
+        #region Public Execution Monitoring
+
+        /// <summary>
+        /// Get public execution status and details
+        /// </summary>
+        [HttpGet("execution/{executionId}/status")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<PublicExecutionDetailDto>), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(404)]
+        public async Task<ActionResult<ApiResponse<PublicExecutionDetailDto>>> GetPublicExecutionStatus(
+            string executionId,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _demoShowcaseService.GetPublicExecutionDetailAsync(executionId, cancellationToken);
+            }, $"Get public execution status {executionId}");
+        }
+
+        /// <summary>
+        /// Get public execution logs
+        /// </summary>
+        [HttpGet("execution/{executionId}/logs")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<PublicExecutionLogsDto>), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(404)]
+        public async Task<ActionResult<ApiResponse<PublicExecutionLogsDto>>> GetPublicExecutionLogs(
+            string executionId,
+            [FromQuery] int lines = 100,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _demoShowcaseService.GetPublicExecutionLogsAsync(executionId, lines, cancellationToken);
+            }, $"Get public execution logs {executionId}");
+        }
+
+        /// <summary>
+        /// List public execution output files
+        /// </summary>
+        [HttpGet("execution/{executionId}/files")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<PublicExecutionFilesDto>), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(404)]
+        public async Task<ActionResult<ApiResponse<PublicExecutionFilesDto>>> GetPublicExecutionFiles(
+            string executionId,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _demoShowcaseService.GetPublicExecutionFilesAsync(executionId, cancellationToken);
+            }, $"Get public execution files {executionId}");
+        }
+
+        /// <summary>
+        /// Download a single output file from public execution
+        /// </summary>
+        [HttpGet("execution/{executionId}/files/download/{*filePath}")]
+        [AllowAnonymous]
+        [ProducesResponseType(typeof(ApiResponse<VersionFileDetailDto>), 200)]
+        [ProducesResponseType(401)]
+        [ProducesResponseType(404)]
+        public async Task<ActionResult<ApiResponse<VersionFileDetailDto>>> DownloadPublicExecutionFile(
+            string executionId,
+            string filePath,
+            CancellationToken cancellationToken = default)
+        {
+            return await ExecuteAsync(async () =>
+            {
+                return await _demoShowcaseService.DownloadPublicExecutionFileAsync(executionId, filePath, cancellationToken);
+            }, $"Download public execution file {executionId}/{filePath}");
+        }
+
+        #endregion
+
         #region Admin Endpoints
 
         /// <summary>

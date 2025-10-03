@@ -7,7 +7,7 @@ namespace TeiasMongoAPI.API.Hubs
     /// <summary>
     /// SignalR Hub for real-time program execution output streaming.
     /// </summary>
-    [Authorize]
+    [AllowAnonymous]
     public class ExecutionHub : Hub
     {
         private readonly ILogger<ExecutionHub> _logger;

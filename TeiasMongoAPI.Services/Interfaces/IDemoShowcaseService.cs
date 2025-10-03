@@ -25,5 +25,11 @@ namespace TeiasMongoAPI.Services.Interfaces
 
         // Available apps
         Task<AvailableAppsDto> GetAvailableAppsAsync(CancellationToken cancellationToken = default);
+
+        // Public execution monitoring
+        Task<PublicExecutionDetailDto> GetPublicExecutionDetailAsync(string executionId, CancellationToken cancellationToken = default);
+        Task<PublicExecutionLogsDto> GetPublicExecutionLogsAsync(string executionId, int lines = 100, CancellationToken cancellationToken = default);
+        Task<PublicExecutionFilesDto> GetPublicExecutionFilesAsync(string executionId, CancellationToken cancellationToken = default);
+        Task<VersionFileDetailDto> DownloadPublicExecutionFileAsync(string executionId, string filePath, CancellationToken cancellationToken = default);
     }
 }

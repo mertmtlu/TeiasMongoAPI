@@ -88,6 +88,33 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public string? ErrorMessage { get; set; }
     }
 
+    // Public execution monitoring DTOs
+    public class PublicExecutionDetailDto
+    {
+        public required string ExecutionId { get; set; }
+        public required string Status { get; set; }
+        public DateTime StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public object? Parameters { get; set; }
+        public int? ExitCode { get; set; }
+        public string? ErrorMessage { get; set; }
+        public double? Duration { get; set; }
+    }
+
+    public class PublicExecutionLogsDto
+    {
+        public required string ExecutionId { get; set; }
+        public List<string> Logs { get; set; } = new();
+        public int TotalLines { get; set; }
+    }
+
+    public class PublicExecutionFilesDto
+    {
+        public required string ExecutionId { get; set; }
+        public List<string> Files { get; set; } = new();
+        public int TotalFiles { get; set; }
+    }
+
     // Video upload response
     public class VideoUploadResponseDto
     {

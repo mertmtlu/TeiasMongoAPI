@@ -16,17 +16,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly IUnitOfWork _unitOfWork;
         private readonly ILogger<DemoShowcaseService> _logger;
         private readonly IExecutionService _executionService;
+        private readonly IFileStorageService _fileStorageService;
         private readonly IOptions<DemoShowcaseSettings> _demoShowcaseSettings;
 
         public DemoShowcaseService(
             IUnitOfWork unitOfWork,
             ILogger<DemoShowcaseService> logger,
             IExecutionService executionService,
+            IFileStorageService fileStorageService,
             IOptions<DemoShowcaseSettings> demoShowcaseSettings)
         {
             _unitOfWork = unitOfWork;
             _logger = logger;
             _executionService = executionService;
+            _fileStorageService = fileStorageService;
             _demoShowcaseSettings = demoShowcaseSettings;
         }
 
@@ -572,6 +575,129 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 Result = execution.Results?.Output,
                 ErrorMessage = execution.Results?.Error
             };
+        }
+
+        // Public Execution Monitoring Methods
+        public async Task<PublicExecutionDetailDto> GetPublicExecutionDetailAsync(string executionId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(executionId, out _))
+                throw new ArgumentException("Invalid execution ID format", nameof(executionId));
+
+            // Get execution details
+            var execution = await _executionService.GetByIdAsync(executionId, cancellationToken);
+            if (execution == null)
+                throw new KeyNotFoundException($"Execution with ID {executionId} not found");
+
+            // Load program and verify IsPublic
+            if (!ObjectId.TryParse(execution.ProgramId, out var programId))
+                throw new InvalidOperationException("Invalid program ID in execution");
+
+            var program = await _unitOfWork.Programs.GetByIdAsync(programId, cancellationToken);
+            if (program == null || !program.IsPublic)
+                throw new UnauthorizedAccessException("This execution is not publicly accessible");
+
+            // Map to public DTO
+            return new PublicExecutionDetailDto
+            {
+                ExecutionId = execution.Id,
+                Status = execution.Status,
+                StartedAt = execution.StartedAt,
+                CompletedAt = execution.CompletedAt,
+                Parameters = execution.Parameters,
+                ExitCode = execution.Results?.ExitCode,
+                ErrorMessage = execution.Results?.Error,
+                Duration = execution.CompletedAt.HasValue
+                    ? (execution.CompletedAt.Value - execution.StartedAt).TotalSeconds
+                    : null
+            };
+        }
+
+        public async Task<PublicExecutionLogsDto> GetPublicExecutionLogsAsync(string executionId, int lines = 100, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(executionId, out _))
+                throw new ArgumentException("Invalid execution ID format", nameof(executionId));
+
+            // Get execution to verify ownership
+            var execution = await _executionService.GetByIdAsync(executionId, cancellationToken);
+            if (execution == null)
+                throw new KeyNotFoundException($"Execution with ID {executionId} not found");
+
+            // Load program and verify IsPublic
+            if (!ObjectId.TryParse(execution.ProgramId, out var programId))
+                throw new InvalidOperationException("Invalid program ID in execution");
+
+            var program = await _unitOfWork.Programs.GetByIdAsync(programId, cancellationToken);
+            if (program == null || !program.IsPublic)
+                throw new UnauthorizedAccessException("This execution is not publicly accessible");
+
+            // Get logs from execution service
+            var logs = await _executionService.GetExecutionLogsAsync(executionId, lines, cancellationToken);
+
+            return new PublicExecutionLogsDto
+            {
+                ExecutionId = executionId,
+                Logs = logs,
+                TotalLines = logs.Count
+            };
+        }
+
+        public async Task<PublicExecutionFilesDto> GetPublicExecutionFilesAsync(string executionId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(executionId, out _))
+                throw new ArgumentException("Invalid execution ID format", nameof(executionId));
+
+            // Get execution to verify ownership
+            var execution = await _executionService.GetByIdAsync(executionId, cancellationToken);
+            if (execution == null)
+                throw new KeyNotFoundException($"Execution with ID {executionId} not found");
+
+            // Load program and verify IsPublic
+            if (!ObjectId.TryParse(execution.ProgramId, out var programId))
+                throw new InvalidOperationException("Invalid program ID in execution");
+
+            var program = await _unitOfWork.Programs.GetByIdAsync(programId, cancellationToken);
+            if (program == null || !program.IsPublic)
+                throw new UnauthorizedAccessException("This execution is not publicly accessible");
+
+            // Get execution result to access output files
+            var result = await _executionService.GetExecutionResultAsync(executionId, cancellationToken);
+
+            return new PublicExecutionFilesDto
+            {
+                ExecutionId = executionId,
+                Files = result.OutputFiles,
+                TotalFiles = result.OutputFiles?.Count ?? 0
+            };
+        }
+
+        public async Task<VersionFileDetailDto> DownloadPublicExecutionFileAsync(string executionId, string filePath, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(executionId, out _))
+                throw new ArgumentException("Invalid execution ID format", nameof(executionId));
+
+            if (string.IsNullOrWhiteSpace(filePath))
+                throw new ArgumentException("File path is required", nameof(filePath));
+
+            // Get execution to verify ownership
+            var execution = await _executionService.GetByIdAsync(executionId, cancellationToken);
+            if (execution == null)
+                throw new KeyNotFoundException($"Execution with ID {executionId} not found");
+
+            // Load program and verify IsPublic
+            if (!ObjectId.TryParse(execution.ProgramId, out var programId))
+                throw new InvalidOperationException("Invalid program ID in execution");
+
+            var program = await _unitOfWork.Programs.GetByIdAsync(programId, cancellationToken);
+            if (program == null || !program.IsPublic)
+                throw new UnauthorizedAccessException("This execution is not publicly accessible");
+
+            // Get execution file from storage
+            return await _fileStorageService.GetExecutionFileAsync(
+                execution.ProgramId,
+                execution.VersionId,
+                execution.Id,
+                filePath,
+                cancellationToken);
         }
 
         // Helper methods to fetch apps by IDs
