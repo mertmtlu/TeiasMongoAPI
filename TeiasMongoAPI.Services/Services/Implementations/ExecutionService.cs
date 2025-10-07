@@ -2,7 +2,9 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
+using MongoDB.Driver;
 using System.Diagnostics;
+using System.Runtime.ConstrainedExecution;
 using System.Text.Json;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.Collaboration;
@@ -14,8 +16,8 @@ using TeiasMongoAPI.Services.DTOs.Response.Collaboration;
 using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Execution;
-using TeiasMongoAPI.Services.Specifications;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Specifications;
 using ExecutionModel = TeiasMongoAPI.Core.Models.Collaboration.Execution;
 
 namespace TeiasMongoAPI.Services.Services.Implementations
@@ -1810,6 +1812,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         private async Task ExecuteProjectInBackgroundAsync(ExecutionModel execution, ProgramExecutionRequestDto dto, CancellationToken cancellationToken)
         {
+            //TODO: This code block should be optimized.
+
+            //THE PROBLEM:
+            //Executions were getting stuck in a "running" state if the user disconnected during a long-running job.
+            //This is because the CancellationToken from the HTTP request would be cancelled. While the background process
+            //continued correctly, the final database update at the end would fail because it was called with this
+            //already - cancelled token, throwing an OperationCanceledException.
+
+            //THE FIX:
+            //All critical database updates that record the final state of an execution(e.g., "completed", "failed",
+            //"stopped") are now called with `CancellationToken.None`. This ensures the finalization step is never
+            //cancelled and always runs, guaranteeing data consistency regardless of the original user's connection status.
+
             var executionId = execution._ID.ToString();
             var context = new ExecutionContext
             {
@@ -1820,9 +1835,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _activeExecutions[executionId] = context;
             bool statusUpdated = false;
 
+            // The CancellationTokenRegistration should be disposed of when we're done.
+            // We'll declare it here and dispose of it in the finally block.
+            CancellationTokenRegistration registration = default;
+
             try
             {
                 _logger.LogInformation("Starting project execution for {ExecutionId}", executionId);
+
+                registration = cancellationToken.Register(() =>
+                {
+                    _logger.LogInformation(
+                        "HTTP request for execution {ExecutionId} was cancelled (user likely disconnected). " +
+                        "The background process will continue to run to completion as designed.",
+                        executionId);
+                });
 
                 // LIVE STREAMING: Notify execution started
                 if (_streamingService != null)
@@ -1873,8 +1900,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 var result = await _projectExecutionEngine.ExecuteProjectAsync(projectRequest, executionId, context.CancellationTokenSource.Token);
 
                 // DEFENSIVE: Update execution record with results using retry logic
-                await UpdateExecutionWithProjectResultWithRetryAsync(execution, result, cancellationToken);
-                statusUpdated = true;
+                statusUpdated = await UpdateExecutionWithProjectResultWithRetryAsync(execution, result, CancellationToken.None);
 
                 // LIVE STREAMING: Notify execution completed
                 if (_streamingService != null)
@@ -1904,7 +1930,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Project execution {ExecutionId} was cancelled", executionId);
-                await SafeUpdateExecutionStatusAsync(execution._ID, "stopped", executionId, cancellationToken);
+                await SafeUpdateExecutionStatusAsync(execution._ID, "stopped", executionId, CancellationToken.None);
                 statusUpdated = true;
 
                 // LIVE STREAMING: Notify execution stopped
@@ -1996,6 +2022,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
                 _activeExecutions.Remove(executionId);
                 _logger.LogDebug("Cleaned up execution context for {ExecutionId}", executionId);
+
+                // DISPOSE OF THE REGISTRATION
+                // It's good practice to unregister the callback to clean up resources.
+                // Using DisposeAsync is the modern approach inside an async method.
+                await registration.DisposeAsync();
             }
         }
 
@@ -2027,7 +2058,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         /// <summary>
         /// DEFENSIVE: Update execution with project result using retry logic for long-running executions
         /// </summary>
-        private async Task UpdateExecutionWithProjectResultWithRetryAsync(ExecutionModel execution,
+        private async Task<bool> UpdateExecutionWithProjectResultWithRetryAsync(ExecutionModel execution,
             DTOs.Response.Execution.ProjectExecutionResult result,
             CancellationToken cancellationToken)
         {
@@ -2041,7 +2072,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 {
                     await UpdateExecutionWithProjectResultAsync(execution, result, cancellationToken);
                     _logger.LogDebug("Successfully updated execution {ExecutionId} on attempt {Attempt}", executionId, attempt);
-                    return;
+                    return true;
                 }
                 catch (Exception ex) when (attempt < maxRetries)
                 {
@@ -2050,13 +2081,30 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to update execution {ExecutionId} after {MaxRetries} attempts", executionId, maxRetries);
+                    _logger.LogError(ex, "Failed to update execution {ExecutionId} after {MaxRetries} attempts. Attempting fallback status update.", executionId, maxRetries);
 
-                    // Final fallback: at least update the status
-                    await SafeUpdateExecutionStatusAsync(execution._ID, result.Success ? "completed" : "failed", executionId, cancellationToken);
-                    throw;
+                    try
+                    {
+                        // IMPROVEMENT #1: The fallback is a critical write, so it ALWAYS uses CancellationToken.None.
+                        await SafeUpdateExecutionStatusAsync(execution._ID, result.Success ? "completed" : "failed", executionId, CancellationToken.None);
+
+                        _logger.LogDebug("Fallback status update for execution {ExecutionId} succeeded.", executionId);
+
+                        // IMPROVEMENT #2: The fallback succeeded, so we return true to prevent redundant updates in the caller.
+                        return true;
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        _logger.LogCritical(fallbackEx, "CRITICAL: The fallback status update for execution {ExecutionId} also failed.", executionId);
+                        // The fallback failed, so now we report a definitive failure.
+                        return false;
+                    }
                 }
             }
+
+            // This line is now only reachable if the loop is somehow exited without a return,
+            // which shouldn't happen, but it's safe to keep.
+            return false;
         }
 
         /// <summary>
