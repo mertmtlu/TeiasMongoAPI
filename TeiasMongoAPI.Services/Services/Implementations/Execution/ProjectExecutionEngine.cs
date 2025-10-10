@@ -701,7 +701,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 WorkingDirectory = projectDirectory,
                 OutputCallback = output => _logger.LogDebug("Execution output: {Output}", output),
                 ErrorCallback = error => _logger.LogWarning("Execution error: {Error}", error),
-                PackageVolumeName = packageVolumeName
+                PackageVolumeName = packageVolumeName,
+
+                // TIERED EXECUTION: Pass tier information to language runners
+                ExecutionTier = request.ExecutionTier,  // "RAM" or "Disk"
+                JobProfile = request.JobProfile          // Job profile name
             };
         }
 
@@ -1165,6 +1169,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         };
         public bool EnableNetworkAccess { get; set; } = true;
         public ResourceLimits ResourceLimits { get; set; } = new();
+
+        // Tiered Execution Settings
+        public TieredExecutionSettings TieredExecution { get; set; } = new();
     }
 
     public class ResourceLimits
@@ -1173,5 +1180,60 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public double CPUs { get; set; } = 2.0;
         public int ProcessLimit { get; set; } = 100;
         public int TempStorageMB { get; set; } = 256;
+    }
+
+    // Tiered Execution Configuration Classes
+    public class TieredExecutionSettings
+    {
+        public bool EnableTieredExecution { get; set; } = false;
+        public RamPoolSettings RamPool { get; set; } = new();
+        public DiskPoolSettings DiskPool { get; set; } = new();
+        public Dictionary<string, JobProfile> JobProfiles { get; set; } = new();
+        public string DefaultJobProfile { get; set; } = "Standard";
+        public TierSelectionStrategySettings TierSelectionStrategy { get; set; } = new();
+    }
+
+    public class RamPoolSettings
+    {
+        public int TotalCapacityGB { get; set; } = 16;
+        public int MaxConcurrentJobs { get; set; } = 10;
+        public int TmpfsBaseSizeMB { get; set; } = 512;
+        public bool EnableIterativeRelaunch { get; set; } = true;
+        public IterativeRelaunchSettings IterativeRelaunch { get; set; } = new();
+    }
+
+    public class IterativeRelaunchSettings
+    {
+        public int BaselineSizeMB { get; set; } = 512;
+        public double MultiplierFactor { get; set; } = 1.5;
+        public int MaxSizeMB { get; set; } = 4096;
+        public int MaxRetries { get; set; } = 3;
+        public List<string> TriggerPatterns { get; set; } = new();
+    }
+
+    public class DiskPoolSettings
+    {
+        public int MaxConcurrentJobs { get; set; } = 5;
+        public string DiskVolumePath { get; set; } = "./storage/disk_volumes";
+        public bool EnableVolumeReuse { get; set; } = true;
+        public int VolumeCleanupDelayMinutes { get; set; } = 60;
+    }
+
+    public class JobProfile
+    {
+        public string Description { get; set; } = string.Empty;
+        public double RamCapacityCostGB { get; set; }
+        public double CpuCost { get; set; }
+        public string PreferredTier { get; set; } = "RAM";
+        public int MaxExecutionMinutes { get; set; }
+    }
+
+    public class TierSelectionStrategySettings
+    {
+        public bool EnableAutoTierSelection { get; set; } = true;
+        public bool FallbackToDisk { get; set; } = true;
+        public string RamPoolFullBehavior { get; set; } = "Queue";
+        public int MaxQueueDepth { get; set; } = 20;
+        public int QueueTimeoutMinutes { get; set; } = 30;
     }
 }

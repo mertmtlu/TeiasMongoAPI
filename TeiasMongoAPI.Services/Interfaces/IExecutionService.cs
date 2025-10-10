@@ -79,6 +79,9 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<bool> ArchiveExecutionAsync(string id, CancellationToken cancellationToken = default);
         Task<List<ExecutionCleanupReportDto>> GetCleanupReportAsync(CancellationToken cancellationToken = default);
 
+        // Tiered Execution: Stale Reservation Cleanup
+        Task<int> CleanStaleReservationsAsync(TimeSpan maxAge, CancellationToken cancellationToken = default);
+
         // Execution Security and Validation
         Task<bool> ValidateExecutionPermissionsAsync(string programId, string userId, CancellationToken cancellationToken = default);
         Task<ExecutionSecurityScanResult> RunSecurityScanAsync(string programId, CancellationToken cancellationToken = default);

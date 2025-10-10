@@ -722,6 +722,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         _logger.LogError("Docker permission denied. User may not have access to Docker daemon.");
                         result.Error += "\n\nPermission denied. On Linux, add user to docker group: sudo usermod -aG docker $USER";
                     }
+                    else
+                    {
+                        _logger.LogError("Unclassified error: {error}", result.Error);
+                    }
                 }
 
                 return result;

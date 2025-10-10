@@ -28,6 +28,10 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Execution
         public bool CleanupOnCompletion { get; set; } = true;
 
         public List<string> AllowedFileExtensions { get; set; } = new();
+
+        // Tiered Execution Properties
+        public string? ExecutionTier { get; set; }  // "RAM" or "Disk"
+        public string? JobProfile { get; set; }     // "Light", "Standard", "Heavy", "Bulk"
     }
 
     public class ProjectResourceLimits
@@ -64,5 +68,9 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Execution
         public Action<string>? OutputCallback { get; set; }
         public Action<string>? ErrorCallback { get; set; }
         public string? PackageVolumeName { get; set; }
+
+        // Tiered Execution Properties
+        public string? ExecutionTier { get; set; }  // "RAM" or "Disk"
+        public string? JobProfile { get; set; }     // "Light", "Standard", "Heavy", "Bulk"
     }
 }

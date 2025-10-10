@@ -432,6 +432,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
                 if (_settings.EnableDocker && _settings.DockerImages.TryGetValue("Python", out var dockerImage))
                 {
+                    // ============================================================================
+                    // DOCKER-BASED EXECUTION WITH TIER-AWARE DISPATCHING
+                    // ============================================================================
+                    // This section prepares for Docker-based execution and dispatches to the
+                    // appropriate tier-specific execution method based on the ExecutionTier
+                    // value set by the ExecutionService dispatcher.
+                    // ============================================================================
+
                     // Use Docker for secure sandboxed execution
                     var outputDir = Path.Combine(Path.GetDirectoryName(absoluteProjectDirectory) ?? "", "outputs");
                     Directory.CreateDirectory(outputDir);
@@ -449,22 +457,152 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         context.Environment["PYTHONPATH"] = "/home/executor/.local/lib/python3.12/site-packages";
                     }
 
-                    processResult = await RunDockerProcessAsync(
-                        dockerImage,
-                        "python",
-                        $"/app/{arguments}",
-                        absoluteProjectDirectory,
-                        outputDir,
-                        context.Environment,
-                        2880, // Timeout managed by ProjectExecutionEngine using appsettings
-                        cancellationToken,
-                        context.ExecutionId,
-                        _settings.EnableNetworkAccess,
-                        _settings.ResourceLimits.MemoryMB,
-                        _settings.ResourceLimits.CPUs,
-                        _settings.ResourceLimits.ProcessLimit,
-                        _settings.ResourceLimits.TempStorageMB,
-                        volumes);
+                    // ============================================================================
+                    // TIERED EXECUTION: Worker-Level Tier Dispatching
+                    // ============================================================================
+                    // This logic connects the dispatcher's decision (ExecutionService) to the
+                    // worker's concrete action (PythonProjectRunner).
+                    //
+                    // Flow:
+                    // 1. Check if tiered execution is enabled AND a tier was specified
+                    // 2. If tier is "RAM": Use ExecuteWithRamTierAsync() with tmpfs and OOM recovery
+                    // 3. If tier is "Disk": Use ExecuteWithDiskTierAsync() with persistent volumes
+                    // 4. If tier is unknown: Log warning and fall back to standard execution
+                    // 5. If tiered execution disabled/no tier: Use standard execution (backward compatible)
+                    // ============================================================================
+
+                    if (_settings.TieredExecution.EnableTieredExecution && !string.IsNullOrEmpty(context.ExecutionTier))
+                    {
+                        _logger.LogInformation(
+                            "Execution {ExecutionId}: Tiered execution enabled. Dispatching to tier: '{Tier}' (Job profile: '{Profile}')",
+                            context.ExecutionId, context.ExecutionTier, context.JobProfile ?? "Not specified");
+
+                        // RAM Tier: tmpfs-based execution with iterative OOM recovery
+                        if (context.ExecutionTier.Equals("RAM", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogInformation(
+                                "Execution {ExecutionId}: Dispatching to RAM tier execution (tmpfs-based with OOM recovery)",
+                                context.ExecutionId);
+
+                            processResult = await ExecuteWithRamTierAsync(
+                                dockerImage,
+                                "python",
+                                $"/app/{arguments}",
+                                absoluteProjectDirectory,
+                                outputDir,
+                                context.Environment,
+                                2880,
+                                context.ExecutionId,
+                                cancellationToken,
+                                volumes);
+
+                            _logger.LogInformation(
+                                "Execution {ExecutionId}: RAM tier execution completed. Success: {Success}, Exit Code: {ExitCode}",
+                                context.ExecutionId, processResult.Success, processResult.ExitCode);
+                        }
+                        // Disk Tier: Persistent volume-based execution
+                        else if (context.ExecutionTier.Equals("Disk", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogInformation(
+                                "Execution {ExecutionId}: Dispatching to Disk tier execution (persistent volume-based)",
+                                context.ExecutionId);
+
+                            processResult = await ExecuteWithDiskTierAsync(
+                                dockerImage,
+                                "python",
+                                $"/app/{arguments}",
+                                absoluteProjectDirectory,
+                                outputDir,
+                                context.Environment,
+                                2880,
+                                context.ExecutionId,
+                                cancellationToken,
+                                volumes);
+
+                            _logger.LogInformation(
+                                "Execution {ExecutionId}: Disk tier execution completed. Success: {Success}, Exit Code: {ExitCode}",
+                                context.ExecutionId, processResult.Success, processResult.ExitCode);
+                        }
+                        // Unknown Tier: Fall back to standard execution for safety
+                        else
+                        {
+                            _logger.LogWarning(
+                                "Execution {ExecutionId}: Unknown execution tier '{Tier}' specified. " +
+                                "Valid tiers are 'RAM' or 'Disk'. Falling back to standard execution for safety.",
+                                context.ExecutionId, context.ExecutionTier);
+
+                            processResult = await RunDockerProcessAsync(
+                                dockerImage,
+                                "python",
+                                $"/app/{arguments}",
+                                absoluteProjectDirectory,
+                                outputDir,
+                                context.Environment,
+                                2880,
+                                cancellationToken,
+                                context.ExecutionId,
+                                _settings.EnableNetworkAccess,
+                                _settings.ResourceLimits.MemoryMB,
+                                _settings.ResourceLimits.CPUs,
+                                _settings.ResourceLimits.ProcessLimit,
+                                _settings.ResourceLimits.TempStorageMB,
+                                volumes);
+
+                            _logger.LogInformation(
+                                "Execution {ExecutionId}: Fallback standard execution completed. Success: {Success}, Exit Code: {ExitCode}",
+                                context.ExecutionId, processResult.Success, processResult.ExitCode);
+                        }
+                    }
+                    else
+                    {
+                        // ========================================================================
+                        // STANDARD EXECUTION (Backward Compatible)
+                        // ========================================================================
+                        // This path is taken when:
+                        // - Tiered execution is disabled globally, OR
+                        // - No tier was specified in the context (context.ExecutionTier is null/empty)
+                        //
+                        // This ensures backward compatibility with existing code and configurations
+                        // that don't use tiered execution.
+                        // ========================================================================
+
+                        if (_settings.TieredExecution.EnableTieredExecution)
+                        {
+                            _logger.LogDebug(
+                                "Execution {ExecutionId}: Tiered execution is enabled but no tier specified. Using standard execution.",
+                                context.ExecutionId);
+                        }
+                        else
+                        {
+                            _logger.LogDebug(
+                                "Execution {ExecutionId}: Tiered execution is disabled. Using standard execution.",
+                                context.ExecutionId);
+                        }
+
+                        processResult = await RunDockerProcessAsync(
+                            dockerImage,
+                            "python",
+                            $"/app/{arguments}",
+                            absoluteProjectDirectory,
+                            outputDir,
+                            context.Environment,
+                            2880,
+                            cancellationToken,
+                            context.ExecutionId,
+                            _settings.EnableNetworkAccess,
+                            _settings.ResourceLimits.MemoryMB,
+                            _settings.ResourceLimits.CPUs,
+                            _settings.ResourceLimits.ProcessLimit,
+                            _settings.ResourceLimits.TempStorageMB,
+                            volumes);
+
+                        _logger.LogInformation(
+                            "Execution {ExecutionId}: Standard execution completed. Success: {Success}, Exit Code: {ExitCode}",
+                            context.ExecutionId, processResult.Success, processResult.ExitCode);
+                    }
+                    // ============================================================================
+                    // END OF TIER-AWARE DISPATCHING
+                    // ============================================================================
                 }
                 else
                 {
@@ -508,6 +646,216 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 return result;
             }
         }
+
+        #region Tiered Execution Methods
+
+        /// <summary>
+        /// Execute using RAM tier with tmpfs and iterative relaunch on OOM
+        /// </summary>
+        private async Task<ProcessResult> ExecuteWithRamTierAsync(
+            string dockerImage,
+            string command,
+            string arguments,
+            string projectDirectory,
+            string outputDir,
+            Dictionary<string, string> environment,
+            int timeoutMinutes,
+            string executionId,
+            CancellationToken cancellationToken,
+            Dictionary<string, string>? volumes = null)
+        {
+            if (!_settings.TieredExecution.EnableTieredExecution)
+            {
+                throw new InvalidOperationException("Tiered execution is not enabled");
+            }
+
+            var ramSettings = _settings.TieredExecution.RamPool;
+            int currentTmpfsSizeMB = ramSettings.TmpfsBaseSizeMB;
+            int attempt = 0;
+
+            while (attempt < ramSettings.IterativeRelaunch.MaxRetries)
+            {
+                attempt++;
+                _logger.LogInformation(
+                    "Execution {ExecutionId}: RAM tier attempt {Attempt}/{MaxRetries} with tmpfs size {TmpfsSizeMB}MB",
+                    executionId, attempt, ramSettings.IterativeRelaunch.MaxRetries, currentTmpfsSizeMB);
+
+                // Run with tmpfs for RAM tier
+                var processResult = await RunDockerProcessAsync(
+                    dockerImage,
+                    command,
+                    arguments,
+                    projectDirectory,
+                    outputDir,
+                    environment,
+                    timeoutMinutes,
+                    cancellationToken,
+                    executionId,
+                    _settings.EnableNetworkAccess,
+                    _settings.ResourceLimits.MemoryMB,
+                    _settings.ResourceLimits.CPUs,
+                    _settings.ResourceLimits.ProcessLimit,
+                    currentTmpfsSizeMB, // Use currentTmpfsSizeMB for tmpfs
+                    volumes);
+
+                // Check if OOM occurred
+                if (ramSettings.EnableIterativeRelaunch && !processResult.Success)
+                {
+                    bool isOOM = false;
+                    foreach (var pattern in ramSettings.IterativeRelaunch.TriggerPatterns)
+                    {
+                        if (processResult.Error.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
+                            processResult.Output.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                        {
+                            isOOM = true;
+                            break;
+                        }
+                    }
+
+                    if (isOOM && attempt < ramSettings.IterativeRelaunch.MaxRetries)
+                    {
+                        // Calculate new tmpfs size
+                        int newTmpfsSizeMB = (int)(currentTmpfsSizeMB * ramSettings.IterativeRelaunch.MultiplierFactor);
+                        newTmpfsSizeMB = Math.Min(newTmpfsSizeMB, ramSettings.IterativeRelaunch.MaxSizeMB);
+
+                        if (newTmpfsSizeMB > currentTmpfsSizeMB)
+                        {
+                            _logger.LogWarning(
+                                "Execution {ExecutionId}: OOM detected, retrying with increased tmpfs size: {OldSize}MB -> {NewSize}MB",
+                                executionId, currentTmpfsSizeMB, newTmpfsSizeMB);
+
+                            currentTmpfsSizeMB = newTmpfsSizeMB;
+                            continue; // Retry with larger tmpfs
+                        }
+                        else
+                        {
+                            _logger.LogError(
+                                "Execution {ExecutionId}: OOM detected but already at max tmpfs size ({MaxSize}MB)",
+                                executionId, ramSettings.IterativeRelaunch.MaxSizeMB);
+                            return processResult; // Give up
+                        }
+                    }
+                }
+
+                // Success or non-OOM failure
+                return processResult;
+            }
+
+            // Max retries reached
+            _logger.LogError(
+                "Execution {ExecutionId}: Max retries ({MaxRetries}) reached for RAM tier execution",
+                executionId, ramSettings.IterativeRelaunch.MaxRetries);
+
+            return new ProcessResult
+            {
+                Success = false,
+                ExitCode = -1,
+                Error = $"Execution failed after {ramSettings.IterativeRelaunch.MaxRetries} OOM retries",
+                Duration = TimeSpan.Zero
+            };
+        }
+
+        /// <summary>
+        /// Execute using Disk tier with persistent volume
+        /// </summary>
+        private async Task<ProcessResult> ExecuteWithDiskTierAsync(
+            string dockerImage,
+            string command,
+            string arguments,
+            string projectDirectory,
+            string outputDir,
+            Dictionary<string, string> environment,
+            int timeoutMinutes,
+            string executionId,
+            CancellationToken cancellationToken,
+            Dictionary<string, string>? volumes = null)
+        {
+            if (!_settings.TieredExecution.EnableTieredExecution)
+            {
+                throw new InvalidOperationException("Tiered execution is not enabled");
+            }
+
+            var diskSettings = _settings.TieredExecution.DiskPool;
+            string volumePath = diskSettings.DiskVolumePath;
+
+            // Create execution-specific volume directory
+            string executionVolumePath = Path.Combine(volumePath, executionId);
+            Directory.CreateDirectory(executionVolumePath);
+
+            _logger.LogInformation(
+                "Execution {ExecutionId}: Using Disk tier with volume at {VolumePath}",
+                executionId, executionVolumePath);
+
+            try
+            {
+                // Merge execution volume with existing volumes
+                var mergedVolumes = volumes != null
+                    ? new Dictionary<string, string>(volumes)
+                    : new Dictionary<string, string>();
+
+                mergedVolumes[executionVolumePath] = "/execution_volume";
+
+                // Run with persistent disk volume
+                var processResult = await RunDockerProcessAsync(
+                    dockerImage,
+                    command,
+                    arguments,
+                    projectDirectory,
+                    outputDir,
+                    environment,
+                    timeoutMinutes,
+                    cancellationToken,
+                    executionId,
+                    _settings.EnableNetworkAccess,
+                    _settings.ResourceLimits.MemoryMB,
+                    _settings.ResourceLimits.CPUs,
+                    _settings.ResourceLimits.ProcessLimit,
+                    _settings.ResourceLimits.TempStorageMB,
+                    mergedVolumes);
+
+                // Cleanup volume if configured
+                if (!diskSettings.EnableVolumeReuse)
+                {
+                    try
+                    {
+                        Directory.Delete(executionVolumePath, recursive: true);
+                        _logger.LogInformation(
+                            "Execution {ExecutionId}: Deleted volume directory {VolumePath}",
+                            executionId, executionVolumePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to delete volume directory {VolumePath} for execution {ExecutionId}",
+                            executionVolumePath, executionId);
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Execution {ExecutionId}: Volume reuse enabled, keeping volume at {VolumePath}",
+                        executionId, executionVolumePath);
+                }
+
+                return processResult;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to execute with Disk tier for execution {ExecutionId}",
+                    executionId);
+
+                return new ProcessResult
+                {
+                    Success = false,
+                    ExitCode = -1,
+                    Error = $"Disk tier execution failed: {ex.Message}",
+                    Duration = TimeSpan.Zero
+                };
+            }
+        }
+
+        #endregion
 
         protected override async Task ValidateLanguageSpecificAsync(string projectDirectory, ProjectValidationResult result, CancellationToken cancellationToken)
         {

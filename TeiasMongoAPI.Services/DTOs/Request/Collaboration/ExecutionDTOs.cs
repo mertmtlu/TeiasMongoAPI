@@ -8,6 +8,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public Dictionary<string, string> Environment { get; set; } = new();
         public ExecutionResourceLimitsDto? ResourceLimits { get; set; }
         public bool SaveResults { get; set; } = true;
+        public string? JobProfile { get; set; }  // Tiered Execution: "Light", "Standard", "Heavy", "Bulk"
     }
 
     public class VersionExecutionRequestDto
@@ -16,6 +17,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public Dictionary<string, string> Environment { get; set; } = new();
         public ExecutionResourceLimitsDto? ResourceLimits { get; set; }
         public bool SaveResults { get; set; } = true;
+        public string? JobProfile { get; set; }  // Tiered Execution: "Light", "Standard", "Heavy", "Bulk"
     }
 
     public class ExecutionParametersDto
@@ -29,6 +31,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Collaboration
         public ExecutionResourceLimitsDto? ResourceLimits { get; set; }
         public bool SaveResults { get; set; } = true;
         public string? ExecutionName { get; set; }
+        public string? JobProfile { get; set; }  // Tiered Execution: "Light", "Standard", "Heavy", "Bulk"
     }
 
     public class ExecutionSearchDto

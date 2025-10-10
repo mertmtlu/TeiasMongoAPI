@@ -17,6 +17,7 @@ using TeiasMongoAPI.Services.DTOs.Response.Common;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Interfaces.Execution;
 using TeiasMongoAPI.Services.Services.Base;
+using TeiasMongoAPI.Services.Services.Implementations.Execution;
 using TeiasMongoAPI.Services.Specifications;
 using ExecutionModel = TeiasMongoAPI.Core.Models.Collaboration.Execution;
 
@@ -34,6 +35,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         private readonly ExecutionSettings _settings;
         private readonly Dictionary<string, ExecutionContext> _activeExecutions = new();
 
+        // Tiered Execution Fields
+        private readonly TeiasMongoAPI.Services.Services.Implementations.Execution.TieredExecutionSettings _tieredSettings;
+        private readonly SemaphoreSlim? _ramPoolCapacitySemaphore; // Weighted semaphore for RAM capacity in MB
+        private readonly SemaphoreSlim? _diskPoolSemaphore; // Concurrency-based semaphore
+        private readonly Dictionary<string, JobResourceReservation> _activeReservations = new();
+        private readonly Queue<QueuedJob> _queuedJobs = new();
+        private readonly object _reservationLock = new();
+
         public ExecutionService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
@@ -44,6 +53,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             IProjectExecutionEngine projectExecutionEngine,
             IGroupService groupService,
             IOptions<ExecutionSettings> settings,
+            IOptions<TeiasMongoAPI.Services.Services.Implementations.Execution.ProjectExecutionSettings> projectSettings,
             ILogger<ExecutionService> logger,
             IExecutionOutputStreamingService? streamingService = null)
             : base(unitOfWork, mapper, logger)
@@ -56,6 +66,33 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             _groupService = groupService;
             _streamingService = streamingService;
             _settings = settings.Value;
+            _tieredSettings = projectSettings.Value.TieredExecution;
+
+            // Initialize Tiered Execution Pools
+            if (_tieredSettings.EnableTieredExecution)
+            {
+                // Initialize RAM pool with capacity-based semaphore (weighted)
+                int totalRamCapacityMB = _tieredSettings.RamPool.TotalCapacityGB * 1024;
+                _ramPoolCapacitySemaphore = new SemaphoreSlim(totalRamCapacityMB, totalRamCapacityMB);
+
+                // Initialize Disk pool with concurrency-based semaphore
+                _diskPoolSemaphore = new SemaphoreSlim(
+                    _tieredSettings.DiskPool.MaxConcurrentJobs,
+                    _tieredSettings.DiskPool.MaxConcurrentJobs);
+
+                _logger.LogInformation(
+                    "Tiered Execution initialized: RAM Pool ({RamCapacityGB}GB capacity, {MaxRamJobs} max jobs), Disk Pool ({MaxDiskJobs} max jobs)",
+                    _tieredSettings.RamPool.TotalCapacityGB,
+                    _tieredSettings.RamPool.MaxConcurrentJobs,
+                    _tieredSettings.DiskPool.MaxConcurrentJobs);
+
+                // RISK MITIGATION: Validate RAM pool capacity on startup
+                ValidateRamPoolCapacity();
+            }
+            else
+            {
+                _logger.LogInformation("Tiered Execution is disabled");
+            }
         }
 
         #region Basic CRUD Operations
@@ -1834,10 +1871,140 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             _activeExecutions[executionId] = context;
             bool statusUpdated = false;
+            bool resourcesReserved = false;
 
             // The CancellationTokenRegistration should be disposed of when we're done.
             // We'll declare it here and dispose of it in the finally block.
             CancellationTokenRegistration registration = default;
+
+            // ============================================================================
+            // TIERED EXECUTION DISPATCHER LOGIC
+            // ============================================================================
+            // This section implements the complete dispatcher logic for tiered execution:
+            // 1. Determine job profile from request or use default
+            // 2. Select appropriate execution tier (RAM/Disk) based on availability
+            // 3. Reserve resources or queue the job if pools are full
+            // 4. Pass tier information to the execution engine
+            // 5. Release resources in finally block
+            // ============================================================================
+
+            string selectedTier = "Standard"; // Default tier for non-tiered execution
+            string jobProfile;
+
+            // Step 1: Determine JobProfile from request, with fallback to default
+            if (_tieredSettings.EnableTieredExecution)
+            {
+                jobProfile = dto.JobProfile ?? _tieredSettings.DefaultJobProfile;
+                _logger.LogInformation(
+                    "Execution {ExecutionId}: Tiered execution enabled. Job profile: '{JobProfile}' (specified: {IsSpecified})",
+                    executionId, jobProfile, dto.JobProfile != null);
+            }
+            else
+            {
+                jobProfile = "Standard"; // Default for non-tiered execution
+                _logger.LogDebug("Execution {ExecutionId}: Tiered execution disabled, using standard execution", executionId);
+            }
+
+            // Step 2: Select tier and reserve resources (if tiered execution is enabled)
+            if (_tieredSettings.EnableTieredExecution)
+            {
+                try
+                {
+                    _logger.LogDebug(
+                        "Execution {ExecutionId}: Selecting execution tier for job profile '{JobProfile}'",
+                        executionId, jobProfile);
+
+                    var (tier, isQueued) = await SelectExecutionTierAsync(executionId, jobProfile, cancellationToken);
+                    selectedTier = tier;
+
+                    // Step 3: Handle queued jobs
+                    if (isQueued)
+                    {
+                        _logger.LogInformation(
+                            "Execution {ExecutionId}: Job queued for later execution (tier: '{Tier}', profile: '{Profile}')",
+                            executionId, tier, jobProfile);
+
+                        // Enqueue the job and exit early
+                        EnqueueJob(executionId, execution, dto, cancellationToken);
+
+                        // Update execution status to "queued" for user visibility
+                        try
+                        {
+                            execution.Status = "queued";
+                            execution.Results.Output = $"Job queued for {tier} tier execution. Job profile: {jobProfile}";
+                            await _unitOfWork.Executions.UpdateAsync(execution._ID, execution, CancellationToken.None);
+                        }
+                        catch (Exception updateEx)
+                        {
+                            _logger.LogWarning(updateEx,
+                                "Failed to update execution {ExecutionId} status to 'queued'", executionId);
+                        }
+
+                        return; // Exit early - job will be processed later when resources become available
+                    }
+
+                    // Step 4: Resources successfully reserved
+                    resourcesReserved = true;
+                    _logger.LogInformation(
+                        "Execution {ExecutionId}: Resources reserved. Tier: '{Tier}', Job profile: '{Profile}'",
+                        executionId, selectedTier, jobProfile);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // Resource allocation failed (pools full, queue full, etc.)
+                    _logger.LogError(ex,
+                        "Execution {ExecutionId}: Resource allocation failed for job profile '{JobProfile}'",
+                        executionId, jobProfile);
+
+                    // Update execution status to failed with detailed error message
+                    try
+                    {
+                        execution.Status = "failed";
+                        execution.CompletedAt = DateTime.UtcNow;
+                        execution.Results.Error = $"Resource allocation failed: {ex.Message}\nJob profile: {jobProfile}\nTiered execution is enabled but resources are unavailable.";
+                        await _unitOfWork.Executions.UpdateAsync(execution._ID, execution, CancellationToken.None);
+
+                        _logger.LogInformation(
+                            "Execution {ExecutionId}: Updated status to 'failed' due to resource allocation failure",
+                            executionId);
+                    }
+                    catch (Exception updateEx)
+                    {
+                        _logger.LogError(updateEx,
+                            "Execution {ExecutionId}: Failed to update execution status after resource allocation failure",
+                            executionId);
+                    }
+
+                    return; // Exit early - cannot proceed without resources
+                }
+                catch (Exception ex)
+                {
+                    // Unexpected error during tier selection
+                    _logger.LogError(ex,
+                        "Execution {ExecutionId}: Unexpected error during tier selection for job profile '{JobProfile}'",
+                        executionId, jobProfile);
+
+                    // Update execution status to failed
+                    try
+                    {
+                        execution.Status = "failed";
+                        execution.CompletedAt = DateTime.UtcNow;
+                        execution.Results.Error = $"Tier selection failed: {ex.Message}\nAn unexpected error occurred during resource allocation.\nJob profile: {jobProfile}";
+                        await _unitOfWork.Executions.UpdateAsync(execution._ID, execution, CancellationToken.None);
+                    }
+                    catch (Exception updateEx)
+                    {
+                        _logger.LogError(updateEx,
+                            "Execution {ExecutionId}: Failed to update execution status after tier selection error",
+                            executionId);
+                    }
+
+                    return; // Exit early
+                }
+            }
+            // ============================================================================
+            // END OF TIERED EXECUTION DISPATCHER LOGIC
+            // ============================================================================
 
             try
             {
@@ -1883,7 +2050,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     }
                 }
 
-                // Create project execution request with proper file paths
+                // ============================================================================
+                // TIERED EXECUTION: Step 5 - Pass tier information to execution engine
+                // ============================================================================
+                // Create project execution request with tier information that will be
+                // used by the ProjectExecutionEngine and language runners (e.g., PythonProjectRunner)
+                // to determine whether to use RAM tier (tmpfs) or Disk tier (volumes)
+                // ============================================================================
                 var projectRequest = new ProjectExecutionRequest
                 {
                     ProgramId = execution.ProgramId.ToString(),
@@ -1893,8 +2066,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     Environment = dto.Environment,
                     ResourceLimits = MapToProjectResourceLimits(dto.ResourceLimits),
                     SaveResults = dto.SaveResults,
-                    CleanupOnCompletion = true
+                    CleanupOnCompletion = true,
+
+                    // TIERED EXECUTION: Critical fields for tier-aware execution
+                    ExecutionTier = selectedTier,  // "RAM" or "Disk" - determines execution strategy
+                    JobProfile = jobProfile         // Job profile name (e.g., "Standard", "Heavy")
                 };
+
+                _logger.LogDebug(
+                    "Execution {ExecutionId}: Created ProjectExecutionRequest with tier '{Tier}' and profile '{Profile}'",
+                    executionId, selectedTier, jobProfile);
 
                 // Execute using project execution engine
                 var result = await _projectExecutionEngine.ExecuteProjectAsync(projectRequest, executionId, context.CancellationTokenSource.Token);
@@ -2019,6 +2200,45 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     _logger.LogWarning("Execution {ExecutionId} completed without proper status update. Performing defensive status update...", executionId);
                     await SafeUpdateExecutionStatusAsync(execution._ID, "failed", executionId, CancellationToken.None);
                 }
+
+                // ============================================================================
+                // TIERED EXECUTION: Release reserved resources
+                // ============================================================================
+                // This ensures that resources (RAM capacity or Disk slots) are always
+                // released, even if the execution fails or is cancelled. This is critical
+                // to prevent resource leaks and ensure queued jobs can be processed.
+                // ============================================================================
+                if (resourcesReserved)
+                {
+                    try
+                    {
+                        _logger.LogDebug(
+                            "Execution {ExecutionId}: Releasing reserved resources (tier: '{Tier}', profile: '{Profile}')",
+                            executionId, selectedTier, jobProfile);
+
+                        await ReleaseReservationAsync(executionId);
+
+                        _logger.LogInformation(
+                            "Execution {ExecutionId}: Successfully released resources for tier '{Tier}'",
+                            executionId, selectedTier);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex,
+                            "Execution {ExecutionId}: CRITICAL - Failed to release resources for tier '{Tier}'. " +
+                            "This may cause resource leaks and prevent queued jobs from executing.",
+                            executionId, selectedTier);
+                    }
+                }
+                else if (_tieredSettings.EnableTieredExecution)
+                {
+                    _logger.LogDebug(
+                        "Execution {ExecutionId}: No resources to release (job was queued or resource allocation failed)",
+                        executionId);
+                }
+                // ============================================================================
+                // END OF RESOURCE CLEANUP
+                // ============================================================================
 
                 _activeExecutions.Remove(executionId);
                 _logger.LogDebug("Cleaned up execution context for {ExecutionId}", executionId);
@@ -2295,6 +2515,521 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
         #endregion
 
+        #region Tiered Execution Helper Methods
+
+        /// <summary>
+        /// Selects the appropriate execution tier based on job profile and availability
+        /// </summary>
+        private async Task<(string tier, bool isQueued)> SelectExecutionTierAsync(
+            string executionId,
+            string jobProfileName,
+            CancellationToken cancellationToken)
+        {
+            if (!_tieredSettings.EnableTieredExecution)
+            {
+                return ("Standard", false); // Fallback to standard execution
+            }
+
+            // Get job profile
+            if (!_tieredSettings.JobProfiles.TryGetValue(jobProfileName, out var jobProfile))
+            {
+                _logger.LogWarning("Job profile '{ProfileName}' not found, using default profile '{DefaultProfile}'",
+                    jobProfileName, _tieredSettings.DefaultJobProfile);
+                jobProfile = _tieredSettings.JobProfiles[_tieredSettings.DefaultJobProfile];
+            }
+
+            string preferredTier = jobProfile.PreferredTier;
+            _logger.LogInformation("Execution {ExecutionId}: Job profile '{ProfileName}' prefers tier '{PreferredTier}'",
+                executionId, jobProfileName, preferredTier);
+
+            // Try preferred tier first
+            if (preferredTier.Equals("RAM", StringComparison.OrdinalIgnoreCase))
+            {
+                if (await TryReserveRamCapacityAsync(executionId, jobProfile, cancellationToken))
+                {
+                    return ("RAM", false);
+                }
+
+                // RAM pool full - check behavior
+                if (_tieredSettings.TierSelectionStrategy.FallbackToDisk)
+                {
+                    _logger.LogInformation("Execution {ExecutionId}: RAM pool full, falling back to Disk tier", executionId);
+                    if (await TryReserveDiskSlotAsync(executionId, cancellationToken))
+                    {
+                        return ("Disk", false);
+                    }
+                }
+
+                // Handle queue behavior
+                if (_tieredSettings.TierSelectionStrategy.RamPoolFullBehavior == "Queue")
+                {
+                    if (_queuedJobs.Count < _tieredSettings.TierSelectionStrategy.MaxQueueDepth)
+                    {
+                        _logger.LogInformation("Execution {ExecutionId}: Queued for RAM tier (queue depth: {QueueDepth})",
+                            executionId, _queuedJobs.Count + 1);
+                        return ("RAM", true); // Will be queued
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            $"Queue is full (max depth: {_tieredSettings.TierSelectionStrategy.MaxQueueDepth}). Cannot accept more jobs.");
+                    }
+                }
+                else // Reject
+                {
+                    throw new InvalidOperationException("RAM pool is full and queueing is disabled.");
+                }
+            }
+            else if (preferredTier.Equals("Disk", StringComparison.OrdinalIgnoreCase))
+            {
+                if (await TryReserveDiskSlotAsync(executionId, cancellationToken))
+                {
+                    return ("Disk", false);
+                }
+
+                throw new InvalidOperationException("Disk pool is full. Cannot accept more jobs.");
+            }
+
+            throw new InvalidOperationException($"Unknown tier: {preferredTier}");
+        }
+
+        /// <summary>
+        /// Attempts to reserve RAM capacity using weighted semaphore
+        /// </summary>
+        private async Task<bool> TryReserveRamCapacityAsync(
+            string executionId,
+            JobProfile jobProfile,
+            CancellationToken cancellationToken)
+        {
+            if (_ramPoolCapacitySemaphore == null)
+            {
+                return false;
+            }
+
+            int requiredCapacityMB = (int)(jobProfile.RamCapacityCostGB * 1024);
+
+            // Check if we can reserve (non-blocking check)
+            lock (_reservationLock)
+            {
+                if (_ramPoolCapacitySemaphore.CurrentCount < requiredCapacityMB)
+                {
+                    _logger.LogDebug("Execution {ExecutionId}: Insufficient RAM capacity available ({Available}MB < {Required}MB)",
+                        executionId, _ramPoolCapacitySemaphore.CurrentCount, requiredCapacityMB);
+                    return false;
+                }
+
+                // Check concurrent job limit
+                int currentRamJobs = _activeReservations.Values.Count(r => r.Tier == "RAM");
+                if (currentRamJobs >= _tieredSettings.RamPool.MaxConcurrentJobs)
+                {
+                    _logger.LogDebug("Execution {ExecutionId}: RAM pool concurrency limit reached ({Current}/{Max})",
+                        executionId, currentRamJobs, _tieredSettings.RamPool.MaxConcurrentJobs);
+                    return false;
+                }
+            }
+
+            // Reserve capacity (blocking)
+            bool acquired = await _ramPoolCapacitySemaphore.WaitAsync(0, cancellationToken);
+            if (acquired)
+            {
+                // Acquire the full required capacity
+                for (int i = 1; i < requiredCapacityMB; i++)
+                {
+                    await _ramPoolCapacitySemaphore.WaitAsync(cancellationToken);
+                }
+
+                lock (_reservationLock)
+                {
+                    _activeReservations[executionId] = new JobResourceReservation
+                    {
+                        ExecutionId = executionId,
+                        Tier = "RAM",
+                        RamCapacityGB = jobProfile.RamCapacityCostGB,
+                        ReservedAt = DateTime.UtcNow
+                    };
+                }
+
+                _logger.LogInformation("Execution {ExecutionId}: Reserved {Capacity}GB RAM capacity ({Available}GB available)",
+                    executionId, jobProfile.RamCapacityCostGB,
+                    _ramPoolCapacitySemaphore.CurrentCount / 1024.0);
+
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Attempts to reserve a disk slot using concurrency-based semaphore
+        /// </summary>
+        private async Task<bool> TryReserveDiskSlotAsync(string executionId, CancellationToken cancellationToken)
+        {
+            if (_diskPoolSemaphore == null)
+            {
+                return false;
+            }
+
+            // Non-blocking check
+            if (_diskPoolSemaphore.CurrentCount == 0)
+            {
+                _logger.LogDebug("Execution {ExecutionId}: Disk pool is full", executionId);
+                return false;
+            }
+
+            // Reserve slot (blocking)
+            bool acquired = await _diskPoolSemaphore.WaitAsync(0, cancellationToken);
+            if (acquired)
+            {
+                lock (_reservationLock)
+                {
+                    _activeReservations[executionId] = new JobResourceReservation
+                    {
+                        ExecutionId = executionId,
+                        Tier = "Disk",
+                        RamCapacityGB = 0,
+                        ReservedAt = DateTime.UtcNow
+                    };
+                }
+
+                _logger.LogInformation("Execution {ExecutionId}: Reserved Disk slot ({Available} slots available)",
+                    executionId, _diskPoolSemaphore.CurrentCount);
+
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Releases a resource reservation and processes queued jobs
+        /// </summary>
+        private async Task ReleaseReservationAsync(string executionId)
+        {
+            JobResourceReservation? reservation = null;
+
+            lock (_reservationLock)
+            {
+                if (_activeReservations.TryGetValue(executionId, out reservation))
+                {
+                    _activeReservations.Remove(executionId);
+                }
+            }
+
+            if (reservation == null)
+            {
+                _logger.LogWarning("Execution {ExecutionId}: No reservation found to release", executionId);
+                return;
+            }
+
+            // Release resources
+            if (reservation.Tier == "RAM" && _ramPoolCapacitySemaphore != null)
+            {
+                int releasedCapacityMB = (int)(reservation.RamCapacityGB * 1024);
+                _ramPoolCapacitySemaphore.Release(releasedCapacityMB);
+
+                _logger.LogInformation("Execution {ExecutionId}: Released {Capacity}GB RAM capacity ({Available}GB now available)",
+                    executionId, reservation.RamCapacityGB,
+                    _ramPoolCapacitySemaphore.CurrentCount / 1024.0);
+            }
+            else if (reservation.Tier == "Disk" && _diskPoolSemaphore != null)
+            {
+                _diskPoolSemaphore.Release();
+
+                _logger.LogInformation("Execution {ExecutionId}: Released Disk slot ({Available} slots now available)",
+                    executionId, _diskPoolSemaphore.CurrentCount);
+            }
+
+            // Process queued jobs
+            await ProcessQueuedJobsAsync();
+        }
+
+        /// <summary>
+        /// RISK MITIGATION: Cleans up stale reservations that were never properly released
+        /// Called periodically by StaleReservationMonitorService
+        /// </summary>
+        public async Task<int> CleanStaleReservationsAsync(TimeSpan maxAge, CancellationToken cancellationToken = default)
+        {
+            if (!_tieredSettings.EnableTieredExecution)
+            {
+                return 0;
+            }
+
+            List<JobResourceReservation> staleReservations = new();
+            var now = DateTime.UtcNow;
+
+            // Find stale reservations
+            lock (_reservationLock)
+            {
+                foreach (var kvp in _activeReservations)
+                {
+                    var age = now - kvp.Value.ReservedAt;
+                    if (age > maxAge)
+                    {
+                        staleReservations.Add(kvp.Value);
+                        _logger.LogWarning(
+                            "Stale Reservation Detected: Execution {ExecutionId}, Tier: {Tier}, " +
+                            "Age: {AgeMinutes:F1} minutes, Reserved at: {ReservedAt:yyyy-MM-dd HH:mm:ss UTC}",
+                            kvp.Value.ExecutionId,
+                            kvp.Value.Tier,
+                            age.TotalMinutes,
+                            kvp.Value.ReservedAt);
+                    }
+                }
+            }
+
+            // Release stale reservations
+            foreach (var staleReservation in staleReservations)
+            {
+                try
+                {
+                    _logger.LogWarning(
+                        "Releasing stale reservation for execution {ExecutionId} (tier: {Tier}, age: {AgeMinutes:F1} minutes)",
+                        staleReservation.ExecutionId,
+                        staleReservation.Tier,
+                        (now - staleReservation.ReservedAt).TotalMinutes);
+
+                    await ReleaseReservationAsync(staleReservation.ExecutionId);
+
+                    _logger.LogInformation(
+                        "Successfully released stale reservation for execution {ExecutionId}",
+                        staleReservation.ExecutionId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Failed to release stale reservation for execution {ExecutionId}",
+                        staleReservation.ExecutionId);
+                }
+            }
+
+            if (staleReservations.Count > 0)
+            {
+                _logger.LogWarning(
+                    "Stale Reservation Cleanup: Released {Count} stale reservations. " +
+                    "This may indicate crashed or hung executions. " +
+                    "Current pool status: RAM available: {RamAvailableGB:F1}GB, Disk slots available: {DiskSlotsAvailable}",
+                    staleReservations.Count,
+                    _ramPoolCapacitySemaphore?.CurrentCount / 1024.0 ?? 0,
+                    _diskPoolSemaphore?.CurrentCount ?? 0);
+            }
+
+            return staleReservations.Count;
+        }
+
+        /// <summary>
+        /// Processes queued jobs when resources become available
+        /// </summary>
+        private async Task ProcessQueuedJobsAsync()
+        {
+            List<QueuedJob> jobsToProcess = new();
+
+            lock (_reservationLock)
+            {
+                while (_queuedJobs.Count > 0)
+                {
+                    var queuedJob = _queuedJobs.Peek();
+
+                    // Check if job has timed out
+                    if ((DateTime.UtcNow - queuedJob.QueuedAt).TotalMinutes > _tieredSettings.TierSelectionStrategy.QueueTimeoutMinutes)
+                    {
+                        _queuedJobs.Dequeue();
+                        _logger.LogWarning("Execution {ExecutionId}: Queued job timed out after {Timeout} minutes",
+                            queuedJob.ExecutionId, _tieredSettings.TierSelectionStrategy.QueueTimeoutMinutes);
+
+                        // Update execution status to failed
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                queuedJob.Execution.Status = "failed";
+                                queuedJob.Execution.CompletedAt = DateTime.UtcNow;
+                                queuedJob.Execution.Results.Error = "Execution timed out in queue";
+                                await _unitOfWork.Executions.UpdateAsync(queuedJob.Execution._ID, queuedJob.Execution, queuedJob.CancellationToken);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Failed to update timed-out execution {ExecutionId}", queuedJob.ExecutionId);
+                            }
+                        });
+
+                        continue;
+                    }
+
+                    // Try to reserve resources for this job
+                    // For now, just collect jobs that could potentially run
+                    jobsToProcess.Add(queuedJob);
+                    _queuedJobs.Dequeue();
+
+                    // Only process one job at a time to avoid race conditions
+                    break;
+                }
+            }
+
+            // Process jobs outside the lock
+            foreach (var job in jobsToProcess)
+            {
+                try
+                {
+                    _logger.LogInformation("Execution {ExecutionId}: Processing queued job", job.ExecutionId);
+
+                    // Re-attempt tier selection and execution
+                    // This will be called from ExecuteProjectInBackgroundAsync
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await ExecuteProjectInBackgroundAsync(
+                                job.Execution,
+                                job.Request,
+                                job.CancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to execute queued job {ExecutionId}", job.ExecutionId);
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error processing queued job {ExecutionId}", job.ExecutionId);
+                }
+            }
+        }
+
+        /// <summary>
+        /// RISK MITIGATION: Validates RAM pool capacity on startup
+        /// Ensures the RAM pool is large enough to handle at least one smallest job profile
+        /// and warns about potential configuration issues
+        /// </summary>
+        private void ValidateRamPoolCapacity()
+        {
+            double totalRamCapacityGB = _tieredSettings.RamPool.TotalCapacityGB;
+
+            _logger.LogInformation(
+                "RAM Pool Capacity Validation: Total capacity = {TotalCapacityGB}GB",
+                totalRamCapacityGB);
+
+            // Find smallest job profile RAM requirement
+            var jobProfiles = _tieredSettings.JobProfiles;
+            if (jobProfiles == null || !jobProfiles.Any())
+            {
+                _logger.LogWarning(
+                    "RAM Pool Capacity Validation: No job profiles defined! " +
+                    "Tiered execution may not function correctly. " +
+                    "Please configure JobProfiles in appsettings.json");
+                return;
+            }
+
+            var smallestRamRequirementGB = jobProfiles.Values
+                .Where(p => p.PreferredTier.Equals("RAM", StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.RamCapacityCostGB)
+                .DefaultIfEmpty(0.5) // Default to 0.5GB if no RAM-preferred profiles
+                .Min();
+
+            var largestRamRequirementGB = jobProfiles.Values
+                .Where(p => p.PreferredTier.Equals("RAM", StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.RamCapacityCostGB)
+                .DefaultIfEmpty(0.5)
+                .Max();
+
+            _logger.LogInformation(
+                "RAM Pool Capacity Validation: Smallest RAM job profile requires {SmallestGB}GB, " +
+                "Largest requires {LargestGB}GB",
+                smallestRamRequirementGB, largestRamRequirementGB);
+
+            // CRITICAL: Check if RAM pool can handle at least one smallest job
+            if (totalRamCapacityGB < smallestRamRequirementGB)
+            {
+                _logger.LogCritical(
+                    "CRITICAL CONFIGURATION ERROR: RAM pool capacity ({TotalCapacityGB}GB) is less than " +
+                    "the smallest job profile requirement ({SmallestGB}GB). " +
+                    "No RAM-tier jobs can be executed! " +
+                    "Please increase RamPool.TotalCapacityGB in appsettings.json to at least {MinimumGB}GB",
+                    totalRamCapacityGB, smallestRamRequirementGB, smallestRamRequirementGB);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "✓ RAM Pool Capacity Validation: Passed. Pool can handle at least {MinJobs} smallest jobs concurrently",
+                    (int)(totalRamCapacityGB / smallestRamRequirementGB));
+            }
+
+            // WARNING: Check if largest job profile can fit
+            if (totalRamCapacityGB < largestRamRequirementGB)
+            {
+                var affectedProfiles = jobProfiles
+                    .Where(kvp => kvp.Value.PreferredTier.Equals("RAM", StringComparison.OrdinalIgnoreCase)
+                                  && kvp.Value.RamCapacityCostGB > totalRamCapacityGB)
+                    .Select(kvp => $"{kvp.Key} ({kvp.Value.RamCapacityCostGB}GB)")
+                    .ToList();
+
+                _logger.LogWarning(
+                    "RAM Pool Capacity Warning: Some job profiles exceed total RAM capacity ({TotalCapacityGB}GB). " +
+                    "Affected profiles: {AffectedProfiles}. " +
+                    "These jobs will always fall back to Disk tier or be queued/rejected. " +
+                    "Consider increasing RamPool.TotalCapacityGB to at least {RecommendedGB}GB or adjusting job profile costs.",
+                    totalRamCapacityGB,
+                    string.Join(", ", affectedProfiles),
+                    largestRamRequirementGB);
+            }
+
+            // INFO: Calculate theoretical max concurrent jobs
+            int maxRamConcurrentJobs = _tieredSettings.RamPool.MaxConcurrentJobs;
+            double theoreticalMaxCapacity = smallestRamRequirementGB * maxRamConcurrentJobs;
+
+            if (theoreticalMaxCapacity > totalRamCapacityGB)
+            {
+                int actualMaxConcurrentSmallJobs = (int)(totalRamCapacityGB / smallestRamRequirementGB);
+                _logger.LogInformation(
+                    "RAM Pool Capacity Info: MaxConcurrentJobs is set to {MaxJobs}, but RAM capacity " +
+                    "limits actual concurrent smallest jobs to ~{ActualMax}. " +
+                    "This is expected and helps balance job sizes. " +
+                    "To allow {MaxJobs} concurrent smallest jobs, capacity would need to be ~{RequiredGB}GB",
+                    maxRamConcurrentJobs, actualMaxConcurrentSmallJobs, theoreticalMaxCapacity);
+            }
+
+            // Check queue configuration
+            if (_tieredSettings.TierSelectionStrategy.RamPoolFullBehavior == "Queue")
+            {
+                _logger.LogInformation(
+                    "RAM Pool Capacity Info: Queue is enabled with max depth {MaxQueueDepth} and timeout {TimeoutMinutes} minutes",
+                    _tieredSettings.TierSelectionStrategy.MaxQueueDepth,
+                    _tieredSettings.TierSelectionStrategy.QueueTimeoutMinutes);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "RAM Pool Capacity Info: Queue is disabled. Jobs will be rejected when RAM pool is full " +
+                    "(FallbackToDisk: {FallbackEnabled})",
+                    _tieredSettings.TierSelectionStrategy.FallbackToDisk);
+            }
+
+            _logger.LogInformation("RAM Pool Capacity Validation: Completed");
+        }
+
+        /// <summary>
+        /// Enqueues a job for later execution
+        /// </summary>
+        private void EnqueueJob(string executionId, ExecutionModel execution, ProgramExecutionRequestDto request, CancellationToken cancellationToken)
+        {
+            lock (_reservationLock)
+            {
+                _queuedJobs.Enqueue(new QueuedJob
+                {
+                    ExecutionId = executionId,
+                    Execution = execution,
+                    Request = request,
+                    QueuedAt = DateTime.UtcNow,
+                    CancellationToken = cancellationToken
+                });
+
+                _logger.LogInformation("Execution {ExecutionId}: Enqueued for execution (queue depth: {QueueDepth})",
+                    executionId, _queuedJobs.Count);
+            }
+        }
+
+        #endregion
+
         #region Supporting Classes
 
         private class ExecutionContext
@@ -2316,6 +3051,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             public int MaxConcurrentExecutionsPerProgram { get; set; } = 10;
             public long MaxAllowedMemoryMb { get; set; } = 4096;
             public int MaxAllowedExecutionTimeMinutes { get; set; } = 120;
+        }
+
+        // Tiered Execution Supporting Classes (settings classes are in ProjectExecutionEngine.cs)
+        private class JobResourceReservation
+        {
+            public string ExecutionId { get; set; } = string.Empty;
+            public string Tier { get; set; } = string.Empty;
+            public double RamCapacityGB { get; set; }
+            public DateTime ReservedAt { get; set; }
+        }
+
+        private class QueuedJob
+        {
+            public string ExecutionId { get; set; } = string.Empty;
+            public ExecutionModel Execution { get; set; } = null!;
+            public ProgramExecutionRequestDto Request { get; set; } = null!;
+            public DateTime QueuedAt { get; set; }
+            public CancellationToken CancellationToken { get; set; }
         }
 
         #endregion

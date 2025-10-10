@@ -193,6 +193,10 @@ namespace TeiasMongoAPI.API
             builder.Services.Configure<TeiasMongoAPI.Core.Configuration.DemoShowcaseSettings>(
                 builder.Configuration.GetSection("DemoShowcase"));
 
+            // Configure ProjectExecution settings (includes TieredExecution)
+            builder.Services.Configure<TeiasMongoAPI.Services.Services.Implementations.Execution.ProjectExecutionSettings>(
+                builder.Configuration.GetSection("ProjectExecution"));
+
             // Configure Authentication
             var jwtSettings = builder.Configuration.GetSection("Jwt");
             var secretKey = Encoding.ASCII.GetBytes(jwtSettings["Secret"] ?? throw new InvalidOperationException("JWT Secret not configured"));
@@ -309,6 +313,7 @@ namespace TeiasMongoAPI.API
             // Register Background Services
             builder.Services.AddHostedService<TokenCleanupService>();
             builder.Services.AddHostedService<QueuedHostedService>();
+            builder.Services.AddHostedService<StaleReservationMonitorService>(); // TIERED EXECUTION: Monitors and cleans stale reservations
 
             // Configure CORS
             //builder.Services.AddCors(options =>
