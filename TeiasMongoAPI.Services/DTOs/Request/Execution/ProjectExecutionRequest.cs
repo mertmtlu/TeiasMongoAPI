@@ -47,6 +47,7 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Execution
         public bool SkipBuild { get; set; } = false;
         public bool RestoreDependencies { get; set; } = true;
         public int BuildTimeoutMinutes { get; set; } = 15;
+        public string? PackageVolumeName { get; set; }
     }
 
     public class ProjectExecutionContext
@@ -62,5 +63,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.Execution
         public string? WorkingDirectory { get; set; }
         public Action<string>? OutputCallback { get; set; }
         public Action<string>? ErrorCallback { get; set; }
+        public string? PackageVolumeName { get; set; }
     }
 }

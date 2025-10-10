@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
@@ -14,13 +15,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
     public class PythonProjectRunner : BaseProjectLanguageRunner
     {
         private readonly IUnitOfWork _unitOfWork;
+        private readonly ProjectExecutionSettings _settings;
 
         public override string Language => "Python";
         public override int Priority => 20;
 
-        public PythonProjectRunner(ILogger<PythonProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper, IExecutionOutputStreamingService? streamingService = null) : base(logger, bsonMapper, streamingService)
+        public PythonProjectRunner(
+            ILogger<PythonProjectRunner> logger,
+            IUnitOfWork unitOfWork,
+            IBsonToDtoMappingService bsonMapper,
+            IOptions<ProjectExecutionSettings> settings,
+            IExecutionOutputStreamingService? streamingService = null)
+            : base(logger, bsonMapper, streamingService)
         {
             _unitOfWork = unitOfWork;
+            _settings = settings.Value;
         }
 
         public override async Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default)
@@ -100,20 +109,90 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         {
             try
             {
-                _logger.LogInformation("Installing Python dependencies in {ProjectDirectory}", projectDirectory);
+                // FIX: Convert the relative path to an absolute path
+                var absoluteProjectDirectory = Path.GetFullPath(projectDirectory);
+
+                _logger.LogInformation("Installing Python dependencies in {ProjectDirectory}", absoluteProjectDirectory);
 
                 var result = new ProjectBuildResult { Success = true };
 
                 // Install dependencies if requirements.txt exists
                 if (FileExists(projectDirectory, "requirements.txt"))
                 {
-                    var installResult = await RunProcessAsync(
-                        "pip",
-                        "install -r requirements.txt",
-                        projectDirectory,
-                        buildArgs.BuildEnvironment,
-                        buildArgs.BuildTimeoutMinutes,
-                        cancellationToken);
+                    ProcessResult installResult;
+
+                    if (_settings.EnableDocker && _settings.DockerImages.TryGetValue("Python", out var dockerImage))
+                    {
+                        // Prepare volumes for package persistence
+                        Dictionary<string, string>? volumes = null;
+                        if (!string.IsNullOrEmpty(buildArgs.PackageVolumeName))
+                        {
+                            // Step 1: Fix permissions on the volume before installing (run as root)
+                            _logger.LogInformation("Setting ownership of package volume {VolumeName}", buildArgs.PackageVolumeName);
+                            var chownResult = await RunDockerProcessAsync(
+                                dockerImage,
+                                "chown",
+                                "-R 1000:1000 /packages",
+                                absoluteProjectDirectory,
+                                null,
+                                new Dictionary<string, string>(),
+                                1, // Short timeout
+                                cancellationToken,
+                                null,
+                                false, // No network needed
+                                128, // Minimal memory
+                                0.5, // Minimal CPU
+                                64, // Minimal process limit
+                                64, // Minimal temp storage
+                                new Dictionary<string, string> { { buildArgs.PackageVolumeName, "/packages" } },
+                                "root", // Run as root to change ownership
+                                true); // Allow chown capability
+
+                            if (!chownResult.Success)
+                            {
+                                result.Success = false;
+                                result.ErrorMessage = "Failed to set permissions on package cache volume.";
+                                _logger.LogError("Failed to chown package volume: {ErrorOutput}", chownResult.Error);
+                                return result;
+                            }
+
+                            // Step 2: Prepare volumes for pip install (mount at final location)
+                            volumes = new Dictionary<string, string>
+                            {
+                                { buildArgs.PackageVolumeName, "/home/executor/.local" }
+                            };
+                        }
+
+                        // Step 2: Use Docker for dependency installation (needs network for downloading packages)
+                        installResult = await RunDockerProcessAsync(
+                            dockerImage,
+                            "pip",
+                            "install --user -r /app/requirements.txt",
+                            absoluteProjectDirectory,
+                            null,
+                            buildArgs.BuildEnvironment,
+                            buildArgs.BuildTimeoutMinutes,
+                            cancellationToken,
+                            null,
+                            true, // Enable network for package downloads
+                            _settings.ResourceLimits.MemoryMB,
+                            _settings.ResourceLimits.CPUs,
+                            _settings.ResourceLimits.ProcessLimit,
+                            _settings.ResourceLimits.TempStorageMB,
+                            volumes);
+                    }
+                    else
+                    {
+                        // Fallback to direct execution (less secure)
+                        _logger.LogWarning("Docker is disabled. Using direct execution (not recommended for production).");
+                        installResult = await RunProcessAsync(
+                            "pip",
+                            "install -r requirements.txt",
+                            projectDirectory,
+                            buildArgs.BuildEnvironment,
+                            buildArgs.BuildTimeoutMinutes,
+                            cancellationToken);
+                    }
 
                     result.Output += installResult.Output;
                     result.ErrorOutput += installResult.Error;
@@ -123,6 +202,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     {
                         result.Success = false;
                         result.ErrorMessage = "Failed to install Python dependencies";
+                        _logger.LogError("Docker build process failed. Exit Code: {ExitCode}. Error Output: {ErrorOutput}", installResult.ExitCode, installResult.Error);
                         return result;
                     }
                 }
@@ -130,13 +210,80 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 // Handle setup.py installation
                 if (FileExists(projectDirectory, "setup.py"))
                 {
-                    var setupResult = await RunProcessAsync(
-                        "python",
-                        "setup.py develop",
-                        projectDirectory,
-                        buildArgs.BuildEnvironment,
-                        buildArgs.BuildTimeoutMinutes,
-                        cancellationToken);
+                    ProcessResult setupResult;
+
+                    if (_settings.EnableDocker && _settings.DockerImages.TryGetValue("Python", out var dockerImage))
+                    {
+                        // Prepare volumes for package persistence
+                        Dictionary<string, string>? volumes = null;
+                        if (!string.IsNullOrEmpty(buildArgs.PackageVolumeName))
+                        {
+                            // Fix permissions on the volume (only if not already done above)
+                            // Note: If requirements.txt was processed, permissions are already fixed
+                            if (!FileExists(projectDirectory, "requirements.txt"))
+                            {
+                                _logger.LogInformation("Setting ownership of package volume {VolumeName}", buildArgs.PackageVolumeName);
+                                var chownResult = await RunDockerProcessAsync(
+                                    dockerImage,
+                                    "chown",
+                                    "-R 1000:1000 /packages",
+                                    absoluteProjectDirectory,
+                                    null,
+                                    new Dictionary<string, string>(),
+                                    1,
+                                    cancellationToken,
+                                    null,
+                                    false,
+                                    128,
+                                    0.5,
+                                    64,
+                                    64,
+                                    new Dictionary<string, string> { { buildArgs.PackageVolumeName, "/packages" } },
+                                    "root",
+                                    true); // Allow chown capability
+
+                                if (!chownResult.Success)
+                                {
+                                    result.Success = false;
+                                    result.ErrorMessage = "Failed to set permissions on package cache volume.";
+                                    _logger.LogError("Failed to chown package volume: {ErrorOutput}", chownResult.Error);
+                                    return result;
+                                }
+                            }
+
+                            volumes = new Dictionary<string, string>
+                            {
+                                { buildArgs.PackageVolumeName, "/home/executor/.local" }
+                            };
+                        }
+
+                        setupResult = await RunDockerProcessAsync(
+                            dockerImage,
+                            "python",
+                            "/app/setup.py develop",
+                            absoluteProjectDirectory,
+                            null,
+                            buildArgs.BuildEnvironment,
+                            buildArgs.BuildTimeoutMinutes,
+                            cancellationToken,
+                            null,
+                            true,
+                            _settings.ResourceLimits.MemoryMB,
+                            _settings.ResourceLimits.CPUs,
+                            _settings.ResourceLimits.ProcessLimit,
+                            _settings.ResourceLimits.TempStorageMB,
+                            volumes);
+                    }
+                    else
+                    {
+                        setupResult = await RunProcessAsync(
+                            "python",
+                            "setup.py develop",
+                            projectDirectory,
+                            buildArgs.BuildEnvironment,
+                            buildArgs.BuildTimeoutMinutes,
+                            cancellationToken);
+                    }
 
                     result.Output += setupResult.Output;
                     result.ErrorOutput += setupResult.Error;
@@ -230,7 +377,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
             try
             {
-                _logger.LogInformation("Executing Python project in {ProjectDirectory}", context.ProjectDirectory);
+                // FIX: Convert the relative path to an absolute path
+                var absoluteProjectDirectory = Path.GetFullPath(context.ProjectDirectory);
+
+                _logger.LogInformation("Executing Python project in {ProjectDirectory}", absoluteProjectDirectory);
 
                 // Process input files from parameters (using base class method)
                 await ProcessInputFilesFromParametersAsync(context, cancellationToken);
@@ -239,16 +389,16 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 var programId = ExtractProgramIdFromContext(context);
                 if (programId != ObjectId.Empty)
                 {
-                    await GenerateUIComponentFileAsync(context.ProjectDirectory, programId, cancellationToken);
+                    await GenerateUIComponentFileAsync(absoluteProjectDirectory, programId, cancellationToken);
                 }
 
                 // Generate WorkflowInputs.py file if content is provided via environment variables
-                await GenerateWorkflowInputsFileAsync(context.ProjectDirectory, context.Environment, cancellationToken);
+                await GenerateWorkflowInputsFileAsync(absoluteProjectDirectory, context.Environment, cancellationToken);
 
                 var entryPoint = context.ProjectStructure.MainEntryPoint ?? "main.py";
-                if (!File.Exists(Path.Combine(context.ProjectDirectory, entryPoint)))
+                if (!File.Exists(Path.Combine(absoluteProjectDirectory, entryPoint)))
                 {
-                    entryPoint = FindBestEntryPoint(context.ProjectDirectory);
+                    entryPoint = FindBestEntryPoint(absoluteProjectDirectory);
                 }
 
                 if (string.IsNullOrEmpty(entryPoint))
@@ -263,7 +413,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 // Add parameters (using base class method)
                 if (context.Parameters != null && context.Parameters.ToString() != "{}")
                 {
-                    var processedParams = ProcessParametersForExecution(context.Parameters, context.ProjectDirectory);
+                    var processedParams = ProcessParametersForExecution(context.Parameters, absoluteProjectDirectory);
                     //var paramJson = JsonSerializer.Serialize(processedParams);
 
                     if (context.Parameters is BsonDocument doc)
@@ -278,14 +428,57 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     }
                 }
 
-                var processResult = await RunProcessAsync(
-                    "python",
-                    arguments,
-                    context.ProjectDirectory,
-                    context.Environment,
-                    2880, // Timeout managed by ProjectExecutionEngine using appsettings
-                    cancellationToken,
-                    context.ExecutionId);
+                ProcessResult processResult;
+
+                if (_settings.EnableDocker && _settings.DockerImages.TryGetValue("Python", out var dockerImage))
+                {
+                    // Use Docker for secure sandboxed execution
+                    var outputDir = Path.Combine(Path.GetDirectoryName(absoluteProjectDirectory) ?? "", "outputs");
+                    Directory.CreateDirectory(outputDir);
+
+                    // Prepare volumes for package access
+                    Dictionary<string, string>? volumes = null;
+                    if (!string.IsNullOrEmpty(context.PackageVolumeName))
+                    {
+                        volumes = new Dictionary<string, string>
+                        {
+                            { context.PackageVolumeName, "/home/executor/.local" }
+                        };
+
+                        // THE FIX: Tell Python where to find the packages installed in the volume
+                        context.Environment["PYTHONPATH"] = "/home/executor/.local/lib/python3.12/site-packages";
+                    }
+
+                    processResult = await RunDockerProcessAsync(
+                        dockerImage,
+                        "python",
+                        $"/app/{arguments}",
+                        absoluteProjectDirectory,
+                        outputDir,
+                        context.Environment,
+                        2880, // Timeout managed by ProjectExecutionEngine using appsettings
+                        cancellationToken,
+                        context.ExecutionId,
+                        _settings.EnableNetworkAccess,
+                        _settings.ResourceLimits.MemoryMB,
+                        _settings.ResourceLimits.CPUs,
+                        _settings.ResourceLimits.ProcessLimit,
+                        _settings.ResourceLimits.TempStorageMB,
+                        volumes);
+                }
+                else
+                {
+                    // Fallback to direct execution (less secure)
+                    _logger.LogWarning("Docker is disabled. Using direct execution (not recommended for production).");
+                    processResult = await RunProcessAsync(
+                        "python",
+                        arguments,
+                        context.ProjectDirectory,
+                        context.Environment,
+                        2880,
+                        cancellationToken,
+                        context.ExecutionId);
+                }
 
                 result.Success = processResult.Success;
                 result.ExitCode = processResult.ExitCode;

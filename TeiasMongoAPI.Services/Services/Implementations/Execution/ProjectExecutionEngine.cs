@@ -56,10 +56,24 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
             _activeSessions[executionId] = session;
 
+            // Create a unique Docker volume for this execution to persist packages between build and execution
+            string? packageVolumeName = null;
+            if (_settings.EnableDocker)
+            {
+                packageVolumeName = $"pip-cache-{executionId}";
+                session.PackageVolumeName = packageVolumeName;
+            }
+
             try
             {
                 _logger.LogInformation("Starting project execution {ExecutionId} for program {ProgramId}",
                     executionId, request.ProgramId);
+
+                // Create Docker volume for package persistence (if Docker is enabled)
+                if (!string.IsNullOrEmpty(packageVolumeName))
+                {
+                    await CreateDockerVolumeAsync(packageVolumeName, cancellationToken);
+                }
 
                 // Set up execution timeout using settings
                 var timeoutMinutes = _settings.DefaultTimeoutMinutes;
@@ -106,7 +120,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 ProjectBuildResult? buildResult = null;
                 if (projectStructure.HasBuildFile && !(request.BuildArgs?.SkipBuild ?? false))
                 {
-                    buildResult = await BuildProjectAsync(runner, projectDirectory, request.BuildArgs ?? new(), timeoutCts.Token);
+                    var buildArgs = request.BuildArgs ?? new ProjectBuildArgs();
+                    buildArgs.PackageVolumeName = packageVolumeName; // Pass volume name to build
+                    buildResult = await BuildProjectAsync(runner, projectDirectory, buildArgs, timeoutCts.Token);
                     if (!buildResult.Success)
                     {
                         return CreateFailureResult(executionId, session, $"Build failed: {buildResult.ErrorMessage}", buildResult);
@@ -120,7 +136,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 session.InitialFiles = initialFiles;
 
                 // Step 9: Execute project with enhanced exception handling for long-running processes
-                var executionContext = CreateExecutionContext(executionId, projectDirectory, request, projectStructure, timeoutCts.Token);
+                var executionContext = CreateExecutionContext(executionId, projectDirectory, request, projectStructure, packageVolumeName, timeoutCts.Token);
                 ProjectExecutionResult result;
 
                 try
@@ -231,6 +247,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             }
             finally
             {
+                // Cleanup Docker volume
+                if (!string.IsNullOrEmpty(packageVolumeName))
+                {
+                    await DeleteDockerVolumeAsync(packageVolumeName, CancellationToken.None);
+                }
+
                 // Cleanup temporary project files but preserve execution results
                 if (request.CleanupOnCompletion)
                 {
@@ -662,7 +684,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         /// <summary>
         /// Creates the execution context for the language runner
         /// </summary>
-        private ProjectExecutionContext CreateExecutionContext(string executionId, string projectDirectory, ProjectExecutionRequest request, ProjectStructureAnalysis projectStructure, CancellationToken cancellationToken)
+        private ProjectExecutionContext CreateExecutionContext(string executionId, string projectDirectory, ProjectExecutionRequest request, ProjectStructureAnalysis projectStructure, string? packageVolumeName, CancellationToken cancellationToken)
         {
             var resourceLimits = request.ResourceLimits ?? new ProjectResourceLimits();
 
@@ -678,7 +700,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 CancellationToken = cancellationToken,
                 WorkingDirectory = projectDirectory,
                 OutputCallback = output => _logger.LogDebug("Execution output: {Output}", output),
-                ErrorCallback = error => _logger.LogWarning("Execution error: {Error}", error)
+                ErrorCallback = error => _logger.LogWarning("Execution error: {Error}", error),
+                PackageVolumeName = packageVolumeName
             };
         }
 
@@ -1022,6 +1045,82 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             };
         }
 
+        /// <summary>
+        /// Creates a Docker volume for persisting packages between build and execution
+        /// </summary>
+        private async Task CreateDockerVolumeAsync(string volumeName, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var processInfo = new ProcessStartInfo
+                {
+                    FileName = "docker",
+                    Arguments = $"volume create {volumeName}",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = Process.Start(processInfo);
+                if (process != null)
+                {
+                    await process.WaitForExitAsync(cancellationToken);
+                    if (process.ExitCode == 0)
+                    {
+                        _logger.LogInformation("Created Docker volume {VolumeName} for package persistence", volumeName);
+                    }
+                    else
+                    {
+                        var error = await process.StandardError.ReadToEndAsync();
+                        _logger.LogWarning("Failed to create Docker volume {VolumeName}: {Error}", volumeName, error);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create Docker volume {VolumeName}", volumeName);
+            }
+        }
+
+        /// <summary>
+        /// Deletes a Docker volume to clean up resources
+        /// </summary>
+        private async Task DeleteDockerVolumeAsync(string volumeName, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var processInfo = new ProcessStartInfo
+                {
+                    FileName = "docker",
+                    Arguments = $"volume rm {volumeName}",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = Process.Start(processInfo);
+                if (process != null)
+                {
+                    await process.WaitForExitAsync(cancellationToken);
+                    if (process.ExitCode == 0)
+                    {
+                        _logger.LogInformation("Deleted Docker volume {VolumeName}", volumeName);
+                    }
+                    else
+                    {
+                        var error = await process.StandardError.ReadToEndAsync();
+                        _logger.LogWarning("Failed to delete Docker volume {VolumeName}: {Error}", volumeName, error);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete Docker volume {VolumeName}", volumeName);
+            }
+        }
+
         #endregion
 
         #region Supporting Classes
@@ -1038,6 +1137,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             public HashSet<string>? InitialFiles { get; set; }
             public ProjectStructureAnalysis? ProjectStructure { get; set; }
             public IProjectLanguageRunner? LanguageRunner { get; set; }
+            public string? PackageVolumeName { get; set; }
         }
 
         #endregion
@@ -1053,5 +1153,25 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         public bool EnableSecurityScanning { get; set; } = true;
         public bool CleanupOnCompletion { get; set; } = true;
         public int ExecutionRetentionDays { get; set; } = 30;
+
+        // Docker-based execution settings
+        public bool EnableDocker { get; set; } = true;
+        public Dictionary<string, string> DockerImages { get; set; } = new()
+        {
+            { "Python", "python-executor:latest" },
+            { "NodeJs", "nodejs-executor:latest" },
+            { "CSharp", "dotnet-executor:latest" },
+            { "Java", "java-executor:latest" }
+        };
+        public bool EnableNetworkAccess { get; set; } = true;
+        public ResourceLimits ResourceLimits { get; set; } = new();
+    }
+
+    public class ResourceLimits
+    {
+        public int MemoryMB { get; set; } = 1024;
+        public double CPUs { get; set; } = 2.0;
+        public int ProcessLimit { get; set; } = 100;
+        public int TempStorageMB { get; set; } = 256;
     }
 }

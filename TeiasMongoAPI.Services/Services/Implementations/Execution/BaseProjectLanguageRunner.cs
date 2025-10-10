@@ -16,6 +16,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         protected readonly ILogger _logger;
         protected readonly IBsonToDtoMappingService _bsonMapper;
         protected readonly IExecutionOutputStreamingService? _streamingService;
+        private string? _dockerPath;
+        private bool _dockerPathResolved;
 
         public abstract string Language { get; }
         public virtual int Priority => 100;
@@ -25,6 +27,223 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
             _logger = logger;
             _bsonMapper = bsonMapper;
             _streamingService = streamingService;
+        }
+
+        /// <summary>
+        /// Resolves the Docker executable path, checking multiple locations and configurations.
+        /// Supports both Windows and Linux environments, with special handling for WSL2.
+        /// </summary>
+        protected virtual string GetDockerExecutablePath()
+        {
+            // Return cached result if already resolved
+            if (_dockerPathResolved)
+            {
+                return _dockerPath ?? "docker";
+            }
+
+            _dockerPathResolved = true;
+
+            try
+            {
+                // 1. Check environment variable override (highest priority)
+                var envDockerPath = Environment.GetEnvironmentVariable("DOCKER_PATH");
+                if (!string.IsNullOrEmpty(envDockerPath) && IsDockerExecutableValid(envDockerPath))
+                {
+                    _dockerPath = envDockerPath;
+                    _logger.LogInformation("Using Docker from DOCKER_PATH environment variable: {DockerPath}", _dockerPath);
+                    return _dockerPath;
+                }
+
+                // 2. Try "docker" in PATH (standard approach)
+                if (IsDockerExecutableValid("docker"))
+                {
+                    _dockerPath = "docker";
+                    _logger.LogDebug("Using Docker from PATH");
+                    return _dockerPath;
+                }
+
+                // 3. Platform-specific fallbacks
+                var platformPaths = new List<string>();
+
+                if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                {
+                    // Windows paths
+                    platformPaths.AddRange(new[]
+                    {
+                        @"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+                        @"C:\ProgramData\DockerDesktop\version-bin\docker.exe",
+                        @"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+                    });
+                }
+                else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux))
+                {
+                    // Check if running in WSL2
+                    var isWsl = File.Exists("/proc/version") &&
+                               File.ReadAllText("/proc/version").Contains("microsoft", StringComparison.OrdinalIgnoreCase);
+
+                    if (isWsl)
+                    {
+                        // WSL2 paths - try Windows Docker Desktop first, then Linux
+                        platformPaths.AddRange(new[]
+                        {
+                            "/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe",
+                            "/mnt/c/ProgramData/DockerDesktop/version-bin/docker.exe",
+                            "/usr/bin/docker",
+                            "/usr/local/bin/docker"
+                        });
+                    }
+                    else
+                    {
+                        // Native Linux
+                        platformPaths.AddRange(new[]
+                        {
+                            "/usr/bin/docker",
+                            "/usr/local/bin/docker",
+                            "/snap/bin/docker"
+                        });
+                    }
+                }
+
+                // Try each platform-specific path
+                foreach (var path in platformPaths)
+                {
+                    if (IsDockerExecutableValid(path))
+                    {
+                        _dockerPath = path;
+                        _logger.LogInformation("Docker found at non-standard location: {DockerPath}", _dockerPath);
+                        return _dockerPath;
+                    }
+                }
+
+                // 4. No Docker found - log warning and fall back to "docker" (will fail with clear error)
+                _logger.LogWarning("Docker executable not found in PATH or common locations. " +
+                                 "Docker commands will likely fail. Set DOCKER_PATH environment variable to override.");
+                _dockerPath = "docker"; // Will produce "command not found" error with clear message
+                return _dockerPath;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error while resolving Docker path. Falling back to 'docker' command.");
+                _dockerPath = "docker";
+                return _dockerPath;
+            }
+        }
+
+        /// <summary>
+        /// Validates if a Docker executable path is valid by attempting to run --version
+        /// </summary>
+        private bool IsDockerExecutableValid(string dockerPath)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = dockerPath,
+                    Arguments = "--version",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using (var process = Process.Start(psi))
+                {
+                    if (process == null)
+                        return false;
+
+                    process.WaitForExit(5000); // 5 second timeout
+                    return process.ExitCode == 0;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Checks if Docker is available and provides detailed diagnostic information if not
+        /// </summary>
+        protected virtual (bool IsAvailable, string DiagnosticMessage) CheckDockerAvailability()
+        {
+            var dockerPath = GetDockerExecutablePath();
+
+            if (IsDockerExecutableValid(dockerPath))
+            {
+                return (true, string.Empty);
+            }
+
+            // Build detailed diagnostic message
+            var diagnostic = new StringBuilder();
+            diagnostic.AppendLine("Docker is not available on this system.");
+            diagnostic.AppendLine();
+            diagnostic.AppendLine("Diagnostic Information:");
+            diagnostic.AppendLine($"  - OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+            diagnostic.AppendLine($"  - Architecture: {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}");
+            diagnostic.AppendLine($"  - Attempted Docker path: {dockerPath}");
+            diagnostic.AppendLine($"  - Current user: {Environment.UserName}");
+            diagnostic.AppendLine($"  - Working directory: {Environment.CurrentDirectory}");
+            diagnostic.AppendLine();
+            diagnostic.AppendLine("Please ensure:");
+            diagnostic.AppendLine("  1. Docker is installed on the system");
+            diagnostic.AppendLine("  2. Docker daemon is running");
+            diagnostic.AppendLine("  3. Docker executable is in the system PATH or accessible to the application");
+            diagnostic.AppendLine("  4. The user running this service has permissions to execute Docker");
+            diagnostic.AppendLine();
+            diagnostic.AppendLine("Solutions:");
+            diagnostic.AppendLine("  - Set DOCKER_PATH environment variable to the full path of docker executable");
+            diagnostic.AppendLine("  - For Windows: Ensure Docker Desktop is running");
+            diagnostic.AppendLine("  - For WSL2: Enable Docker Desktop WSL2 integration in Docker Desktop settings");
+            diagnostic.AppendLine("  - For Linux: Run 'sudo systemctl start docker' or install Docker Engine");
+            diagnostic.AppendLine();
+            diagnostic.AppendLine("Installation instructions: https://docs.docker.com/get-docker/");
+
+            return (false, diagnostic.ToString());
+        }
+
+        /// <summary>
+        /// Normalizes paths for Docker, handling Windows to WSL/Unix path conversion
+        /// </summary>
+        protected virtual string NormalizePathForDocker(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return path;
+
+            // Check if running in WSL
+            var isWsl = File.Exists("/proc/version") &&
+                       File.ReadAllText("/proc/version").Contains("microsoft", StringComparison.OrdinalIgnoreCase);
+
+            if (!isWsl)
+            {
+                // Not in WSL - just normalize slashes for Docker on Windows
+                return path.Replace("\\", "/");
+            }
+
+            // In WSL - need to convert Windows-style paths to WSL paths
+            var normalizedPath = path.Replace("\\", "/");
+
+            // Handle relative paths starting with ./ or ./storage
+            if (normalizedPath.StartsWith("./") || normalizedPath.StartsWith("../"))
+            {
+                // Resolve to absolute path first
+                var absolutePath = Path.GetFullPath(path);
+                normalizedPath = absolutePath.Replace("\\", "/");
+            }
+
+            // Convert Windows absolute paths to WSL paths
+            // C:/path or C:\path -> /mnt/c/path
+            if (normalizedPath.Length >= 2 && normalizedPath[1] == ':')
+            {
+                var driveLetter = char.ToLower(normalizedPath[0]);
+                var pathWithoutDrive = normalizedPath.Substring(2).TrimStart('/');
+                var wslPath = $"/mnt/{driveLetter}/{pathWithoutDrive}";
+
+                _logger.LogDebug("Converted Windows path to WSL path: {WindowsPath} -> {WslPath}", path, wslPath);
+                return wslPath;
+            }
+
+            // Already a WSL/Unix path (/mnt/c/... or /home/...)
+            return normalizedPath;
         }
 
         public abstract Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default);
@@ -328,6 +547,192 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 {
                     ExitCode = -1,
                     Error = ex.Message,
+                    Duration = DateTime.UtcNow - startTime,
+                    Success = false
+                };
+            }
+        }
+
+        /// <summary>
+        /// Executes a process inside a Docker container for security isolation
+        /// </summary>
+        protected async Task<ProcessResult> RunDockerProcessAsync(
+            string dockerImage,
+            string command,
+            string arguments,
+            string projectDirectory,
+            string? outputDirectory = null,
+            Dictionary<string, string>? environment = null,
+            int timeoutMinutes = 2880,
+            CancellationToken cancellationToken = default,
+            string? executionId = null,
+            bool enableNetwork = true,
+            int memoryMB = 1024,
+            double cpus = 2.0,
+            int processLimit = 100,
+            int tempStorageMB = 256,
+            Dictionary<string, string>? volumes = null,
+            string? user = null,
+            bool allowChown = false)
+        {
+            var startTime = DateTime.UtcNow;
+            _logger.LogInformation("Now executing with WSL2 path normalization.");
+
+
+            try
+            {
+                // Normalize paths for Docker (handle Windows to WSL/Unix conversion)
+                var normalizedProjectDir = NormalizePathForDocker(projectDirectory);
+                var normalizedOutputDir = outputDirectory != null
+                    ? NormalizePathForDocker(outputDirectory)
+                    : NormalizePathForDocker(Path.Combine(projectDirectory, "output"));
+
+                _logger.LogInformation("Normalized Project Directory for Docker volume mount: {Path}", normalizedProjectDir);
+
+                // Ensure output directory exists
+                if (!string.IsNullOrEmpty(outputDirectory) && !Directory.Exists(outputDirectory))
+                {
+                    Directory.CreateDirectory(outputDirectory);
+                }
+
+                // Build Docker arguments with security constraints
+                var dockerArgs = new StringBuilder();
+                dockerArgs.Append("run --rm ");
+
+                // Network configuration
+                dockerArgs.Append(enableNetwork ? "--network bridge " : "--network none ");
+
+                // Read-only filesystem with writable temp
+                dockerArgs.Append("--read-only ");
+                dockerArgs.Append($"--tmpfs /tmp:rw,noexec,size={tempStorageMB}m ");
+                dockerArgs.Append("--tmpfs /home/executor:rw,noexec,uid=1000 ");
+
+                // Resource limits
+                dockerArgs.Append($"--memory={memoryMB}m ");
+                dockerArgs.Append($"--cpus={cpus.ToString(System.Globalization.CultureInfo.InvariantCulture)} ");
+                dockerArgs.Append($"--pids-limit={processLimit} ");
+
+                // Security options
+                dockerArgs.Append("--security-opt=no-new-privileges ");
+
+                if (allowChown)
+                {
+                    // For chown operations, we need to keep CAP_CHOWN capability
+                    dockerArgs.Append("--cap-drop=ALL --cap-add=CHOWN ");
+                }
+                else
+                {
+                    dockerArgs.Append("--cap-drop=ALL ");
+                }
+
+                // Set user (defaults to executor, but can be overridden to root for setup tasks)
+                dockerArgs.Append($"--user={user ?? "executor"} ");
+
+                // Mount project directory (read-write for build, read-only for execution)
+                // During build phase (enableNetwork=true), we need write access for dependency installation
+                var volumeMode = enableNetwork ? "rw" : "ro";
+                dockerArgs.Append($"-v \"{normalizedProjectDir}:/app:{volumeMode}\" ");
+
+                // Mount output directory as read-write (if specified)
+                if (!string.IsNullOrEmpty(outputDirectory))
+                {
+                    dockerArgs.Append($"-v \"{normalizedOutputDir}:/output:rw\" ");
+                }
+
+                // Mount additional volumes (e.g., package cache volumes)
+                if (volumes != null)
+                {
+                    foreach (var volume in volumes)
+                    {
+                        dockerArgs.Append($"--volume {volume.Key}:{volume.Value} ");
+                    }
+                }
+
+                // Add environment variables
+                if (environment != null)
+                {
+                    foreach (var env in environment)
+                    {
+                        // Escape quotes in environment values
+                        var escapedValue = env.Value.Replace("\"", "\\\"");
+                        dockerArgs.Append($"-e \"{env.Key}={escapedValue}\" ");
+                    }
+                }
+
+                // Set working directory inside container
+                dockerArgs.Append("-w /app ");
+
+                // Specify image and command using shell form to properly handle arguments with spaces
+                // Escape any double quotes in the command string
+                var fullCommand = $"{command} {arguments}";
+                var escapedCommand = fullCommand.Replace("\"", "\\\"");
+                dockerArgs.Append($"{dockerImage} /bin/sh -c \"{escapedCommand}\"");
+
+                // Check Docker availability before attempting execution
+                var (isAvailable, diagnosticMessage) = CheckDockerAvailability();
+                if (!isAvailable)
+                {
+                    _logger.LogError("Docker is not available. Cannot execute sandboxed project.\n{DiagnosticInfo}", diagnosticMessage);
+                    return new ProcessResult
+                    {
+                        ExitCode = 127,
+                        Error = diagnosticMessage,
+                        Duration = DateTime.UtcNow - startTime,
+                        Success = false
+                    };
+                }
+
+                var dockerExecutable = GetDockerExecutablePath();
+                _logger.LogInformation("Running Docker container: {DockerImage} with command: {Command} {Arguments} using Docker at: {DockerPath}",
+                    dockerImage, command, arguments?.Length > 100 ? arguments.Substring(0, 100) + "..." : arguments, dockerExecutable);
+
+                // Execute Docker command using resolved Docker executable path
+                var result = await RunProcessAsync(
+                    dockerExecutable,
+                    dockerArgs.ToString(),
+                    projectDirectory,
+                    null, // Don't pass environment again (already added to docker args)
+                    timeoutMinutes,
+                    cancellationToken,
+                    executionId);
+
+                // Enhanced Docker-specific error handling
+                if (!result.Success)
+                {
+                    if (result.ExitCode == 127 || result.Error.Contains("command not found") || result.Error.Contains("not recognized"))
+                    {
+                        var (_, diagMsg) = CheckDockerAvailability();
+                        _logger.LogError("Docker command failed with exit code 127 (command not found).\n{DiagnosticInfo}", diagMsg);
+                        result.Error = diagMsg;
+                    }
+                    else if (result.Error.Contains("Cannot connect to the Docker daemon"))
+                    {
+                        _logger.LogError("Docker daemon is not running. Please start Docker Desktop or Docker daemon.");
+                        result.Error += "\n\nDocker daemon is not running. Please start Docker Desktop (Windows/Mac) or 'sudo systemctl start docker' (Linux).";
+                    }
+                    else if (result.Error.Contains("image") && result.Error.Contains("not found"))
+                    {
+                        _logger.LogError("Docker image {DockerImage} not found. Please build the Docker images using build-docker-images.sh", dockerImage);
+                        result.Error = $"Docker image '{dockerImage}' not found. Please build the required Docker images using:\n" +
+                                     $"  ./build-docker-images.sh (Linux/Mac)\n" +
+                                     $"  or manually: docker build -t {dockerImage} -f Dockerfiles/<language>.Dockerfile .";
+                    }
+                    else if (result.Error.Contains("permission denied") || result.Error.Contains("access denied"))
+                    {
+                        _logger.LogError("Docker permission denied. User may not have access to Docker daemon.");
+                        result.Error += "\n\nPermission denied. On Linux, add user to docker group: sudo usermod -aG docker $USER";
+                    }
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Docker process execution failed for image {DockerImage}", dockerImage);
+                return new ProcessResult
+                {
+                    ExitCode = -1,
+                    Error = $"Docker execution failed: {ex.Message}",
                     Duration = DateTime.UtcNow - startTime,
                     Success = false
                 };
