@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
@@ -14,13 +15,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
     public class CSharpProjectRunner : BaseProjectLanguageRunner
     {
         private readonly IUnitOfWork _unitOfWork;
+        private readonly ProjectExecutionSettings _settings;
 
         public override string Language => "C#";
         public override int Priority => 10;
 
-        public CSharpProjectRunner(ILogger<CSharpProjectRunner> logger, IUnitOfWork unitOfWork, IBsonToDtoMappingService bsonMapper, IExecutionOutputStreamingService? streamingService = null) : base(logger, bsonMapper, streamingService)
+        public CSharpProjectRunner(
+            ILogger<CSharpProjectRunner> logger,
+            IUnitOfWork unitOfWork,
+            IBsonToDtoMappingService bsonMapper,
+            IOptions<ProjectExecutionSettings> settings,
+            IExecutionOutputStreamingService? streamingService = null)
+            : base(logger, bsonMapper, streamingService)
         {
             _unitOfWork = unitOfWork;
+            _settings = settings.Value;
         }
 
         public override async Task<bool> CanHandleProjectAsync(string projectDirectory, CancellationToken cancellationToken = default)
@@ -83,7 +92,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         {
             try
             {
-                _logger.LogInformation("Building C# project in {ProjectDirectory}", projectDirectory);
+                // Convert to absolute path
+                var absoluteProjectDirectory = Path.GetFullPath(projectDirectory);
+
+                _logger.LogInformation("Building C# project in {ProjectDirectory}", absoluteProjectDirectory);
 
                 // Generate UIComponent.cs BEFORE attempting to build (to avoid compilation errors)
                 var programId = ExtractProgramIdFromDirectory(projectDirectory);
@@ -103,60 +115,170 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     };
                 }
 
+                var result = new ProjectBuildResult { Success = true };
+                var relativeBuildTarget = Path.GetRelativePath(projectDirectory, buildTarget);
+
+                // Get Docker image name if Docker is enabled
+                string? dockerImage = null;
+                if (_settings.EnableDocker)
+                {
+                    _settings.DockerImages.TryGetValue("CSharp", out dockerImage);
+                }
+
                 // Restore dependencies first if requested
                 if (buildArgs.RestoreDependencies)
                 {
-                    var restoreResult = await RunProcessAsync(
-                        "dotnet",
-                        "restore",
-                        projectDirectory,
-                        buildArgs.BuildEnvironment,
-                        buildArgs.BuildTimeoutMinutes,
-                        cancellationToken);
+                    ProcessResult restoreResult;
+
+                    if (_settings.EnableDocker && !string.IsNullOrEmpty(dockerImage))
+                    {
+                        // Prepare volumes for package persistence
+                        Dictionary<string, string>? volumes = null;
+                        if (!string.IsNullOrEmpty(buildArgs.PackageVolumeName))
+                        {
+                            // Step 1: Fix permissions on the volume before restoring (run as root)
+                            _logger.LogInformation("Setting ownership of package volume {VolumeName}", buildArgs.PackageVolumeName);
+                            var chownResult = await RunDockerProcessAsync(
+                                dockerImage,
+                                "chown",
+                                "-R 1000:1000 /packages",
+                                absoluteProjectDirectory,
+                                null,
+                                new Dictionary<string, string>(),
+                                1, // Short timeout
+                                cancellationToken,
+                                null,
+                                false, // No network needed
+                                128, // Minimal memory
+                                0.5, // Minimal CPU
+                                64, // Minimal process limit
+                                64, // Minimal temp storage
+                                new Dictionary<string, string> { { buildArgs.PackageVolumeName, "/packages" } },
+                                "root", // Run as root to change ownership
+                                true); // Allow chown capability
+
+                            if (!chownResult.Success)
+                            {
+                                result.Success = false;
+                                result.ErrorMessage = "Failed to set permissions on package cache volume.";
+                                _logger.LogError("Failed to chown package volume: {ErrorOutput}", chownResult.Error);
+                                return result;
+                            }
+
+                            // Step 2: Prepare volumes for restore (mount at .nuget location)
+                            volumes = new Dictionary<string, string>
+                            {
+                                { buildArgs.PackageVolumeName, "/home/executor/.nuget" }
+                            };
+                        }
+
+                        // Use Docker for dependency restore (needs network for downloading packages)
+                        restoreResult = await RunDockerProcessAsync(
+                            dockerImage,
+                            "dotnet",
+                            $"restore /app/{relativeBuildTarget}",
+                            absoluteProjectDirectory,
+                            null,
+                            buildArgs.BuildEnvironment,
+                            buildArgs.BuildTimeoutMinutes,
+                            cancellationToken,
+                            null,
+                            true, // Enable network for package downloads
+                            _settings.ResourceLimits.MemoryMB,
+                            _settings.ResourceLimits.CPUs,
+                            _settings.ResourceLimits.ProcessLimit,
+                            _settings.ResourceLimits.TempStorageMB,
+                            volumes);
+                    }
+                    else
+                    {
+                        // Fallback to direct execution (less secure)
+                        _logger.LogWarning("Docker is disabled. Using direct execution (not recommended for production).");
+                        restoreResult = await RunProcessAsync(
+                            "dotnet",
+                            $"restore \"{relativeBuildTarget}\"",
+                            projectDirectory,
+                            buildArgs.BuildEnvironment,
+                            buildArgs.BuildTimeoutMinutes,
+                            cancellationToken);
+                    }
+
+                    result.Output += restoreResult.Output;
+                    result.ErrorOutput += restoreResult.Error;
+                    result.Duration = restoreResult.Duration;
 
                     if (!restoreResult.Success)
                     {
-                        return new ProjectBuildResult
-                        {
-                            Success = false,
-                            Output = restoreResult.Output,
-                            ErrorOutput = restoreResult.Error,
-                            ErrorMessage = "Package restore failed",
-                            Duration = restoreResult.Duration
-                        };
+                        result.Success = false;
+                        result.ErrorMessage = "Failed to restore NuGet packages";
+                        _logger.LogError("Docker restore process failed. Exit Code: {ExitCode}. Error Output: {ErrorOutput}",
+                            restoreResult.ExitCode, restoreResult.Error);
+                        return result;
                     }
                 }
 
                 // Build the project
-                var relativeBuildTarget = Path.GetRelativePath(projectDirectory, buildTarget);
-
-                // Build the project using the relative path
-                var buildArguments = $"build \"{relativeBuildTarget}\" --configuration {buildArgs.Configuration}";
+                var buildArguments = $"build /app/{relativeBuildTarget} --configuration {buildArgs.Configuration} --no-restore";
                 if (buildArgs.AdditionalArgs.Any())
                 {
                     buildArguments += " " + string.Join(" ", buildArgs.AdditionalArgs);
                 }
 
-                var buildResult = await RunProcessAsync(
-                    "dotnet",
-                    buildArguments,
-                    projectDirectory,
-                    buildArgs.BuildEnvironment,
-                    buildArgs.BuildTimeoutMinutes,
-                    cancellationToken);
+                ProcessResult buildResult;
 
-                var result = new ProjectBuildResult
+                if (_settings.EnableDocker && !string.IsNullOrEmpty(dockerImage))
                 {
-                    Success = buildResult.Success,
-                    Output = buildResult.Output,
-                    ErrorOutput = buildResult.Error,
-                    Duration = buildResult.Duration
-                };
+                    // Prepare volumes for package access
+                    Dictionary<string, string>? volumes = null;
+                    if (!string.IsNullOrEmpty(buildArgs.PackageVolumeName))
+                    {
+                        volumes = new Dictionary<string, string>
+                        {
+                            { buildArgs.PackageVolumeName, "/home/executor/.nuget" }
+                        };
+                    }
+
+                    // Use Docker for build (no network needed, packages already restored)
+                    buildResult = await RunDockerProcessAsync(
+                        dockerImage,
+                        "dotnet",
+                        buildArguments,
+                        absoluteProjectDirectory,
+                        null,
+                        buildArgs.BuildEnvironment,
+                        buildArgs.BuildTimeoutMinutes,
+                        cancellationToken,
+                        null,
+                        false, // No network needed for build
+                        _settings.ResourceLimits.MemoryMB,
+                        _settings.ResourceLimits.CPUs,
+                        _settings.ResourceLimits.ProcessLimit,
+                        _settings.ResourceLimits.TempStorageMB,
+                        volumes);
+                }
+                else
+                {
+                    // Fallback to direct execution
+                    buildResult = await RunProcessAsync(
+                        "dotnet",
+                        $"build \"{relativeBuildTarget}\" --configuration {buildArgs.Configuration} --no-restore",
+                        projectDirectory,
+                        buildArgs.BuildEnvironment,
+                        buildArgs.BuildTimeoutMinutes,
+                        cancellationToken);
+                }
+
+                result.Output += buildResult.Output;
+                result.ErrorOutput += buildResult.Error;
+                result.Duration = buildResult.Duration;
 
                 if (!buildResult.Success)
                 {
+                    result.Success = false;
                     result.ErrorMessage = "Build failed";
                     result.Warnings = ParseBuildWarnings(buildResult.Output + buildResult.Error);
+                    _logger.LogError("Docker build process failed. Exit Code: {ExitCode}. Error Output: {ErrorOutput}",
+                        buildResult.ExitCode, buildResult.Error);
                 }
                 else
                 {
@@ -233,89 +355,197 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
             try
             {
-                _logger.LogInformation("Executing C# project in {ProjectDirectory}", context.ProjectDirectory);
+                // Convert to absolute path
+                var absoluteProjectDirectory = Path.GetFullPath(context.ProjectDirectory);
+
+                _logger.LogInformation("Executing C# project in {ProjectDirectory}", absoluteProjectDirectory);
 
                 // Process input files from parameters (using base class method)
                 await ProcessInputFilesFromParametersAsync(context, cancellationToken);
 
-                // Note: UIComponent.cs is now generated during build phase, not execution phase
+                // Note: UIComponent.cs is generated during build phase
 
-                // This part is fine, it looks for an already-compiled executable
-                var executable = FindExecutable(context.ProjectDirectory);
-                if (string.IsNullOrEmpty(executable))
+                // Determine execution command and arguments
+                string command;
+                string arguments;
+
+                var runnableProject = FindRunnableProject(context.ProjectDirectory);
+                if (!string.IsNullOrEmpty(runnableProject))
                 {
-                    // Try to run directly with dotnet run
-                    executable = "dotnet";
-                    var runArgs = "run";
-
-                    // DO NOT use FindBuildTarget here. Use our new helper to find the .csproj to RUN.
-                    var runnableProject = FindRunnableProject(context.ProjectDirectory);
-                    if (!string.IsNullOrEmpty(runnableProject))
-                    {
-                        var relativeProjectPath = Path.GetRelativePath(context.ProjectDirectory, runnableProject);
-                        runArgs += $" --project \"{relativeProjectPath}\"";
-                    }
-                    else
-                    {
-                        // If we can't find a project, dotnet run might still work if the context is unambiguous,
-                        // but we should log a warning.
-                        _logger.LogWarning("No .csproj file found to specify for 'dotnet run'. The command may fail if the project to run is ambiguous.");
-                    }
-
-                    // Add parameters if any (using base class method to process files)
-                    if (context.Parameters != null && context.Parameters.ToString() != "{}")
-                    {
-                        var processedParams = ProcessParametersForExecution(context.Parameters, context.ProjectDirectory);
-                        var paramJson = JsonSerializer.Serialize(processedParams);
-                        runArgs += $" -- \"{paramJson}\"";
-                    }
-
-                    var processResult = await RunProcessAsync(
-                        executable,
-                        runArgs,
-                        context.ProjectDirectory,
-                        context.Environment,
-                        2880, // Timeout managed by ProjectExecutionEngine using appsettings
-                        cancellationToken,
-                        context.ExecutionId);
-
-                    result.Success = processResult.Success;
-                    result.ExitCode = processResult.ExitCode;
-                    result.Output = processResult.Output;
-                    result.ErrorOutput = processResult.Error;
+                    var relativeProjectPath = Path.GetRelativePath(context.ProjectDirectory, runnableProject);
+                    command = "dotnet";
+                    arguments = $"run --project /app/{relativeProjectPath} --no-build --no-restore";
                 }
                 else
                 {
-                    // Run the compiled executable directly with processed parameters
-                    var arguments = "";
-
-                    // Add parameters if any (using base class method to process files)
-                    if (context.Parameters != null && context.Parameters.ToString() != "{}")
-                    {
-                        var processedParams = ProcessParametersForExecution(context.Parameters, context.ProjectDirectory);
-                        var paramJson = JsonSerializer.Serialize(processedParams);
-                        arguments = $"\"{paramJson}\"";
-                    }
-
-                    var processResult = await RunProcessAsync(
-                        executable,
-                        arguments,
-                        context.ProjectDirectory,
-                        context.Environment,
-                        2880, // Timeout managed by ProjectExecutionEngine using appsettings
-                        cancellationToken,
-                        context.ExecutionId);
-
-                    result.Success = processResult.Success;
-                    result.ExitCode = processResult.ExitCode;
-                    result.Output = processResult.Output;
-                    result.ErrorOutput = processResult.Error;
+                    command = "dotnet";
+                    arguments = "run --no-build --no-restore";
+                    _logger.LogWarning("No .csproj file found to specify for 'dotnet run'. Using default project.");
                 }
 
+                // Add parameters if any
+                if (context.Parameters != null && context.Parameters.ToString() != "{}")
+                {
+                    var processedParams = ProcessParametersForExecution(context.Parameters, context.ProjectDirectory);
+                    var paramJson = JsonSerializer.Serialize(processedParams);
+                    arguments += $" -- '{paramJson}'";
+                }
+
+                ProcessResult processResult;
+
+                if (_settings.EnableDocker && _settings.DockerImages.TryGetValue("CSharp", out var dockerImage))
+                {
+                    // ============================================================================
+                    // DOCKER-BASED EXECUTION WITH TIER-AWARE DISPATCHING
+                    // ============================================================================
+                    var outputDir = Path.Combine(Path.GetDirectoryName(absoluteProjectDirectory) ?? "", "outputs");
+                    Directory.CreateDirectory(outputDir);
+
+                    // Prepare volumes for package access
+                    Dictionary<string, string>? volumes = null;
+                    if (!string.IsNullOrEmpty(context.PackageVolumeName))
+                    {
+                        volumes = new Dictionary<string, string>
+                        {
+                            { context.PackageVolumeName, "/home/executor/.nuget" }
+                        };
+                    }
+
+                    // ============================================================================
+                    // TIERED EXECUTION: Worker-Level Tier Dispatching
+                    // ============================================================================
+                    if (_settings.TieredExecution.EnableTieredExecution && !string.IsNullOrEmpty(context.ExecutionTier))
+                    {
+                        _logger.LogInformation(
+                            "Execution {ExecutionId}: Tiered execution enabled. Dispatching to tier: '{Tier}' (Job profile: '{Profile}')",
+                            context.ExecutionId, context.ExecutionTier, context.JobProfile ?? "Not specified");
+
+                        // RAM Tier: tmpfs-based execution with iterative OOM recovery
+                        if (context.ExecutionTier.Equals("RAM", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogInformation(
+                                "Execution {ExecutionId}: Dispatching to RAM tier execution (tmpfs-based with OOM recovery)",
+                                context.ExecutionId);
+
+                            processResult = await ExecuteWithRamTierAsync(
+                                dockerImage,
+                                command,
+                                arguments,
+                                absoluteProjectDirectory,
+                                outputDir,
+                                context.Environment,
+                                2880,
+                                context.ExecutionId,
+                                cancellationToken,
+                                volumes);
+
+                            _logger.LogInformation(
+                                "Execution {ExecutionId}: RAM tier execution completed. Success: {Success}, Exit Code: {ExitCode}",
+                                context.ExecutionId, processResult.Success, processResult.ExitCode);
+                        }
+                        // Disk Tier: Persistent volume-based execution
+                        else if (context.ExecutionTier.Equals("Disk", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogInformation(
+                                "Execution {ExecutionId}: Dispatching to Disk tier execution (persistent volume-based)",
+                                context.ExecutionId);
+
+                            processResult = await ExecuteWithDiskTierAsync(
+                                dockerImage,
+                                command,
+                                arguments,
+                                absoluteProjectDirectory,
+                                outputDir,
+                                context.Environment,
+                                2880,
+                                context.ExecutionId,
+                                cancellationToken,
+                                volumes);
+
+                            _logger.LogInformation(
+                                "Execution {ExecutionId}: Disk tier execution completed. Success: {Success}, Exit Code: {ExitCode}",
+                                context.ExecutionId, processResult.Success, processResult.ExitCode);
+                        }
+                        // Unknown Tier: Fall back to standard execution
+                        else
+                        {
+                            _logger.LogWarning(
+                                "Execution {ExecutionId}: Unknown execution tier '{Tier}' specified. " +
+                                "Valid tiers are 'RAM' or 'Disk'. Falling back to standard execution for safety.",
+                                context.ExecutionId, context.ExecutionTier);
+
+                            processResult = await RunDockerProcessAsync(
+                                dockerImage,
+                                command,
+                                arguments,
+                                absoluteProjectDirectory,
+                                outputDir,
+                                context.Environment,
+                                2880,
+                                cancellationToken,
+                                context.ExecutionId,
+                                _settings.EnableNetworkAccess,
+                                _settings.ResourceLimits.MemoryMB,
+                                _settings.ResourceLimits.CPUs,
+                                _settings.ResourceLimits.ProcessLimit,
+                                _settings.ResourceLimits.TempStorageMB,
+                                volumes);
+                        }
+                    }
+                    else
+                    {
+                        // ========================================================================
+                        // STANDARD EXECUTION (Backward Compatible)
+                        // ========================================================================
+                        if (_settings.TieredExecution.EnableTieredExecution)
+                        {
+                            _logger.LogDebug(
+                                "Execution {ExecutionId}: Tiered execution is enabled but no tier specified. Using standard execution.",
+                                context.ExecutionId);
+                        }
+
+                        processResult = await RunDockerProcessAsync(
+                            dockerImage,
+                            command,
+                            arguments,
+                            absoluteProjectDirectory,
+                            outputDir,
+                            context.Environment,
+                            2880,
+                            cancellationToken,
+                            context.ExecutionId,
+                            _settings.EnableNetworkAccess,
+                            _settings.ResourceLimits.MemoryMB,
+                            _settings.ResourceLimits.CPUs,
+                            _settings.ResourceLimits.ProcessLimit,
+                            _settings.ResourceLimits.TempStorageMB,
+                            volumes);
+                    }
+                }
+                else
+                {
+                    // Fallback to direct execution (less secure)
+                    _logger.LogWarning("Docker is disabled. Using direct execution (not recommended for production).");
+
+                    // Adjust arguments for direct execution
+                    var directArgs = arguments.Replace("/app/", "");
+                    processResult = await RunProcessAsync(
+                        command,
+                        directArgs,
+                        context.ProjectDirectory,
+                        context.Environment,
+                        2880,
+                        cancellationToken,
+                        context.ExecutionId);
+                }
+
+                result.Success = processResult.Success;
+                result.ExitCode = processResult.ExitCode;
+                result.Output = processResult.Output;
+                result.ErrorOutput = processResult.Error;
                 result.CompletedAt = DateTime.UtcNow;
                 result.Duration = result.CompletedAt - result.StartedAt;
 
-                // Resource usage (simulated for now)
                 result.ResourceUsage = new ProjectResourceUsage
                 {
                     CpuTimeSeconds = result.Duration?.TotalSeconds ?? 0,
@@ -337,6 +567,216 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 return result;
             }
         }
+
+        #region Tiered Execution Methods
+
+        /// <summary>
+        /// Execute using RAM tier with tmpfs and iterative relaunch on OOM
+        /// </summary>
+        private async Task<ProcessResult> ExecuteWithRamTierAsync(
+            string dockerImage,
+            string command,
+            string arguments,
+            string projectDirectory,
+            string outputDir,
+            Dictionary<string, string> environment,
+            int timeoutMinutes,
+            string executionId,
+            CancellationToken cancellationToken,
+            Dictionary<string, string>? volumes = null)
+        {
+            if (!_settings.TieredExecution.EnableTieredExecution)
+            {
+                throw new InvalidOperationException("Tiered execution is not enabled");
+            }
+
+            var ramSettings = _settings.TieredExecution.RamPool;
+            int currentTmpfsSizeMB = ramSettings.TmpfsBaseSizeMB;
+            int attempt = 0;
+
+            while (attempt < ramSettings.IterativeRelaunch.MaxRetries)
+            {
+                attempt++;
+                _logger.LogInformation(
+                    "Execution {ExecutionId}: RAM tier attempt {Attempt}/{MaxRetries} with tmpfs size {TmpfsSizeMB}MB",
+                    executionId, attempt, ramSettings.IterativeRelaunch.MaxRetries, currentTmpfsSizeMB);
+
+                // Run with tmpfs for RAM tier
+                var processResult = await RunDockerProcessAsync(
+                    dockerImage,
+                    command,
+                    arguments,
+                    projectDirectory,
+                    outputDir,
+                    environment,
+                    timeoutMinutes,
+                    cancellationToken,
+                    executionId,
+                    _settings.EnableNetworkAccess,
+                    _settings.ResourceLimits.MemoryMB,
+                    _settings.ResourceLimits.CPUs,
+                    _settings.ResourceLimits.ProcessLimit,
+                    currentTmpfsSizeMB, // Use currentTmpfsSizeMB for tmpfs
+                    volumes);
+
+                // Check if OOM occurred
+                if (ramSettings.EnableIterativeRelaunch && !processResult.Success)
+                {
+                    bool isOOM = false;
+                    foreach (var pattern in ramSettings.IterativeRelaunch.TriggerPatterns)
+                    {
+                        if (processResult.Error.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
+                            processResult.Output.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                        {
+                            isOOM = true;
+                            break;
+                        }
+                    }
+
+                    if (isOOM && attempt < ramSettings.IterativeRelaunch.MaxRetries)
+                    {
+                        // Calculate new tmpfs size
+                        int newTmpfsSizeMB = (int)(currentTmpfsSizeMB * ramSettings.IterativeRelaunch.MultiplierFactor);
+                        newTmpfsSizeMB = Math.Min(newTmpfsSizeMB, ramSettings.IterativeRelaunch.MaxSizeMB);
+
+                        if (newTmpfsSizeMB > currentTmpfsSizeMB)
+                        {
+                            _logger.LogWarning(
+                                "Execution {ExecutionId}: OOM detected, retrying with increased tmpfs size: {OldSize}MB -> {NewSize}MB",
+                                executionId, currentTmpfsSizeMB, newTmpfsSizeMB);
+
+                            currentTmpfsSizeMB = newTmpfsSizeMB;
+                            continue; // Retry with larger tmpfs
+                        }
+                        else
+                        {
+                            _logger.LogError(
+                                "Execution {ExecutionId}: OOM detected but already at max tmpfs size ({MaxSize}MB)",
+                                executionId, ramSettings.IterativeRelaunch.MaxSizeMB);
+                            return processResult; // Give up
+                        }
+                    }
+                }
+
+                // Success or non-OOM failure
+                return processResult;
+            }
+
+            // Max retries reached
+            _logger.LogError(
+                "Execution {ExecutionId}: Max retries ({MaxRetries}) reached for RAM tier execution",
+                executionId, ramSettings.IterativeRelaunch.MaxRetries);
+
+            return new ProcessResult
+            {
+                Success = false,
+                ExitCode = -1,
+                Error = $"Execution failed after {ramSettings.IterativeRelaunch.MaxRetries} OOM retries",
+                Duration = TimeSpan.Zero
+            };
+        }
+
+        /// <summary>
+        /// Execute using Disk tier with persistent volume
+        /// </summary>
+        private async Task<ProcessResult> ExecuteWithDiskTierAsync(
+            string dockerImage,
+            string command,
+            string arguments,
+            string projectDirectory,
+            string outputDir,
+            Dictionary<string, string> environment,
+            int timeoutMinutes,
+            string executionId,
+            CancellationToken cancellationToken,
+            Dictionary<string, string>? volumes = null)
+        {
+            if (!_settings.TieredExecution.EnableTieredExecution)
+            {
+                throw new InvalidOperationException("Tiered execution is not enabled");
+            }
+
+            var diskSettings = _settings.TieredExecution.DiskPool;
+            string volumePath = diskSettings.DiskVolumePath;
+
+            // Create execution-specific volume directory
+            string executionVolumePath = Path.Combine(volumePath, executionId);
+            Directory.CreateDirectory(executionVolumePath);
+
+            _logger.LogInformation(
+                "Execution {ExecutionId}: Using Disk tier with volume at {VolumePath}",
+                executionId, executionVolumePath);
+
+            try
+            {
+                // Merge execution volume with existing volumes
+                var mergedVolumes = volumes != null
+                    ? new Dictionary<string, string>(volumes)
+                    : new Dictionary<string, string>();
+
+                mergedVolumes[executionVolumePath] = "/execution_volume";
+
+                // Run with persistent disk volume
+                var processResult = await RunDockerProcessAsync(
+                    dockerImage,
+                    command,
+                    arguments,
+                    projectDirectory,
+                    outputDir,
+                    environment,
+                    timeoutMinutes,
+                    cancellationToken,
+                    executionId,
+                    _settings.EnableNetworkAccess,
+                    _settings.ResourceLimits.MemoryMB,
+                    _settings.ResourceLimits.CPUs,
+                    _settings.ResourceLimits.ProcessLimit,
+                    _settings.ResourceLimits.TempStorageMB,
+                    mergedVolumes);
+
+                // Cleanup volume if configured
+                if (!diskSettings.EnableVolumeReuse)
+                {
+                    try
+                    {
+                        Directory.Delete(executionVolumePath, recursive: true);
+                        _logger.LogInformation(
+                            "Execution {ExecutionId}: Deleted volume directory {VolumePath}",
+                            executionId, executionVolumePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Failed to delete volume directory {VolumePath} for execution {ExecutionId}",
+                            executionVolumePath, executionId);
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Execution {ExecutionId}: Volume reuse enabled, keeping volume at {VolumePath}",
+                        executionId, executionVolumePath);
+                }
+
+                return processResult;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to execute with Disk tier for execution {ExecutionId}",
+                    executionId);
+
+                return new ProcessResult
+                {
+                    Success = false,
+                    ExitCode = -1,
+                    Error = $"Disk tier execution failed: {ex.Message}",
+                    Duration = TimeSpan.Zero
+                };
+            }
+        }
+
+        #endregion
 
         private string FindRunnableProject(string projectDirectory)
         {
