@@ -15,6 +15,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations
     {
         private readonly FileStorageSettings _settings;
 
+        // CONCURRENCY FIX: Per-execution semaphores to prevent concurrent zip creation
+        // Using ConcurrentDictionary for thread-safe access
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _zipCreationLocks = new();
+
         public FileStorageService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
@@ -278,8 +282,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             try
             {
-                var files = new List<VersionFileDto>();
-
                 // Find the actual execution directory GUID since executionId is the database ID, not the directory name
                 var executionBasePath = Path.Combine(_settings.BasePath, programId, versionId, "execution");
                 var actualExecutionDirectory = await FindExecutionDirectoryAsync(executionBasePath, executionId, cancellationToken);
@@ -287,76 +289,97 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 if (string.IsNullOrEmpty(actualExecutionDirectory))
                 {
                     _logger.LogWarning("No execution directory found for execution {ExecutionId}", executionId);
-                    return files;
+                    return new List<VersionFileDto>();
                 }
 
                 var outputsPath = Path.Combine(actualExecutionDirectory, "outputs");
 
                 if (!Directory.Exists(outputsPath))
                 {
-                    return files;
+                    return new List<VersionFileDto>();
                 }
 
-                // Get all files and directories in the outputs directory
+                // OPTIMIZATION: Get all files and directories in parallel for better performance
                 var allFiles = Directory.GetFiles(outputsPath, "*", SearchOption.AllDirectories);
                 var allDirectories = Directory.GetDirectories(outputsPath, "*", SearchOption.AllDirectories);
 
-                // Process files
-                foreach (var file in allFiles)
-                {
-                    try
+                // OPTIMIZATION: Process files in parallel using PLINQ
+                var filesDtos = allFiles
+                    .AsParallel()
+                    .WithCancellation(cancellationToken)
+                    .WithDegreeOfParallelism(Environment.ProcessorCount) // Use all available cores
+                    .Select(file =>
                     {
-                        var fileInfo = new FileInfo(file);
-                        if (fileInfo.Exists)
+                        try
                         {
-                            var relativePath = Path.GetRelativePath(outputsPath, file);
-
-
-                            files.Add(new VersionFileDto
+                            var fileInfo = new FileInfo(file);
+                            if (fileInfo.Exists)
                             {
-                                Path = relativePath.Replace('\\', '/'), // Normalize path separators
-                                StorageKey = $"{programId}_{versionId}_{executionId}_{relativePath}",
-                                Hash = string.Empty,
-                                Size = fileInfo.Length,
-                                FileType = DetermineFileType(relativePath),
-                                ContentType = GetContentTypeFromExtension(Path.GetExtension(relativePath))
-                            });
+                                var relativePath = Path.GetRelativePath(outputsPath, file);
+                                return new VersionFileDto
+                                {
+                                    Path = relativePath.Replace('\\', '/'), // Normalize path separators
+                                    StorageKey = $"{programId}_{versionId}_{executionId}_{relativePath}",
+                                    Hash = string.Empty,
+                                    Size = fileInfo.Length,
+                                    FileType = DetermineFileType(relativePath),
+                                    ContentType = GetContentTypeFromExtension(Path.GetExtension(relativePath))
+                                };
+                            }
+                            return null;
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to process execution file {FilePath}", file);
-                    }
-                }
-
-                // Process directories
-                foreach (var directory in allDirectories)
-                {
-                    try
-                    {
-                        var dirInfo = new DirectoryInfo(directory);
-                        if (dirInfo.Exists)
+                        catch (Exception ex)
                         {
-                            var relativePath = Path.GetRelativePath(outputsPath, directory);
-
-                            files.Add(new VersionFileDto
-                            {
-                                Path = relativePath.Replace('\\', '/'), // Normalize path separators
-                                StorageKey = $"{programId}_{versionId}_{executionId}_dir_{relativePath}",
-                                Hash = string.Empty, // Directories don't have content hash
-                                Size = 0, // Directories don't have size
-                                FileType = "directory",
-                                ContentType = "application/x-directory"
-                            });
+                            _logger.LogWarning(ex, "Failed to process execution file {FilePath}", file);
+                            return null;
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to process execution directory {DirectoryPath}", directory);
-                    }
-                }
+                    })
+                    .Where(dto => dto != null)
+                    .Cast<VersionFileDto>()
+                    .ToList();
 
-                return files.OrderBy(f => f.Path).ToList();
+                // OPTIMIZATION: Process directories in parallel using PLINQ
+                var directoryDtos = allDirectories
+                    .AsParallel()
+                    .WithCancellation(cancellationToken)
+                    .WithDegreeOfParallelism(Environment.ProcessorCount)
+                    .Select(directory =>
+                    {
+                        try
+                        {
+                            var dirInfo = new DirectoryInfo(directory);
+                            if (dirInfo.Exists)
+                            {
+                                var relativePath = Path.GetRelativePath(outputsPath, directory);
+                                return new VersionFileDto
+                                {
+                                    Path = relativePath.Replace('\\', '/'), // Normalize path separators
+                                    StorageKey = $"{programId}_{versionId}_{executionId}_dir_{relativePath}",
+                                    Hash = string.Empty, // Directories don't have content hash
+                                    Size = 0, // Directories don't have size
+                                    FileType = "directory",
+                                    ContentType = "application/x-directory"
+                                };
+                            }
+                            return null;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to process execution directory {DirectoryPath}", directory);
+                            return null;
+                        }
+                    })
+                    .Where(dto => dto != null)
+                    .Cast<VersionFileDto>()
+                    .ToList();
+
+                // Combine and sort results
+                var allFilesAndDirs = filesDtos.Concat(directoryDtos).OrderBy(f => f.Path).ToList();
+
+                _logger.LogDebug("Listed {FileCount} files and {DirectoryCount} directories for execution {ExecutionId}",
+                    filesDtos.Count, directoryDtos.Count, executionId);
+
+                return allFilesAndDirs;
             }
             catch (Exception ex)
             {
@@ -529,46 +552,151 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             var zipFileName = "_archive.zip";
             var zipFilePath = Path.Combine(actualExecutionDirectory, zipFileName);
 
+            // CONCURRENCY FIX: Quick check without lock for performance
             if (File.Exists(zipFilePath))
             {
                 _logger.LogInformation("ZIP archive already exists for execution {ExecutionId} at {ZipPath}. Returning existing path.", execution.Id, zipFilePath);
                 return zipFilePath;
             }
 
-            _logger.LogInformation("ZIP archive not found for execution {ExecutionId}. Creating new archive at {ZipPath}.", execution.Id, zipFilePath);
+            // CONCURRENCY FIX: Get or create a semaphore specific to this execution
+            // This ensures only one thread can create the zip for a specific execution at a time
+            var lockKey = $"zip_creation_{execution.Id}";
+            var semaphore = _zipCreationLocks.GetOrAdd(lockKey, _ => new SemaphoreSlim(1, 1));
 
-            var executionFiles = await ListExecutionFilesAsync(execution.ProgramId, execution.VersionId, execution.Id, cancellationToken);
-            var nonDirectoryFiles = executionFiles.Where(f => f.FileType != "directory").ToList();
-
-            if (!nonDirectoryFiles.Any())
+            _logger.LogInformation("Acquiring lock for ZIP creation for execution {ExecutionId}", execution.Id);
+            await semaphore.WaitAsync(cancellationToken);
+            try
             {
-                _logger.LogWarning("No files found to archive for execution {ExecutionId}.", execution.Id);
-                // Create an empty file to prevent re-attempts on subsequent calls
-                await File.Create(zipFilePath).DisposeAsync();
-                return zipFilePath;
-            }
-
-            await using var fileStream = new FileStream(zipFilePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, useAsync: true);
-            using (var archive = new ZipArchive(fileStream, ZipArchiveMode.Create, leaveOpen: false))
-            {
-                foreach (var file in nonDirectoryFiles)
+                // CONCURRENCY FIX: Double-check pattern - another thread might have created it while we waited
+                if (File.Exists(zipFilePath))
                 {
+                    _logger.LogInformation("ZIP archive was created by another thread for execution {ExecutionId}. Returning existing path.", execution.Id);
+                    return zipFilePath;
+                }
+
+                _logger.LogInformation("ZIP archive not found for execution {ExecutionId}. Creating new archive at {ZipPath}.", execution.Id, zipFilePath);
+
+                // Get list of all files to archive
+                var executionFiles = await ListExecutionFilesAsync(execution.ProgramId, execution.VersionId, execution.Id, cancellationToken);
+                var nonDirectoryFiles = executionFiles.Where(f => f.FileType != "directory").ToList();
+
+                if (!nonDirectoryFiles.Any())
+                {
+                    _logger.LogWarning("No files found to archive for execution {ExecutionId}.", execution.Id);
+                    // Create an empty file to prevent re-attempts on subsequent calls
+                    await File.Create(zipFilePath).DisposeAsync();
+                    return zipFilePath;
+                }
+
+                var outputsPath = Path.Combine(actualExecutionDirectory, "outputs");
+
+                // CONCURRENCY FIX: Create zip in a temporary file first, then atomically rename
+                // This prevents other threads from reading a partially-written zip
+                var tempZipPath = Path.Combine(actualExecutionDirectory, $"_archive_{Guid.NewGuid()}.tmp");
+
+                try
+                {
+                    // OPTIMIZATION: Use configurable buffer size and async I/O for better streaming performance
+                    // Default: 128KB buffer for optimal throughput (configurable via settings)
+                    await using var fileStream = new FileStream(
+                        tempZipPath,
+                        FileMode.Create,
+                        FileAccess.Write,
+                        FileShare.None, // Temp file doesn't need sharing
+                        bufferSize: _settings.StreamBufferSizeBytes,
+                        useAsync: true);
+
+                    // Use configurable compression for execution outputs (default: fastest)
+                    var compressionLevel = GetCompressionLevel(_settings.DefaultZipCompressionLevel);
+                    _logger.LogInformation("Creating ZIP with compression level: {CompressionLevel}, buffer size: {BufferSize}KB",
+                        _settings.DefaultZipCompressionLevel, _settings.StreamBufferSizeBytes / 1024);
+
+                    using (var archive = new ZipArchive(fileStream, ZipArchiveMode.Create, leaveOpen: false))
+                    {
+                        var processedFiles = 0;
+                        foreach (var file in nonDirectoryFiles)
+                        {
+                            try
+                            {
+                                // OPTIMIZATION: Stream files directly from disk instead of loading into memory
+                                // Build the full physical path to the file
+                                var fullFilePath = Path.Combine(outputsPath, System.Web.HttpUtility.UrlDecode(file.Path));
+
+                                if (!File.Exists(fullFilePath))
+                                {
+                                    _logger.LogWarning("Execution file not found, skipping: {FilePath}", file.Path);
+                                    continue;
+                                }
+
+                                // Create ZIP entry with optimized compression level
+                                var entry = archive.CreateEntry(file.Path, compressionLevel);
+
+                                // OPTIMIZATION: Stream file directly from disk to zip entry using buffered I/O
+                                // This avoids loading the entire file into memory
+                                await using var sourceFileStream = new FileStream(
+                                    fullFilePath,
+                                    FileMode.Open,
+                                    FileAccess.Read,
+                                    FileShare.Read,
+                                    bufferSize: _settings.CopyBufferSizeBytes,
+                                    useAsync: true);
+
+                                await using var entryStream = entry.Open();
+
+                                // Copy file data directly from disk to ZIP stream in memory-efficient chunks
+                                await sourceFileStream.CopyToAsync(entryStream, _settings.CopyBufferSizeBytes, cancellationToken);
+
+                                processedFiles++;
+
+                                // Log progress every 100 files for large archives
+                                if (processedFiles % 100 == 0)
+                                {
+                                    _logger.LogInformation("ZIP creation progress: {ProcessedFiles}/{TotalFiles} files for execution {ExecutionId}",
+                                        processedFiles, nonDirectoryFiles.Count, execution.Id);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to add file {FilePath} to execution ZIP archive for {ExecutionId}", file.Path, execution.Id);
+                            }
+                        }
+                    }
+
+                    _logger.LogInformation("Successfully created temporary ZIP archive for execution {ExecutionId} with {FileCount} files.", execution.Id, nonDirectoryFiles.Count);
+
+                    // CONCURRENCY FIX: Atomically move temp file to final location
+                    // This prevents other threads from seeing a partially-written zip
+                    // File.Move with overwrite is atomic on most filesystems
+                    File.Move(tempZipPath, zipFilePath, overwrite: true);
+                    _logger.LogInformation("Atomically moved ZIP archive to final location for execution {ExecutionId}", execution.Id);
+
+                    return zipFilePath;
+                }
+                catch
+                {
+                    // CONCURRENCY FIX: Clean up temp file if creation fails
                     try
                     {
-                        var fileContent = await GetExecutionFileAsync(execution.ProgramId, execution.VersionId, execution.Id, file.Path, cancellationToken);
-                        var entry = archive.CreateEntry(file.Path);
-                        await using var entryStream = entry.Open();
-                        await entryStream.WriteAsync(fileContent.Content, cancellationToken);
+                        if (File.Exists(tempZipPath))
+                        {
+                            File.Delete(tempZipPath);
+                            _logger.LogInformation("Cleaned up temporary ZIP file after failure for execution {ExecutionId}", execution.Id);
+                        }
                     }
-                    catch (Exception ex)
+                    catch (Exception cleanupEx)
                     {
-                        _logger.LogWarning(ex, "Failed to add file {FilePath} to execution ZIP archive for {ExecutionId}", file.Path, execution.Id);
+                        _logger.LogWarning(cleanupEx, "Failed to clean up temporary ZIP file {TempPath}", tempZipPath);
                     }
+                    throw;
                 }
             }
-
-            _logger.LogInformation("Successfully created ZIP archive for execution {ExecutionId} with {FileCount} files.", execution.Id, nonDirectoryFiles.Count);
-            return zipFilePath;
+            finally
+            {
+                // CONCURRENCY FIX: Always release the semaphore
+                semaphore.Release();
+                _logger.LogInformation("Released lock for ZIP creation for execution {ExecutionId}", execution.Id);
+            }
         }
 
         public async Task<bool> DeleteProgramFilesAsync(string programId, CancellationToken cancellationToken = default)
@@ -1100,5 +1228,23 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             "application/zip", "application/x-tar", "application/gzip", "application/octet-stream",
             "image/png", "image/jpeg", "image/gif", "image/svg+xml"
         };
+
+        /// <summary>
+        /// Default compression level for zip archives.
+        /// Options: "fastest", "optimal", "smallestsize", "none"
+        /// Default: "fastest" - prioritizes speed over size for execution outputs
+        /// </summary>
+        public string DefaultZipCompressionLevel { get; set; } = "fastest";
+
+        /// <summary>
+        /// Buffer size in bytes for file streaming operations (default: 128KB)
+        /// Larger buffers improve performance for large files
+        /// </summary>
+        public int StreamBufferSizeBytes { get; set; } = 131072; // 128KB
+
+        /// <summary>
+        /// Buffer size in bytes for file copy operations (default: 80KB)
+        /// </summary>
+        public int CopyBufferSizeBytes { get; set; } = 81920; // 80KB
     }
 }

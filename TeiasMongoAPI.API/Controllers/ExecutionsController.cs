@@ -1163,15 +1163,14 @@ namespace TeiasMongoAPI.API.Controllers
                     return NotFound("The generated archive file could not be found.");
                 }
 
-                // BEST PRACTICE: Create a FileStream that will be passed directly to the response.
-                // The ASP.NET Core framework will take ownership of this stream and ensure it is
-                // properly read from and disposed of *after* the response is complete.
+                // CONCURRENCY FIX: FileShare.Read allows multiple users to download simultaneously
+                // OPTIMIZATION: Use larger buffer size for better streaming performance
                 var fileStream = new FileStream(
                     absolutePath,
                     FileMode.Open,
                     FileAccess.Read,
-                    FileShare.Read,
-                    bufferSize: 4096, // Default buffer size, good for streaming
+                    FileShare.Read, // Allows concurrent reads - multiple users can download at once
+                    bufferSize: 131072, // 128KB buffer for optimal streaming (matches zip creation buffer)
                     useAsync: true);
 
                 var fileName = $"execution-{id}-all-files.zip";
