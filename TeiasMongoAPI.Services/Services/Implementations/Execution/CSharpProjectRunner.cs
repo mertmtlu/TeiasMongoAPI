@@ -470,12 +470,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     // Normalize path to use forward slashes for Docker/Linux compatibility
                     var relativeProjectPath = Path.GetRelativePath(absoluteProjectDirectory, runnableProject).Replace("\\", "/");
                     command = "dotnet";
-                    arguments = $"run --project /app/{relativeProjectPath} --no-build --no-restore";
+                    // Note: Removed --no-build to allow dotnet run to build if needed (more reliable)
+                    arguments = $"run --project /app/{relativeProjectPath} --no-restore --verbosity minimal";
                 }
                 else
                 {
                     command = "dotnet";
-                    arguments = "run --no-build --no-restore";
+                    arguments = "run --no-restore --verbosity minimal";
                     _logger.LogWarning("No .csproj file found to specify for 'dotnet run'. Using default project.");
                 }
 
