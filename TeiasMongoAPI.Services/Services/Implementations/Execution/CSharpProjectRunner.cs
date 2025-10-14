@@ -109,7 +109,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 await EnsureLinuxRuntimeConfigurationAsync(absoluteProjectDirectory, cancellationToken);
 
                 // Find the main project file to build
-                var buildTarget = FindBuildTarget(projectDirectory);
+                var buildTarget = FindBuildTarget(absoluteProjectDirectory);
                 if (string.IsNullOrEmpty(buildTarget))
                 {
                     return new ProjectBuildResult
@@ -120,7 +120,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 }
 
                 var result = new ProjectBuildResult { Success = true };
-                var relativeBuildTarget = Path.GetRelativePath(projectDirectory, buildTarget);
+                // Normalize path to use forward slashes for Docker/Linux compatibility
+                var relativeBuildTarget = Path.GetRelativePath(absoluteProjectDirectory, buildTarget).Replace("\\", "/");
 
                 // Get Docker image name if Docker is enabled
                 string? dockerImage = null;
@@ -394,7 +395,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         {
             try
             {
-                _logger.LogInformation("Generating UIComponent.cs for program {ProgramId} in {ProjectDirectory}", programId, projectDirectory);
+                // Convert to absolute path to ensure consistent path handling
+                var absoluteProjectDirectory = Path.GetFullPath(projectDirectory);
+
+                _logger.LogInformation("Generating UIComponent.cs for program {ProgramId} in {ProjectDirectory}", programId, absoluteProjectDirectory);
 
                 var latestComponent = await _unitOfWork.UiComponents.GetLatestActiveByProgramAsync(programId, cancellationToken);
 
@@ -405,19 +409,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 }
 
                 // Find the runnable project to determine where to place UIComponent.cs
-                var runnableProject = FindRunnableProject(projectDirectory);
+                var runnableProject = FindRunnableProject(absoluteProjectDirectory);
                 string targetDirectory;
 
                 if (!string.IsNullOrEmpty(runnableProject))
                 {
                     // Place UIComponent.cs in the same directory as the runnable .csproj
-                    targetDirectory = Path.GetDirectoryName(runnableProject) ?? projectDirectory;
+                    targetDirectory = Path.GetDirectoryName(runnableProject) ?? absoluteProjectDirectory;
                     _logger.LogInformation("Generating UIComponent.cs in runnable project directory: {TargetDirectory}", targetDirectory);
                 }
                 else
                 {
                     // Fallback: place in the main project directory
-                    targetDirectory = projectDirectory;
+                    targetDirectory = absoluteProjectDirectory;
                     _logger.LogWarning("No runnable project found, generating UIComponent.cs in project root: {TargetDirectory}", targetDirectory);
                 }
 
@@ -460,10 +464,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 string command;
                 string arguments;
 
-                var runnableProject = FindRunnableProject(context.ProjectDirectory);
+                var runnableProject = FindRunnableProject(absoluteProjectDirectory);
                 if (!string.IsNullOrEmpty(runnableProject))
                 {
-                    var relativeProjectPath = Path.GetRelativePath(context.ProjectDirectory, runnableProject);
+                    // Normalize path to use forward slashes for Docker/Linux compatibility
+                    var relativeProjectPath = Path.GetRelativePath(absoluteProjectDirectory, runnableProject).Replace("\\", "/");
                     command = "dotnet";
                     arguments = $"run --project /app/{relativeProjectPath} --no-build --no-restore";
                 }
