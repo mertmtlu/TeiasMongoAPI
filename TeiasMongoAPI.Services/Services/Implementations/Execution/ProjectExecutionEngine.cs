@@ -125,6 +125,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     buildResult = await BuildProjectAsync(runner, projectDirectory, buildArgs, timeoutCts.Token);
                     if (!buildResult.Success)
                     {
+                        _logger.LogError("Build has failed with output: {output}", buildResult.Output);
                         return CreateFailureResult(executionId, session, $"Build failed: {buildResult.ErrorMessage}", buildResult);
                     }
                 }

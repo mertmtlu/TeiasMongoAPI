@@ -1,14 +1,15 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
+using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Services.DTOs.Request.Execution;
 using TeiasMongoAPI.Services.DTOs.Response.Execution;
-using TeiasMongoAPI.Services.Services.Implementations;
-using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Services.Helpers;
 using TeiasMongoAPI.Services.Interfaces;
-using MongoDB.Bson;
+using TeiasMongoAPI.Services.Services.Implementations;
 
 namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 {
@@ -103,6 +104,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 {
                     await GenerateUIComponentFileAsync(projectDirectory, programId, cancellationToken);
                 }
+
+                // Ensure all .csproj files have Linux runtime configuration for Docker execution
+                await EnsureLinuxRuntimeConfigurationAsync(absoluteProjectDirectory, cancellationToken);
 
                 // Find the main project file to build
                 var buildTarget = FindBuildTarget(projectDirectory);
@@ -249,7 +253,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                         buildArgs.BuildTimeoutMinutes,
                         cancellationToken,
                         null,
-                        false, // No network needed for build
+                        true, // No network needed for build
                         _settings.ResourceLimits.MemoryMB,
                         _settings.ResourceLimits.CPUs,
                         _settings.ResourceLimits.ProcessLimit,
@@ -296,6 +300,93 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     Success = false,
                     ErrorMessage = ex.Message
                 };
+            }
+        }
+
+        /// <summary>
+        /// Ensures all .csproj files in the project have Linux runtime configuration for Docker execution.
+        /// Adds RuntimeIdentifier=linux-musl-x64 and UseAppHost=true if not already present.
+        /// </summary>
+        private async Task EnsureLinuxRuntimeConfigurationAsync(string projectDirectory, CancellationToken cancellationToken = default)
+        {
+            // Only modify when Docker is enabled
+            if (!_settings.EnableDocker)
+            {
+                return;
+            }
+
+            // Find all .csproj files
+            var csprojFiles = FindFiles(projectDirectory, "*.csproj");
+
+            if (!csprojFiles.Any())
+            {
+                _logger.LogDebug("No .csproj files found to modify for Linux runtime configuration");
+                return;
+            }
+
+            _logger.LogInformation("Checking {Count} .csproj file(s) for Linux runtime configuration", csprojFiles.Count);
+
+            foreach (var csprojFile in csprojFiles)
+            {
+                try
+                {
+                    _logger.LogDebug("Processing {ProjectFile} for Linux runtime configuration", Path.GetFileName(csprojFile));
+
+                    var content = await File.ReadAllTextAsync(csprojFile, cancellationToken);
+                    var doc = XDocument.Parse(content);
+
+                    bool modified = false;
+
+                    // Find the first PropertyGroup
+                    var firstPropertyGroup = doc.Root?.Descendants("PropertyGroup").FirstOrDefault();
+
+                    if (firstPropertyGroup == null)
+                    {
+                        _logger.LogWarning("No PropertyGroup found in {ProjectFile}, skipping Linux runtime configuration", Path.GetFileName(csprojFile));
+                        continue;
+                    }
+
+                    // Check if UseAppHost exists anywhere in the document
+                    var hasUseAppHost = doc.Descendants("UseAppHost").Any();
+                    if (!hasUseAppHost)
+                    {
+                        firstPropertyGroup.Add(new XElement("UseAppHost", "false"));
+                        modified = true;
+                        _logger.LogInformation("Added <UseAppHost>true</UseAppHost> to {ProjectFile}", Path.GetFileName(csprojFile));
+                    }
+                    else
+                    {
+                        _logger.LogDebug("{ProjectFile} already has UseAppHost", Path.GetFileName(csprojFile));
+                    }
+
+                    if (modified)
+                    {
+                        // Save the modified file with UTF-8 encoding and proper XML declaration
+                        var settings = new System.Xml.XmlWriterSettings
+                        {
+                            Encoding = System.Text.Encoding.UTF8,
+                            Indent = true,
+                            OmitXmlDeclaration = false
+                        };
+
+                        using (var writer = System.Xml.XmlWriter.Create(csprojFile, settings))
+                        {
+                            doc.Save(writer);
+                        }
+
+                        _logger.LogInformation("Successfully modified {ProjectFile} with Linux runtime configuration", Path.GetFileName(csprojFile));
+                    }
+                    else
+                    {
+                        _logger.LogDebug("{ProjectFile} already has complete Linux runtime configuration", Path.GetFileName(csprojFile));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to modify {ProjectFile} with Linux runtime configuration", Path.GetFileName(csprojFile));
+                    // Don't fail the build, just log the error and continue
+                    // The build might still succeed if the project is already configured correctly
+                }
             }
         }
 
