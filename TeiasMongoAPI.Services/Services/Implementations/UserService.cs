@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using Microsoft.Extensions.Caching.Memory;
 using TeiasMongoAPI.Core.Interfaces.Repositories;
 using TeiasMongoAPI.Core.Models.KeyModels;
 using TeiasMongoAPI.Services.DTOs.Request.Auth;
@@ -18,15 +19,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
     public class UserService : BaseService, IUserService
     {
         private readonly IPasswordHashingService _passwordHashingService;
+        private readonly IMemoryCache _cache;
 
         public UserService(
             IUnitOfWork unitOfWork,
             IMapper mapper,
             IPasswordHashingService passwordHashingService,
+            IMemoryCache cache,
             ILogger<UserService> logger)
             : base(unitOfWork, mapper, logger)
         {
             _passwordHashingService = passwordHashingService;
+            _cache = cache;
         }
 
         public async Task<bool> RevokeAllTokensAsync(string userId, string revokedByIp, CancellationToken cancellationToken = default)
@@ -177,6 +181,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 }
             }
 
+            // Increment token version to invalidate existing tokens before deletion
+            user.TokenVersion++;
+            await _unitOfWork.Users.UpdateAsync(objectId, user, cancellationToken);
+
+            // Invalidate cached token version
+            InvalidateTokenVersionCache(id);
+
             return await _unitOfWork.Users.DeleteAsync(objectId, cancellationToken);
         }
 
@@ -204,6 +215,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             // Update permissions based on new role
             user.Permissions = RolePermissions.GetUserPermissions(user);
             user.ModifiedDate = DateTime.UtcNow;
+            // Increment token version to invalidate existing tokens
+            user.TokenVersion++;
 
             var success = await _unitOfWork.Users.UpdateAsync(objectId, user, cancellationToken);
 
@@ -211,6 +224,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 throw new InvalidOperationException($"Failed to update roles for user with ID {id}.");
             }
+
+            // Invalidate cached token version
+            InvalidateTokenVersionCache(id);
 
             return _mapper.Map<UserDto>(user);
         }
@@ -227,6 +243,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             user.Permissions = dto.Permissions;
             user.ModifiedDate = DateTime.UtcNow;
+            // Increment token version to invalidate existing tokens
+            user.TokenVersion++;
 
             var success = await _unitOfWork.Users.UpdateAsync(objectId, user, cancellationToken);
 
@@ -234,6 +252,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 throw new InvalidOperationException($"Failed to update permissions for user with ID {id}.");
             }
+
+            // Invalidate cached token version
+            InvalidateTokenVersionCache(id);
 
             return _mapper.Map<UserDto>(user);
         }
@@ -338,8 +359,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             user.IsActive = false;
             user.ModifiedDate = DateTime.UtcNow;
+            // Increment token version to invalidate existing tokens
+            user.TokenVersion++;
 
-            return await _unitOfWork.Users.UpdateAsync(objectId, user, cancellationToken);
+            var result = await _unitOfWork.Users.UpdateAsync(objectId, user, cancellationToken);
+
+            // Invalidate cached token version
+            if (result)
+            {
+                InvalidateTokenVersionCache(id);
+            }
+
+            return result;
         }
 
         public async Task<UserProfileDto> GetProfileAsync(string id, CancellationToken cancellationToken = default)
@@ -367,6 +398,17 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             // Get all permissions for the user (role-based + direct permissions)
             return RolePermissions.GetUserPermissions(user);
+        }
+
+        /// <summary>
+        /// Invalidates the cached token version for a user.
+        /// Should be called whenever a user's TokenVersion is incremented.
+        /// </summary>
+        private void InvalidateTokenVersionCache(string userId)
+        {
+            var cacheKey = $"token_version_{userId}";
+            _cache.Remove(cacheKey);
+            _logger.LogInformation("Invalidated token version cache for user {UserId}", userId);
         }
     }
 }

@@ -328,7 +328,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             {
                 new Claim(ClaimTypes.NameIdentifier, user._ID.ToString()),
                 new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Email, user.Email)
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim("token_version", user.TokenVersion.ToString())
             };
 
             // Add role as claim

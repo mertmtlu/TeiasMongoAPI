@@ -54,6 +54,9 @@ namespace TeiasMongoAPI.Core.Models.KeyModels
         [BsonElement("groups")]
         public List<ObjectId> Groups { get; set; } = new();
 
+        [BsonElement("tokenVersion")]
+        public int TokenVersion { get; set; } = 1;
+
         // Legacy fields for backward compatibility - to be removed after data migration
         [BsonElement("groupIds")]
         [BsonIgnoreIfNull]

@@ -419,6 +419,7 @@ namespace TeiasMongoAPI.API
 
             // Authentication & Authorization
             app.UseAuthentication();
+            app.UseTokenVersionValidation(); // Validate token version after authentication
             app.UseAuthorization();
 
             // Map Controllers
