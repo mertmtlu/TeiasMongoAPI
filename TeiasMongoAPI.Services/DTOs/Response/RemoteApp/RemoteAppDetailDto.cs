@@ -12,17 +12,9 @@ namespace TeiasMongoAPI.Services.DTOs.Response.RemoteApp
         public string Status { get; set; } = "active";
         public DateTime CreatedAt { get; set; }
         public DateTime? ModifiedAt { get; set; }
-        public List<RemoteAppAssignedUserDto> AssignedUsers { get; set; } = new();
+        public List<RemoteAppPermissionDto> Permissions { get; set; } = new();
         public string? DefaultUsername { get; set; }
         public string? DefaultPassword { get; set; }
         public string? SsoUrl { get; set; }
-    }
-
-    public class RemoteAppAssignedUserDto
-    {
-        public required string UserId { get; set; }
-        public string Username { get; set; } = string.Empty;
-        public string FullName { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
     }
 }

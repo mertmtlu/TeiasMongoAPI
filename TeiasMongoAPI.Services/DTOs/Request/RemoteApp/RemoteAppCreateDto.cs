@@ -18,8 +18,6 @@ namespace TeiasMongoAPI.Services.DTOs.Request.RemoteApp
 
         public bool IsPublic { get; set; } = false;
 
-        public List<string> AssignedUserIds { get; set; } = new();
-
         [StringLength(100)]
         public string? DefaultUsername { get; set; }
 

@@ -223,17 +223,35 @@ namespace TeiasMongoAPI.API.Controllers
 
         #endregion
 
-        #region User Assignment Management
+        #region Permission Management
 
         /// <summary>
-        /// Assign user to remote app
+        /// Get all permissions for a remote app
         /// </summary>
-        [HttpPost("{id}/users")]
-        [RequirePermission(UserPermissions.ManagePrograms)]
-        [AuditLog("AssignUserToRemoteApp")]
-        public async Task<ActionResult<ApiResponse<bool>>> AssignUser(
+        [HttpGet("{id}/permissions")]
+        [RequirePermission(UserPermissions.ViewPrograms)]
+        public async Task<ActionResult<ApiResponse<List<RemoteAppPermissionDto>>>> GetRemoteAppPermissions(
             string id,
-            [FromBody] RemoteAppUserAssignmentDto dto,
+            CancellationToken cancellationToken = default)
+        {
+            var objectIdResult = ParseObjectId(id);
+            if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            return await ExecuteAsync(async () =>
+            {
+                return await _remoteAppService.GetRemoteAppPermissionsAsync(id, cancellationToken);
+            }, $"Get permissions for remote app {id}");
+        }
+
+        /// <summary>
+        /// Add user permission to remote app
+        /// </summary>
+        [HttpPost("{id}/permissions/users")]
+        [RequirePermission(UserPermissions.ManagePrograms)]
+        [AuditLog("AddRemoteAppUserPermission")]
+        public async Task<ActionResult<ApiResponse<RemoteAppDto>>> AddUserPermission(
+            string id,
+            [FromBody] RemoteAppUserPermissionDto dto,
             CancellationToken cancellationToken = default)
         {
             var objectIdResult = ParseObjectId(id);
@@ -242,24 +260,25 @@ namespace TeiasMongoAPI.API.Controllers
             var userObjectIdResult = ParseObjectId(dto.UserId, "userId");
             if (userObjectIdResult.Result != null) return userObjectIdResult.Result!;
 
-            var validationResult = ValidateModelState<bool>();
+            var validationResult = ValidateModelState<RemoteAppDto>();
             if (validationResult != null) return validationResult;
 
             return await ExecuteAsync(async () =>
             {
-                return await _remoteAppService.AssignUserAsync(id, dto.UserId, cancellationToken);
-            }, $"Assign user {dto.UserId} to remote app {id}");
+                return await _remoteAppService.AddUserPermissionAsync(id, dto, cancellationToken);
+            }, $"Add user permission to remote app {id}");
         }
 
         /// <summary>
-        /// Unassign user from remote app
+        /// Update user permission for remote app
         /// </summary>
-        [HttpDelete("{id}/users/{userId}")]
+        [HttpPut("{id}/permissions/users/{userId}")]
         [RequirePermission(UserPermissions.ManagePrograms)]
-        [AuditLog("UnassignUserFromRemoteApp")]
-        public async Task<ActionResult<ApiResponse<bool>>> UnassignUser(
+        [AuditLog("UpdateRemoteAppUserPermission")]
+        public async Task<ActionResult<ApiResponse<RemoteAppDto>>> UpdateUserPermission(
             string id,
             string userId,
+            [FromBody] RemoteAppUserPermissionDto dto,
             CancellationToken cancellationToken = default)
         {
             var objectIdResult = ParseObjectId(id);
@@ -268,18 +287,28 @@ namespace TeiasMongoAPI.API.Controllers
             var userObjectIdResult = ParseObjectId(userId, "userId");
             if (userObjectIdResult.Result != null) return userObjectIdResult.Result!;
 
+            var validationResult = ValidateModelState<RemoteAppDto>();
+            if (validationResult != null) return validationResult;
+
+            // Ensure userId in URL matches userId in DTO
+            if (dto.UserId != userId)
+            {
+                return ValidationError<RemoteAppDto>("User ID in URL does not match User ID in request body");
+            }
+
             return await ExecuteAsync(async () =>
             {
-                return await _remoteAppService.UnassignUserAsync(id, userId, cancellationToken);
-            }, $"Unassign user {userId} from remote app {id}");
+                return await _remoteAppService.UpdateUserPermissionAsync(id, dto, cancellationToken);
+            }, $"Update user permission for remote app {id}");
         }
 
         /// <summary>
-        /// Check if user is assigned to remote app
+        /// Remove user permission from remote app
         /// </summary>
-        [HttpGet("{id}/users/{userId}/assigned")]
-        [RequirePermission(UserPermissions.ViewPrograms)]
-        public async Task<ActionResult<ApiResponse<bool>>> IsUserAssigned(
+        [HttpDelete("{id}/permissions/users/{userId}")]
+        [RequirePermission(UserPermissions.ManagePrograms)]
+        [AuditLog("RemoveRemoteAppUserPermission")]
+        public async Task<ActionResult<ApiResponse<bool>>> RemoveUserPermission(
             string id,
             string userId,
             CancellationToken cancellationToken = default)
@@ -292,8 +321,87 @@ namespace TeiasMongoAPI.API.Controllers
 
             return await ExecuteAsync(async () =>
             {
-                return await _remoteAppService.IsUserAssignedAsync(id, userId, cancellationToken);
-            }, $"Check if user {userId} is assigned to remote app {id}");
+                return await _remoteAppService.RemoveUserPermissionAsync(id, userId, cancellationToken);
+            }, $"Remove user permission from remote app {id}");
+        }
+
+        /// <summary>
+        /// Add group permission to remote app
+        /// </summary>
+        [HttpPost("{id}/permissions/groups")]
+        [RequirePermission(UserPermissions.ManagePrograms)]
+        [AuditLog("AddRemoteAppGroupPermission")]
+        public async Task<ActionResult<ApiResponse<RemoteAppDto>>> AddGroupPermission(
+            string id,
+            [FromBody] RemoteAppGroupPermissionDto dto,
+            CancellationToken cancellationToken = default)
+        {
+            var objectIdResult = ParseObjectId(id);
+            if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            var validationResult = ValidateModelState<RemoteAppDto>();
+            if (validationResult != null) return validationResult;
+
+            return await ExecuteAsync(async () =>
+            {
+                return await _remoteAppService.AddGroupPermissionAsync(id, dto, cancellationToken);
+            }, $"Add group permission to remote app {id}");
+        }
+
+        /// <summary>
+        /// Update group permission for remote app
+        /// </summary>
+        [HttpPut("{id}/permissions/groups/{groupId}")]
+        [RequirePermission(UserPermissions.ManagePrograms)]
+        [AuditLog("UpdateRemoteAppGroupPermission")]
+        public async Task<ActionResult<ApiResponse<RemoteAppDto>>> UpdateGroupPermission(
+            string id,
+            string groupId,
+            [FromBody] RemoteAppGroupPermissionDto dto,
+            CancellationToken cancellationToken = default)
+        {
+            var objectIdResult = ParseObjectId(id);
+            if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            var groupObjectIdResult = ParseObjectId(groupId, "groupId");
+            if (groupObjectIdResult.Result != null) return groupObjectIdResult.Result!;
+
+            var validationResult = ValidateModelState<RemoteAppDto>();
+            if (validationResult != null) return validationResult;
+
+            // Ensure groupId in URL matches groupId in DTO
+            if (dto.GroupId != groupId)
+            {
+                return ValidationError<RemoteAppDto>("Group ID in URL does not match Group ID in request body");
+            }
+
+            return await ExecuteAsync(async () =>
+            {
+                return await _remoteAppService.UpdateGroupPermissionAsync(id, dto, cancellationToken);
+            }, $"Update group permission for remote app {id}");
+        }
+
+        /// <summary>
+        /// Remove group permission from remote app
+        /// </summary>
+        [HttpDelete("{id}/permissions/groups/{groupId}")]
+        [RequirePermission(UserPermissions.ManagePrograms)]
+        [AuditLog("RemoveRemoteAppGroupPermission")]
+        public async Task<ActionResult<ApiResponse<bool>>> RemoveGroupPermission(
+            string id,
+            string groupId,
+            CancellationToken cancellationToken = default)
+        {
+            var objectIdResult = ParseObjectId(id);
+            if (objectIdResult.Result != null) return objectIdResult.Result!;
+
+            var groupObjectIdResult = ParseObjectId(groupId, "groupId");
+            if (groupObjectIdResult.Result != null) return groupObjectIdResult.Result!;
+
+            return await ExecuteAsync(async () =>
+            {
+                return await _remoteAppService.RemoveGroupPermissionAsync(id, groupId, cancellationToken);
+            }, $"Remove group permission from remote app {id}");
         }
 
         #endregion

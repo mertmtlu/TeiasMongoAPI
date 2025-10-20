@@ -26,13 +26,6 @@ namespace TeiasMongoAPI.Services.Validators
                 .WithMessage("URL cannot exceed 2000 characters.")
                 .Must(BeValidUrl)
                 .WithMessage("Please provide a valid URL (must start with http:// or https://).");
-
-            RuleFor(x => x.AssignedUserIds)
-                .NotNull()
-                .WithMessage("Assigned user IDs list cannot be null.")
-                .Must(HaveValidObjectIds)
-                .WithMessage("All assigned user IDs must be valid ObjectId format.")
-                .When(x => x.AssignedUserIds != null && x.AssignedUserIds.Any());
         }
 
         private bool BeValidUrl(string url)
@@ -42,14 +35,6 @@ namespace TeiasMongoAPI.Services.Validators
 
             return Uri.TryCreate(url, UriKind.Absolute, out var uriResult) &&
                    (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
-        }
-
-        private bool HaveValidObjectIds(IList<string> userIds)
-        {
-            if (userIds == null || !userIds.Any())
-                return true;
-
-            return userIds.All(id => !string.IsNullOrWhiteSpace(id) && MongoDB.Bson.ObjectId.TryParse(id, out _));
         }
     }
 
@@ -75,11 +60,6 @@ namespace TeiasMongoAPI.Services.Validators
                 .Must(BeValidUrl)
                 .WithMessage("Please provide a valid URL (must start with http:// or https://).")
                 .When(x => !string.IsNullOrEmpty(x.Url));
-
-            RuleFor(x => x.AssignedUserIds)
-                .Must(HaveValidObjectIds)
-                .WithMessage("All assigned user IDs must be valid ObjectId format.")
-                .When(x => x.AssignedUserIds != null && x.AssignedUserIds.Any());
         }
 
         private bool BeValidUrl(string url)
@@ -89,14 +69,6 @@ namespace TeiasMongoAPI.Services.Validators
 
             return Uri.TryCreate(url, UriKind.Absolute, out var uriResult) &&
                    (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
-        }
-
-        private bool HaveValidObjectIds(IList<string> userIds)
-        {
-            if (userIds == null || !userIds.Any())
-                return true;
-
-            return userIds.All(id => !string.IsNullOrWhiteSpace(id) && MongoDB.Bson.ObjectId.TryParse(id, out _));
         }
     }
 

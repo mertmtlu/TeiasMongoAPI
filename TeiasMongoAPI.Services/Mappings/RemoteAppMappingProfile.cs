@@ -15,7 +15,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<RemoteAppCreateDto, RemoteApp>()
                 .ForMember(dest => dest._ID, opt => opt.Ignore())
                 .ForMember(dest => dest.Creator, opt => opt.Ignore())
-                .ForMember(dest => dest.AssignedUsers, opt => opt.Ignore())
+                .ForMember(dest => dest.Permissions, opt => opt.Ignore())
                 .ForMember(dest => dest.Status, opt => opt.MapFrom(src => "active"))
                 .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
                 .ForMember(dest => dest.ModifiedAt, opt => opt.Ignore())
@@ -24,7 +24,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<RemoteAppUpdateDto, RemoteApp>()
                 .ForMember(dest => dest._ID, opt => opt.Ignore())
                 .ForMember(dest => dest.Creator, opt => opt.Ignore())
-                .ForMember(dest => dest.AssignedUsers, opt => opt.Ignore())
+                .ForMember(dest => dest.Permissions, opt => opt.Ignore())
                 .ForMember(dest => dest.Status, opt => opt.Ignore())
                 .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
                 .ForMember(dest => dest.ModifiedAt, opt => opt.Ignore())
@@ -33,8 +33,7 @@ namespace TeiasMongoAPI.Services.Mappings
 
             // Entity to Response DTOs mappings
             CreateMap<RemoteApp, RemoteAppDto>()
-                .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
-                .ForMember(dest => dest.AssignedUserIds, opt => opt.MapFrom(src => src.AssignedUsers.Select(id => id.ToString()).ToList()));
+                .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()));
 
             CreateMap<RemoteApp, RemoteAppListDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()));
@@ -42,7 +41,7 @@ namespace TeiasMongoAPI.Services.Mappings
             CreateMap<RemoteApp, RemoteAppDetailDto>()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => src._ID.ToString()))
                 .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
-                .ForMember(dest => dest.AssignedUsers, opt => opt.Ignore());
+                .ForMember(dest => dest.Permissions, opt => opt.Ignore());
 
             // ObjectId to string and vice versa converters
             CreateMap<ObjectId, string>().ConvertUsing(id => id.ToString());

@@ -200,8 +200,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (remoteApp.Creator == user._ID.ToString())
                 return true;
 
-            // Check if user is assigned
-            return remoteApp.AssignedUsers.Contains(user._ID);
+            // Check if user has direct permission
+            if (remoteApp.Permissions.Users.Any(up => up.UserId == user._ID.ToString()))
+                return true;
+
+            // Check if user has group permission
+            var userGroupIdStrings = userGroupIds.Select(g => g.ToString()).ToList();
+            return remoteApp.Permissions.Groups.Any(gp => userGroupIdStrings.Contains(gp.GroupId));
         }
 
         private async Task<EntityAccessLevel> GetProgramAccessLevelAsync(User user, List<ObjectId> userGroupIds, string programId, CancellationToken cancellationToken)
@@ -271,8 +276,36 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (remoteApp.Creator == user._ID.ToString())
                 return EntityAccessLevel.Full;
 
-            if (remoteApp.AssignedUsers.Contains(user._ID))
-                return EntityAccessLevel.Write;
+            // Check user permissions
+            var userPerm = remoteApp.Permissions.Users.FirstOrDefault(up => up.UserId == user._ID.ToString());
+            if (userPerm != null)
+            {
+                return userPerm.AccessLevel.ToLower() switch
+                {
+                    "admin" => EntityAccessLevel.Full,
+                    "write" => EntityAccessLevel.Write,
+                    "read" => EntityAccessLevel.Read,
+                    _ => EntityAccessLevel.None
+                };
+            }
+
+            // Check group permissions
+            var userGroupIdStrings = userGroupIds.Select(g => g.ToString()).ToList();
+            var groupPerm = remoteApp.Permissions.Groups
+                .Where(gp => userGroupIdStrings.Contains(gp.GroupId))
+                .OrderByDescending(gp => gp.AccessLevel == "admin" ? 3 : gp.AccessLevel == "write" ? 2 : 1)
+                .FirstOrDefault();
+
+            if (groupPerm != null)
+            {
+                return groupPerm.AccessLevel.ToLower() switch
+                {
+                    "admin" => EntityAccessLevel.Full,
+                    "write" => EntityAccessLevel.Write,
+                    "read" => EntityAccessLevel.Read,
+                    _ => EntityAccessLevel.None
+                };
+            }
 
             if (remoteApp.IsPublic)
                 return EntityAccessLevel.Read;

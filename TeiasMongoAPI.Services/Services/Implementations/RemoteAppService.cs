@@ -44,18 +44,48 @@ namespace TeiasMongoAPI.Services.Services.Implementations
 
             var dto = _mapper.Map<RemoteAppDetailDto>(remoteApp);
 
-            // Populate assigned user details
-            if (remoteApp.AssignedUsers.Any())
+            // Populate permission details
+            var permissions = new List<RemoteAppPermissionDto>();
+
+            // Add user permissions
+            foreach (var userPerm in remoteApp.Permissions.Users)
             {
-                var users = await _unitOfWork.Users.GetByIdsAsync(remoteApp.AssignedUsers, cancellationToken);
-                dto.AssignedUsers = users.Select(u => new RemoteAppAssignedUserDto
+                try
                 {
-                    UserId = u._ID.ToString(),
-                    Username = u.Username,
-                    FullName = u.FullName,
-                    Email = u.Email
-                }).ToList();
+                    if (ObjectId.TryParse(userPerm.UserId, out var userObjectId))
+                    {
+                        var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
+                        if (user != null)
+                        {
+                            permissions.Add(new RemoteAppPermissionDto
+                            {
+                                Type = "user",
+                                Id = userPerm.UserId,
+                                Name = user.FullName,
+                                AccessLevel = userPerm.AccessLevel
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get user {UserId} for remote app permissions", userPerm.UserId);
+                }
             }
+
+            // Add group permissions
+            foreach (var groupPerm in remoteApp.Permissions.Groups)
+            {
+                permissions.Add(new RemoteAppPermissionDto
+                {
+                    Type = "group",
+                    Id = groupPerm.GroupId,
+                    Name = $"Group {groupPerm.GroupId}",
+                    AccessLevel = groupPerm.AccessLevel
+                });
+            }
+
+            dto.Permissions = permissions;
 
             // Populate creator name
             if (ObjectId.TryParse(remoteApp.Creator, out var creatorObjectId))
@@ -85,25 +115,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             remoteApp.DefaultUsername = dto.DefaultUsername;
             remoteApp.DefaultPassword = dto.DefaultPassword;
             remoteApp.SsoUrl = dto.SsoUrl;
-
-            // Convert assigned user IDs to ObjectIds
-            if (dto.AssignedUserIds.Any())
-            {
-                var userObjectIds = new List<ObjectId>();
-                foreach (var userId in dto.AssignedUserIds)
-                {
-                    if (ObjectId.TryParse(userId, out var userObjectId))
-                    {
-                        // Verify user exists
-                        var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
-                        if (user != null)
-                        {
-                            userObjectIds.Add(userObjectId);
-                        }
-                    }
-                }
-                remoteApp.AssignedUsers = userObjectIds;
-            }
 
             var createdRemoteApp = await _unitOfWork.RemoteApps.CreateAsync(remoteApp, cancellationToken);
             return _mapper.Map<RemoteAppDto>(createdRemoteApp);
@@ -147,25 +158,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (dto.SsoUrl != null)
                 existingRemoteApp.SsoUrl = dto.SsoUrl;
 
-            // Update assigned users if provided
-            if (dto.AssignedUserIds != null)
-            {
-                var userObjectIds = new List<ObjectId>();
-                foreach (var userId in dto.AssignedUserIds)
-                {
-                    if (ObjectId.TryParse(userId, out var userObjectId))
-                    {
-                        // Verify user exists
-                        var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
-                        if (user != null)
-                        {
-                            userObjectIds.Add(userObjectId);
-                        }
-                    }
-                }
-                existingRemoteApp.AssignedUsers = userObjectIds;
-            }
-
             existingRemoteApp.ModifiedAt = DateTime.UtcNow;
 
             await _unitOfWork.RemoteApps.UpdateAsync(objectId, existingRemoteApp, cancellationToken);
@@ -203,7 +195,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (!ObjectId.TryParse(userId, out var userObjectId))
                 throw new ArgumentException("Invalid user ID format", nameof(userId));
 
-            var spec = new RemoteAppsUserAccessibleSpecification(userObjectId, pagination);
+            // Get user's group memberships
+            var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
+            var userGroupIds = user?.Groups;
+
+            var spec = new RemoteAppsUserAccessibleSpecification(userId, userGroupIds, pagination);
             var (remoteApps, totalCount) = await _unitOfWork.RemoteApps.FindWithSpecificationAsync(spec, cancellationToken);
             var dtos = _mapper.Map<List<RemoteAppListDto>>(remoteApps);
 
@@ -219,43 +215,226 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             return new PagedResponse<RemoteAppListDto>(dtos, pagination.PageNumber, pagination.PageSize, (int)totalCount);
         }
 
-        public async Task<bool> AssignUserAsync(string remoteAppId, string userId, CancellationToken cancellationToken = default)
-        {
-            if (!ObjectId.TryParse(remoteAppId, out var remoteAppObjectId))
-                throw new ArgumentException("Invalid remote app ID format", nameof(remoteAppId));
+        #region Permission Management
 
-            if (!ObjectId.TryParse(userId, out var userObjectId))
-                throw new ArgumentException("Invalid user ID format", nameof(userId));
+        public async Task<List<RemoteAppPermissionDto>> GetRemoteAppPermissionsAsync(string id, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
+
+            var permissions = new List<RemoteAppPermissionDto>();
+
+            // Add user permissions
+            foreach (var userPerm in remoteApp.Permissions.Users)
+            {
+                try
+                {
+                    if (ObjectId.TryParse(userPerm.UserId, out var userObjectId))
+                    {
+                        var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
+                        if (user != null)
+                        {
+                            permissions.Add(new RemoteAppPermissionDto
+                            {
+                                Type = "user",
+                                Id = userPerm.UserId,
+                                Name = user.FullName,
+                                AccessLevel = userPerm.AccessLevel
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get user {UserId} for remote app permissions", userPerm.UserId);
+                }
+            }
+
+            // Add group permissions
+            foreach (var groupPerm in remoteApp.Permissions.Groups)
+            {
+                permissions.Add(new RemoteAppPermissionDto
+                {
+                    Type = "group",
+                    Id = groupPerm.GroupId,
+                    Name = $"Group {groupPerm.GroupId}",
+                    AccessLevel = groupPerm.AccessLevel
+                });
+            }
+
+            return permissions;
+        }
+
+        public async Task<RemoteAppDto> AddUserPermissionAsync(string id, RemoteAppUserPermissionDto dto, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
 
             // Verify user exists
-            var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
-            if (user == null)
-                throw new KeyNotFoundException($"User with ID {userId} not found");
+            if (!ObjectId.TryParse(dto.UserId, out var userObjectId))
+                throw new ArgumentException("Invalid user ID format");
 
-            return await _unitOfWork.RemoteApps.AddUserAssignmentAsync(remoteAppObjectId, userObjectId, cancellationToken);
+            if (!await _unitOfWork.Users.ExistsAsync(userObjectId, cancellationToken))
+                throw new KeyNotFoundException($"User with ID {dto.UserId} not found");
+
+            // Check if permission already exists
+            var existingPerm = remoteApp.Permissions.Users.FirstOrDefault(up => up.UserId == dto.UserId);
+            if (existingPerm != null)
+                throw new InvalidOperationException($"User {dto.UserId} already has permissions for this remote app");
+
+            // Add permission
+            remoteApp.Permissions.Users.Add(new RemoteAppUserPermission
+            {
+                UserId = dto.UserId,
+                AccessLevel = dto.AccessLevel
+            });
+            remoteApp.ModifiedAt = DateTime.UtcNow;
+
+            await _unitOfWork.RemoteApps.UpdateAsync(objectId, remoteApp, cancellationToken);
+
+            _logger.LogInformation("Added user permission for user {UserId} on remote app {RemoteAppId} with access level {AccessLevel}",
+                dto.UserId, id, dto.AccessLevel);
+
+            return _mapper.Map<RemoteAppDto>(remoteApp);
         }
 
-        public async Task<bool> UnassignUserAsync(string remoteAppId, string userId, CancellationToken cancellationToken = default)
+        public async Task<RemoteAppDto> UpdateUserPermissionAsync(string id, RemoteAppUserPermissionDto dto, CancellationToken cancellationToken = default)
         {
-            if (!ObjectId.TryParse(remoteAppId, out var remoteAppObjectId))
-                throw new ArgumentException("Invalid remote app ID format", nameof(remoteAppId));
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
 
-            if (!ObjectId.TryParse(userId, out var userObjectId))
-                throw new ArgumentException("Invalid user ID format", nameof(userId));
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
 
-            return await _unitOfWork.RemoteApps.RemoveUserAssignmentAsync(remoteAppObjectId, userObjectId, cancellationToken);
+            // Find and update permission
+            var existingPerm = remoteApp.Permissions.Users.FirstOrDefault(up => up.UserId == dto.UserId);
+            if (existingPerm == null)
+                throw new KeyNotFoundException($"No permission found for user {dto.UserId}");
+
+            existingPerm.AccessLevel = dto.AccessLevel;
+            remoteApp.ModifiedAt = DateTime.UtcNow;
+
+            await _unitOfWork.RemoteApps.UpdateAsync(objectId, remoteApp, cancellationToken);
+
+            _logger.LogInformation("Updated user permission for user {UserId} on remote app {RemoteAppId} to access level {AccessLevel}",
+                dto.UserId, id, dto.AccessLevel);
+
+            return _mapper.Map<RemoteAppDto>(remoteApp);
         }
 
-        public async Task<bool> IsUserAssignedAsync(string remoteAppId, string userId, CancellationToken cancellationToken = default)
+        public async Task<bool> RemoveUserPermissionAsync(string id, string userId, CancellationToken cancellationToken = default)
         {
-            if (!ObjectId.TryParse(remoteAppId, out var remoteAppObjectId))
-                throw new ArgumentException("Invalid remote app ID format", nameof(remoteAppId));
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
 
-            if (!ObjectId.TryParse(userId, out var userObjectId))
-                throw new ArgumentException("Invalid user ID format", nameof(userId));
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
 
-            return await _unitOfWork.RemoteApps.IsUserAssignedAsync(remoteAppObjectId, userObjectId, cancellationToken);
+            // Find and remove permission
+            var existingPerm = remoteApp.Permissions.Users.FirstOrDefault(up => up.UserId == userId);
+            if (existingPerm == null)
+                return false;
+
+            remoteApp.Permissions.Users.Remove(existingPerm);
+            remoteApp.ModifiedAt = DateTime.UtcNow;
+
+            await _unitOfWork.RemoteApps.UpdateAsync(objectId, remoteApp, cancellationToken);
+
+            _logger.LogInformation("Removed user permission for user {UserId} from remote app {RemoteAppId}", userId, id);
+
+            return true;
         }
+
+        public async Task<RemoteAppDto> AddGroupPermissionAsync(string id, RemoteAppGroupPermissionDto dto, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
+
+            // Check if permission already exists
+            var existingPerm = remoteApp.Permissions.Groups.FirstOrDefault(gp => gp.GroupId == dto.GroupId);
+            if (existingPerm != null)
+                throw new InvalidOperationException($"Group {dto.GroupId} already has permissions for this remote app");
+
+            // Add permission
+            remoteApp.Permissions.Groups.Add(new RemoteAppGroupPermission
+            {
+                GroupId = dto.GroupId,
+                AccessLevel = dto.AccessLevel
+            });
+            remoteApp.ModifiedAt = DateTime.UtcNow;
+
+            await _unitOfWork.RemoteApps.UpdateAsync(objectId, remoteApp, cancellationToken);
+
+            _logger.LogInformation("Added group permission for group {GroupId} on remote app {RemoteAppId} with access level {AccessLevel}",
+                dto.GroupId, id, dto.AccessLevel);
+
+            return _mapper.Map<RemoteAppDto>(remoteApp);
+        }
+
+        public async Task<RemoteAppDto> UpdateGroupPermissionAsync(string id, RemoteAppGroupPermissionDto dto, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
+
+            // Find and update permission
+            var existingPerm = remoteApp.Permissions.Groups.FirstOrDefault(gp => gp.GroupId == dto.GroupId);
+            if (existingPerm == null)
+                throw new KeyNotFoundException($"No permission found for group {dto.GroupId}");
+
+            existingPerm.AccessLevel = dto.AccessLevel;
+            remoteApp.ModifiedAt = DateTime.UtcNow;
+
+            await _unitOfWork.RemoteApps.UpdateAsync(objectId, remoteApp, cancellationToken);
+
+            _logger.LogInformation("Updated group permission for group {GroupId} on remote app {RemoteAppId} to access level {AccessLevel}",
+                dto.GroupId, id, dto.AccessLevel);
+
+            return _mapper.Map<RemoteAppDto>(remoteApp);
+        }
+
+        public async Task<bool> RemoveGroupPermissionAsync(string id, string groupId, CancellationToken cancellationToken = default)
+        {
+            if (!ObjectId.TryParse(id, out var objectId))
+                throw new ArgumentException("Invalid ID format", nameof(id));
+
+            var remoteApp = await _unitOfWork.RemoteApps.GetByIdAsync(objectId, cancellationToken);
+            if (remoteApp == null)
+                throw new KeyNotFoundException($"Remote app with ID {id} not found");
+
+            // Find and remove permission
+            var existingPerm = remoteApp.Permissions.Groups.FirstOrDefault(gp => gp.GroupId == groupId);
+            if (existingPerm == null)
+                return false;
+
+            remoteApp.Permissions.Groups.Remove(existingPerm);
+            remoteApp.ModifiedAt = DateTime.UtcNow;
+
+            await _unitOfWork.RemoteApps.UpdateAsync(objectId, remoteApp, cancellationToken);
+
+            _logger.LogInformation("Removed group permission for group {GroupId} from remote app {RemoteAppId}", groupId, id);
+
+            return true;
+        }
+
+        #endregion
 
         public async Task<bool> UpdateStatusAsync(string id, string status, CancellationToken cancellationToken = default)
         {
@@ -298,8 +477,23 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (remoteApp == null)
                 throw new KeyNotFoundException($"Remote app with ID {id} not found");
 
-            // Check if user has access (public apps or assigned users)
-            if (!remoteApp.IsPublic && !remoteApp.AssignedUsers.Contains(userObjectId) && remoteApp.Creator != userId)
+            // Check if user has access (public apps, user permissions, or creator)
+            bool hasAccess = remoteApp.IsPublic ||
+                           remoteApp.Creator == userId ||
+                           remoteApp.Permissions.Users.Any(up => up.UserId == userId);
+
+            // Also check group permissions
+            if (!hasAccess)
+            {
+                var user = await _unitOfWork.Users.GetByIdAsync(userObjectId, cancellationToken);
+                if (user != null && user.Groups != null && user.Groups.Any())
+                {
+                    var userGroupIdStrings = user.Groups.Select(g => g.ToString()).ToList();
+                    hasAccess = remoteApp.Permissions.Groups.Any(gp => userGroupIdStrings.Contains(gp.GroupId));
+                }
+            }
+
+            if (!hasAccess)
                 throw new UnauthorizedAccessException("User does not have access to this remote app");
 
             // If SSO credentials are configured, construct SSO URL

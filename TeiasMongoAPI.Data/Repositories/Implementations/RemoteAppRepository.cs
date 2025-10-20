@@ -38,7 +38,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         {
             var filter = Builders<RemoteApp>.Filter.Or(
                 Builders<RemoteApp>.Filter.Eq(x => x.IsPublic, true),
-                Builders<RemoteApp>.Filter.AnyEq(x => x.AssignedUsers, userId),
+                Builders<RemoteApp>.Filter.ElemMatch(x => x.Permissions.Users, u => u.UserId == userId.ToString()),
                 Builders<RemoteApp>.Filter.Eq(x => x.Creator, userId.ToString())
             );
             return await _collection.Find(filter).ToListAsync(cancellationToken);
@@ -56,39 +56,6 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
 
             var count = await _collection.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
             return count == 0;
-        }
-
-        public async Task<bool> IsUserAssignedAsync(ObjectId remoteAppId, ObjectId userId, CancellationToken cancellationToken = default)
-        {
-            var filter = Builders<RemoteApp>.Filter.And(
-                Builders<RemoteApp>.Filter.Eq(x => x._ID, remoteAppId),
-                Builders<RemoteApp>.Filter.AnyEq(x => x.AssignedUsers, userId)
-            );
-
-            var count = await _collection.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
-            return count > 0;
-        }
-
-        public async Task<bool> AddUserAssignmentAsync(ObjectId remoteAppId, ObjectId userId, CancellationToken cancellationToken = default)
-        {
-            var filter = Builders<RemoteApp>.Filter.Eq(x => x._ID, remoteAppId);
-            var update = Builders<RemoteApp>.Update
-                .AddToSet(x => x.AssignedUsers, userId)
-                .Set(x => x.ModifiedAt, DateTime.UtcNow);
-
-            var result = await _collection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
-            return result.ModifiedCount > 0;
-        }
-
-        public async Task<bool> RemoveUserAssignmentAsync(ObjectId remoteAppId, ObjectId userId, CancellationToken cancellationToken = default)
-        {
-            var filter = Builders<RemoteApp>.Filter.Eq(x => x._ID, remoteAppId);
-            var update = Builders<RemoteApp>.Update
-                .Pull(x => x.AssignedUsers, userId)
-                .Set(x => x.ModifiedAt, DateTime.UtcNow);
-
-            var result = await _collection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken);
-            return result.ModifiedCount > 0;
         }
     }
 }

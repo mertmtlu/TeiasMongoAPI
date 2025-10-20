@@ -18,8 +18,8 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
         [BsonElement("isPublic")]
         public bool IsPublic { get; set; } = false;
 
-        [BsonElement("assignedUsers")]
-        public List<ObjectId> AssignedUsers { get; set; } = new();
+        [BsonElement("permissions")]
+        public RemoteAppPermissions Permissions { get; set; } = new RemoteAppPermissions();
 
         [BsonElement("creator")]
         public required string Creator { get; set; }
@@ -44,5 +44,23 @@ namespace TeiasMongoAPI.Core.Models.Collaboration
 
         [BsonElement("ssoUrl")]
         public string? SsoUrl { get; set; }
+    }
+
+    public class RemoteAppPermissions
+    {
+        public List<RemoteAppGroupPermission> Groups { get; set; } = new List<RemoteAppGroupPermission>();
+        public List<RemoteAppUserPermission> Users { get; set; } = new List<RemoteAppUserPermission>();
+    }
+
+    public class RemoteAppGroupPermission
+    {
+        public string GroupId { get; set; } = string.Empty;
+        public string AccessLevel { get; set; } = string.Empty;
+    }
+
+    public class RemoteAppUserPermission
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string AccessLevel { get; set; } = string.Empty;
     }
 }
