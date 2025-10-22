@@ -365,3 +365,7 @@ FodyWeavers.xsd
 storage/
 .claude/
 /TeiasMongoAPI.API/wwwroot/videos
+
+# Environment variables
+.env
+.env.local

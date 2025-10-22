@@ -32,6 +32,9 @@ namespace TeiasMongoAPI.API
     {
         public static async Task Main(string[] args) // MODIFICATION: Changed to async Task
         {
+            // Load environment variables from .env file
+            DotNetEnv.Env.Load();
+
             var builder = WebApplication.CreateBuilder(args);
 
             // MODIFICATION: Configure Serilog with async sinks for better performance
@@ -300,12 +303,29 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<IWorkflowValidationService, WorkflowValidationService>();
             builder.Services.AddScoped<IWorkflowNotificationService, SignalRWorkflowNotificationService>();
             builder.Services.AddScoped<IUIInteractionService, UIInteractionService>();
-            
+
             // Register BSON to DTO Mapping Service
             builder.Services.AddScoped<IBsonToDtoMappingService, BsonToDtoMappingService>();
-            
+
             // Register Session Manager as Singleton
             builder.Services.AddSingleton<IWorkflowSessionManager, WorkflowSessionManager>();
+
+            // Configure AI/LLM Services
+            builder.Services.Configure<TeiasMongoAPI.Services.Configuration.LLMOptions>(options =>
+            {
+                options.Provider = Environment.GetEnvironmentVariable("LLM_PROVIDER") ?? "Gemini";
+                options.ApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? string.Empty;
+                options.Model = Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "gemini-2.0-flash-exp";
+                options.MaxContextTokens = int.Parse(Environment.GetEnvironmentVariable("AI_MAX_CONTEXT_TOKENS") ?? "100000");
+                options.MaxResponseTokens = int.Parse(Environment.GetEnvironmentVariable("AI_MAX_RESPONSE_TOKENS") ?? "8192");
+                options.Temperature = double.Parse(Environment.GetEnvironmentVariable("GEMINI_TEMPERATURE") ?? "0.7");
+                options.ConversationHistoryLimit = int.Parse(Environment.GetEnvironmentVariable("AI_CONVERSATION_HISTORY_LIMIT") ?? "10");
+            });
+
+            // Register AI Services
+            builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ILLMClient, TeiasMongoAPI.Services.Services.Implementations.AI.GeminiLLMClient>();
+            builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.IIntentClassifier, TeiasMongoAPI.Services.Services.Implementations.AI.IntentClassifier>();
+            builder.Services.AddScoped<IAIAssistantService, TeiasMongoAPI.Services.Services.Implementations.AI.AIAssistantService>();
 
             // Register Background Task Queue (Singleton for shared queue)
             builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
