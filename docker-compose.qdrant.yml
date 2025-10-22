@@ -1,0 +1,40 @@
+# Docker Compose configuration for Qdrant vector database
+# Used for AI assistant code embeddings and semantic search
+#
+# Usage:
+#   Start: docker-compose -f docker-compose.qdrant.yml up -d
+#   Stop:  docker-compose -f docker-compose.qdrant.yml down
+#   View logs: docker-compose -f docker-compose.qdrant.yml logs -f
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: teias-qdrant
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      # Optional: Enable authentication (uncomment and set API key)
+      # - QDRANT__SERVICE__API_KEY=your-secret-api-key-here
+
+      # Logging
+      - QDRANT__LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - teias-network
+
+volumes:
+  qdrant_storage:
+    driver: local
+
+networks:
+  teias-network:
+    driver: bridge

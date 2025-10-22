@@ -11,6 +11,12 @@ namespace TeiasMongoAPI.Services.Models.AI
         public required ProjectStructureAnalysis Structure { get; set; }
 
         /// <summary>
+        /// Complete project index showing all symbols
+        /// Allows AI to "see" entire codebase without reading all files
+        /// </summary>
+        public ProjectIndex? Index { get; set; }
+
+        /// <summary>
         /// File contents that were read for context
         /// Key: file path, Value: file content
         /// </summary>

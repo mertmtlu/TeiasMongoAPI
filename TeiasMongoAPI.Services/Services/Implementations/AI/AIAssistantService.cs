@@ -23,7 +23,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
         private readonly IFileStorageService _fileStorageService;
         private readonly IProgramService _programService;
         private readonly IUiComponentService _uiComponentService;
+        private readonly ICodeIndexer _codeIndexer;
+        private readonly IVectorStore? _vectorStore;
+        private readonly IEmbeddingService? _embeddingService;
         private readonly LLMOptions _llmOptions;
+        private readonly VectorStoreOptions _vectorStoreOptions;
         private readonly ILogger<AIAssistantService> _logger;
         private readonly UIComponentContextGenerator _uiComponentContextGenerator;
         private readonly ILoggerFactory _loggerFactory;
@@ -35,9 +39,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             IFileStorageService fileStorageService,
             IProgramService programService,
             IUiComponentService uiComponentService,
+            ICodeIndexer codeIndexer,
             IOptions<LLMOptions> llmOptions,
+            IOptions<VectorStoreOptions> vectorStoreOptions,
             ILogger<AIAssistantService> logger,
-            ILoggerFactory loggerFactory)
+            ILoggerFactory loggerFactory,
+            IVectorStore? vectorStore = null,
+            IEmbeddingService? embeddingService = null)
         {
             _llmClient = llmClient;
             _intentClassifier = intentClassifier;
@@ -45,7 +53,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             _fileStorageService = fileStorageService;
             _programService = programService;
             _uiComponentService = uiComponentService;
+            _codeIndexer = codeIndexer;
+            _vectorStore = vectorStore;
+            _embeddingService = embeddingService;
             _llmOptions = llmOptions.Value;
+            _vectorStoreOptions = vectorStoreOptions.Value;
             _logger = logger;
             _loggerFactory = loggerFactory;
             _uiComponentContextGenerator = new UIComponentContextGenerator(
@@ -93,7 +105,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                     context.FileContents.Count, context.EstimatedTokens);
 
                 // Step 4: Build LLM prompt
-                var systemPrompt = BuildSystemPrompt(context);
+                var systemPrompt = BuildSystemPrompt(context, request.CurrentlyOpenFiles);
                 var conversationMessages = BuildConversationMessages(request.ConversationHistory, request.UserPrompt);
 
                 // Step 5: Call LLM
@@ -192,7 +204,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             string programId,
             string versionId,
             string userPrompt,
-            List<string>? currentlyOpenFiles,
+            List<OpenFileContext>? currentlyOpenFiles,
             string? cursorContext,
             AIPreferences? preferences,
             CancellationToken cancellationToken)
@@ -211,38 +223,137 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 Metadata = structureDto.Metadata
             };
 
+            // Step 1.5: Generate project index (all symbols, no implementations)
+            ProjectIndex? projectIndex = null;
+            try
+            {
+                projectIndex = await _codeIndexer.GenerateProjectIndexAsync(programId, versionId, cancellationToken);
+                _logger.LogInformation("Project index generated: {TotalSymbols} symbols, ~{Tokens} tokens",
+                    projectIndex.TotalSymbols, projectIndex.EstimatedTokens);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to generate project index, continuing without it");
+            }
+
             // Step 2: Classify intent
+            var openFilePaths = currentlyOpenFiles?.Select(f => f.FilePath).ToList();
             var intent = await _intentClassifier.ClassifyIntentAsync(
                 userPrompt,
                 structure,
-                currentlyOpenFiles,
+                openFilePaths,
                 cursorContext,
                 cancellationToken);
 
-            // Step 3: Determine token budget for file content
-            var contextMode = preferences?.ContextMode ?? "balanced";
-            var maxTokensForFiles = contextMode switch
-            {
-                "aggressive" => 2000,  // Minimize token usage
-                "comprehensive" => 8000,  // Use more tokens for complete context
-                _ => 4000  // Balanced
-            };
-
-            // Step 4: Select files within budget
-            var filesToRead = _intentClassifier.SelectFilesForIntent(intent, structure, maxTokensForFiles);
-
-            // Step 5: Read selected files
-            var fileContents = new Dictionary<string, string>();
-            var estimatedTokens = 1000; // Base tokens for structure
-
-            foreach (var filePath in filesToRead.Take(preferences?.MaxFileOperations ?? 10))
+            // Step 3: Semantic search using vector store (if enabled)
+            var vectorSearchFiles = new List<string>();
+            if (_vectorStore != null && _embeddingService != null && _vectorStoreOptions.EnableVectorSearch)
             {
                 try
                 {
-                    var fileBytes = await _fileStorageService.GetFileContentAsync(programId, versionId, filePath, cancellationToken);
-                    var content = Encoding.UTF8.GetString(fileBytes);
+                    // Generate embedding for user prompt
+                    var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(userPrompt, cancellationToken);
+
+                    // Search for semantically similar code chunks
+                    var searchResults = await _vectorStore.SearchSimilarAsync(
+                        programId,
+                        versionId,
+                        queryEmbedding,
+                        _vectorStoreOptions.TopK,
+                        _vectorStoreOptions.MinimumSimilarityScore,
+                        cancellationToken);
+
+                    // Extract unique file paths from search results
+                    vectorSearchFiles = searchResults
+                        .Select(r => r.Chunk.FilePath)
+                        .Distinct()
+                        .ToList();
+
+                    _logger.LogInformation("Vector search found {ResultCount} relevant chunks across {FileCount} files",
+                        searchResults.Count, vectorSearchFiles.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Vector search failed, continuing with intent-based selection only");
+                }
+            }
+
+            // Step 4: Determine token budget for file content
+            // With Gemini 2.0 Flash's 100K context window, we can be much more generous
+            var contextMode = preferences?.ContextMode ?? "balanced";
+            var maxTokensForFiles = contextMode switch
+            {
+                "aggressive" => 15000,     // Minimize token usage but still include 20-25 files
+                "balanced" => 40000,       // Balanced - can include 50-60 files
+                "comprehensive" => 70000,  // Use most of context for complete picture
+                "unlimited" => 90000,      // Try to send everything (leave 10K for response)
+                _ => 40000                 // Default to balanced
+            };
+
+            // Step 5: Select files within budget (combining intent-based and vector search)
+            var intentBasedFiles = _intentClassifier.SelectFilesForIntent(intent, structure, maxTokensForFiles);
+            var filesToRead = intentBasedFiles.Union(vectorSearchFiles).Distinct().ToList();
+
+            _logger.LogInformation("File selection: {IntentFiles} from intent, {VectorFiles} from vector search, {TotalFiles} total unique files",
+                intentBasedFiles.Count, vectorSearchFiles.Count, filesToRead.Count);
+
+            // Step 6: Read selected files (prioritizing live content from frontend)
+            var fileContents = new Dictionary<string, string>();
+            var estimatedTokens = 1000; // Base tokens for structure
+
+            // Determine max files to read based on context mode
+            var maxFilesToRead = contextMode == "unlimited"
+                ? int.MaxValue  // Try to read all files
+                : (preferences?.MaxFileOperations ?? 100);  // Increased default from 10 to 100
+
+            var filesProcessed = 0;
+            var filesSkipped = 0;
+
+            foreach (var filePath in filesToRead)
+            {
+                // Stop if we've exceeded the token budget (leave room for response)
+                if (estimatedTokens > maxTokensForFiles)
+                {
+                    filesSkipped++;
+                    _logger.LogDebug("Skipping {FilePath} - token budget exceeded ({Current} > {Max})",
+                        filePath, estimatedTokens, maxTokensForFiles);
+                    continue;
+                }
+
+                // Stop if we've hit the max file limit
+                if (filesProcessed >= maxFilesToRead)
+                {
+                    filesSkipped++;
+                    _logger.LogDebug("Skipping {FilePath} - max files limit reached", filePath);
+                    continue;
+                }
+
+                try
+                {
+                    // Check if this file is open in the editor with live content
+                    var openFile = currentlyOpenFiles?.FirstOrDefault(f =>
+                        f.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase) ||
+                        filePath.EndsWith(f.FilePath, StringComparison.OrdinalIgnoreCase));
+
+                    string content;
+
+                    if (openFile?.Content != null)
+                    {
+                        // Use live content from editor (handles unsaved changes)
+                        content = openFile.Content;
+                        _logger.LogInformation("Using live content from editor for {FilePath} (unsaved: {HasUnsaved})",
+                            filePath, openFile.HasUnsavedChanges);
+                    }
+                    else
+                    {
+                        // Read from storage
+                        var fileBytes = await _fileStorageService.GetFileContentAsync(programId, versionId, filePath, cancellationToken);
+                        content = Encoding.UTF8.GetString(fileBytes);
+                    }
+
                     fileContents[filePath] = content;
                     estimatedTokens += _llmClient.EstimateTokenCount(content);
+                    filesProcessed++;
                 }
                 catch (Exception ex)
                 {
@@ -250,7 +361,45 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 }
             }
 
-            // Step 6: Generate virtual UIComponent module if UI components are registered
+            if (filesSkipped > 0)
+            {
+                _logger.LogInformation("Context gathering complete: {Included} files included, {Skipped} files skipped due to budget constraints",
+                    filesProcessed, filesSkipped);
+            }
+
+            // Step 7: Add UI Component generator documentation to system prompt
+            // Include info about how UI components work in the system
+            var uiComponentSystemInfo = @"
+# SYSTEM: UI Component Generators
+
+The TeiasMongoAPI system includes automatic UI component code generation:
+
+**UIComponentPythonGenerator.cs**: Generates Python code for UI components
+- Creates Python classes with properties, methods, and event handlers
+- Includes DTO type definitions for structured data
+- Supports form elements, buttons, inputs, tables, charts
+
+**UIComponentCSharpGenerator.cs**: Generates C# code for UI components
+- Creates C# classes with properties, methods, and event handlers
+- Includes DTO class definitions for structured data
+- Supports form elements, buttons, inputs, tables, charts
+
+When users work with UI components in their projects:
+- They can reference 'UIComponent' module in Python or C#
+- The ui object provides access to registered components
+- Components are dynamically generated at runtime
+- Import statements like 'from UIComponent import ui' are valid
+
+If the AI needs to help users with UI components, it should:
+1. Understand these generators create the component code
+2. Know that UIComponent imports are runtime-generated (not source files)
+3. Help users use the 'ui' object to access their registered components
+";
+
+            fileContents["[SYSTEM] UI Component System Documentation"] = uiComponentSystemInfo;
+            estimatedTokens += _llmClient.EstimateTokenCount(uiComponentSystemInfo);
+
+            // Step 8: Generate virtual UIComponent module if UI components are registered
             try
             {
                 var virtualUIComponent = await _uiComponentContextGenerator.GenerateVirtualUIComponentModuleAsync(
@@ -273,18 +422,64 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             return new ProjectContext
             {
                 Structure = structure,
+                Index = projectIndex,
                 FileContents = fileContents,
                 Intent = intent,
                 EstimatedTokens = estimatedTokens
             };
         }
 
-        private string BuildSystemPrompt(ProjectContext context)
+        private string BuildSystemPrompt(ProjectContext context, List<OpenFileContext>? openFiles = null)
         {
             var sb = new StringBuilder();
 
             sb.AppendLine("You are an expert programming assistant helping developers with their code projects.");
             sb.AppendLine();
+
+            // Show info about currently open files and unsaved changes
+            if (openFiles != null && openFiles.Any())
+            {
+                var filesWithUnsavedChanges = openFiles.Where(f => f.HasUnsavedChanges).ToList();
+                if (filesWithUnsavedChanges.Any())
+                {
+                    sb.AppendLine("# IMPORTANT: UNSAVED CHANGES");
+                    sb.AppendLine("The following files have UNSAVED changes in the editor. The content shown below reflects the CURRENT state in the editor:");
+                    foreach (var file in filesWithUnsavedChanges)
+                    {
+                        sb.AppendLine($"- {file.FilePath} (unsaved)");
+                    }
+                    sb.AppendLine();
+                }
+
+                var focusedFile = openFiles.FirstOrDefault(f => f.IsFocused);
+                if (focusedFile != null)
+                {
+                    sb.AppendLine("# USER FOCUS");
+                    sb.AppendLine($"Currently focused file: {focusedFile.FilePath}");
+                    if (focusedFile.CursorLine.HasValue)
+                    {
+                        sb.AppendLine($"Cursor position: Line {focusedFile.CursorLine}, Column {focusedFile.CursorColumn}");
+                    }
+                    if (!string.IsNullOrEmpty(focusedFile.SelectedRange))
+                    {
+                        sb.AppendLine($"Selected range: {focusedFile.SelectedRange}");
+                    }
+                    sb.AppendLine();
+                }
+            }
+
+            // Include project index if available (shows all symbols in codebase)
+            if (context.Index != null)
+            {
+                sb.AppendLine("# COMPLETE PROJECT INDEX");
+                sb.AppendLine("Below is a complete index of ALL files and symbols in the project.");
+                sb.AppendLine("This shows you the entire codebase structure without implementations.");
+                sb.AppendLine("You can reference ANY of these symbols even if the full file content is not included below.");
+                sb.AppendLine();
+                sb.AppendLine(_codeIndexer.FormatIndexForPrompt(context.Index));
+                sb.AppendLine();
+            }
+
             sb.AppendLine("# PROJECT STRUCTURE");
             sb.AppendLine($"Language: {context.Structure.Language}");
             sb.AppendLine($"Project Type: {context.Structure.ProjectType}");

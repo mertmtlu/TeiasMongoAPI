@@ -34,8 +34,9 @@ namespace TeiasMongoAPI.Services.DTOs.Request.AI
         /// <summary>
         /// Optional: Currently open/visible files in the editor
         /// Helps AI understand user's current focus
+        /// Includes support for unsaved changes - if Content is provided, it takes precedence over stored files
         /// </summary>
-        public List<string>? CurrentlyOpenFiles { get; set; }
+        public List<OpenFileContext>? CurrentlyOpenFiles { get; set; }
 
         /// <summary>
         /// Optional: Current cursor position/selection for targeted assistance
