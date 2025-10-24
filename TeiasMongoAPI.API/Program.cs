@@ -334,6 +334,7 @@ namespace TeiasMongoAPI.API
             builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ILLMClient, TeiasMongoAPI.Services.Services.Implementations.AI.GeminiLLMClient>();
             builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.IIntentClassifier, TeiasMongoAPI.Services.Services.Implementations.AI.IntentClassifier>();
             builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ICodeIndexer, TeiasMongoAPI.Services.Services.Implementations.AI.CodeIndexer>();
+            builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.IResponseEvaluator, TeiasMongoAPI.Services.Services.Implementations.AI.ResponseEvaluator>();
             builder.Services.AddScoped<IAIAssistantService, TeiasMongoAPI.Services.Services.Implementations.AI.AIAssistantService>();
 
             // Register Semantic Search Services (optional - gracefully handles if Qdrant is not available)

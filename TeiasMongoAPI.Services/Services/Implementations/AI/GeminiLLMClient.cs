@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Polly;
+using Polly.Retry;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text;
@@ -20,6 +23,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
         private readonly ILogger<GeminiLLMClient> _logger;
         private static readonly HttpClient _httpClient = new HttpClient();
         private readonly string _apiEndpoint;
+        private readonly ResiliencePipeline<HttpResponseMessage> _retryPipeline;
 
         public string ModelName => _options.Model;
 
@@ -36,6 +40,39 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             }
 
             _apiEndpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{_options.Model}:generateContent?key={_options.ApiKey}";
+
+            // Configure retry policy for transient HTTP errors
+            _retryPipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+                .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
+                {
+                    MaxRetryAttempts = _options.MaxRetryAttempts,
+                    Delay = TimeSpan.FromSeconds(_options.RetryDelaySeconds),
+                    BackoffType = DelayBackoffType.Constant,
+                    ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                        .Handle<HttpRequestException>()
+                        .HandleResult(response =>
+                        {
+                            // Retry on these transient HTTP status codes
+                            return response.StatusCode == HttpStatusCode.ServiceUnavailable || // 503
+                                   response.StatusCode == HttpStatusCode.TooManyRequests ||    // 429
+                                   response.StatusCode == HttpStatusCode.RequestTimeout ||      // 408
+                                   response.StatusCode == HttpStatusCode.InternalServerError || // 500
+                                   response.StatusCode == HttpStatusCode.BadGateway ||          // 502
+                                   response.StatusCode == HttpStatusCode.GatewayTimeout;        // 504
+                        }),
+                    OnRetry = args =>
+                    {
+                        var statusCode = args.Outcome.Result?.StatusCode.ToString() ?? "Exception";
+                        _logger.LogWarning(
+                            "Retrying Gemini API call. Attempt {AttemptNumber} of {MaxAttempts}. Status: {StatusCode}. Waiting {Delay}ms before retry.",
+                            args.AttemptNumber + 1,
+                            _options.MaxRetryAttempts + 1,
+                            statusCode,
+                            args.RetryDelay.TotalMilliseconds);
+                        return ValueTask.CompletedTask;
+                    }
+                })
+                .Build();
         }
 
         public async Task<LLMResponse> ChatCompletionAsync(
@@ -98,8 +135,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 var jsonContent = JsonSerializer.Serialize(requestBody);
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                // Send request
-                var response = await _httpClient.PostAsync(_apiEndpoint, content, cancellationToken);
+                // Send request with retry logic
+                var response = await _retryPipeline.ExecuteAsync(
+                    async ct => await _httpClient.PostAsync(_apiEndpoint, content, ct),
+                    cancellationToken);
+
                 response.EnsureSuccessStatusCode();
 
                 var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);

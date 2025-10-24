@@ -55,5 +55,35 @@ namespace TeiasMongoAPI.Services.Configuration
         /// Timeout for API requests in seconds
         /// </summary>
         public int RequestTimeoutSeconds { get; set; } = 120;
+
+        /// <summary>
+        /// Maximum number of retry attempts for transient errors (503, 429, etc.)
+        /// </summary>
+        public int MaxRetryAttempts { get; set; } = 3;
+
+        /// <summary>
+        /// Delay in seconds between retry attempts
+        /// </summary>
+        public int RetryDelaySeconds { get; set; } = 2;
+
+        /// <summary>
+        /// Enable AI response quality evaluation
+        /// </summary>
+        public bool EnableResponseEvaluation { get; set; } = true;
+
+        /// <summary>
+        /// Maximum number of retries when response evaluation fails
+        /// </summary>
+        public int MaxEvaluationRetries { get; set; } = 2;
+
+        /// <summary>
+        /// Minimum response length threshold for completeness check (in characters)
+        /// </summary>
+        public int MinimumResponseLength { get; set; } = 50;
+
+        /// <summary>
+        /// Temperature increment for evaluation retries (adds to base temperature)
+        /// </summary>
+        public double EvaluationRetryTemperatureIncrement { get; set; } = 0.1;
     }
 }

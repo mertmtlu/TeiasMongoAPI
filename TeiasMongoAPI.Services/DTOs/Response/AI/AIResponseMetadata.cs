@@ -31,5 +31,27 @@ namespace TeiasMongoAPI.Services.DTOs.Response.AI
         /// If true, user might want to provide more details
         /// </summary>
         public bool NeedsMoreContext { get; set; }
+
+        /// <summary>
+        /// Response quality evaluation score (0.0 to 1.0)
+        /// Null if evaluation was not performed or disabled
+        /// </summary>
+        public double? EvaluationScore { get; set; }
+
+        /// <summary>
+        /// Whether response evaluation failed quality checks
+        /// True indicates the response may not adequately address the user's request
+        /// </summary>
+        public bool EvaluationFailed { get; set; }
+
+        /// <summary>
+        /// Number of retry attempts made (includes both 503 retries and evaluation retries)
+        /// </summary>
+        public int RetryCount { get; set; }
+
+        /// <summary>
+        /// Issues found during evaluation (if any)
+        /// </summary>
+        public List<string>? EvaluationIssues { get; set; }
     }
 }

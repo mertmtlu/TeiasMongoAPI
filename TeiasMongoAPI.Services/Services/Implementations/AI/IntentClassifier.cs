@@ -81,6 +81,7 @@ Your job is to analyze the user's request and determine:
 1. What they want to do (create, update, fix, explain, etc.)
 2. The SCOPE of files they want to work with
 3. Any specific files or concepts mentioned
+4. Whether UI component documentation should be included
 
 Be precise about scope:
 - 'Specific': User mentions exact file(s) - 'update Login.cs', 'fix AuthController.cs'
@@ -89,6 +90,11 @@ Be precise about scope:
 - 'Pattern': User wants files matching a pattern - 'all C# files', 'all .cs files', 'test files'
 
 If scope is 'Related', extract the key concept/feature/system they're referring to.
+
+For IncludeUIComponents:
+- Set to true if the user's request involves UI, forms, components, interfaces, buttons, inputs, displays, widgets, or any user-facing functionality
+- Set to true if creating/updating files that might use UI components
+- Set to false for backend-only tasks, bug fixes in non-UI code, or questions about non-UI topics
 
 Analyze the user request carefully and provide accurate classification.";
 
@@ -134,6 +140,7 @@ Analyze the user request carefully and provide accurate classification.";
                 ScopeReasoning = classified.ScopeReasoning,
                 Complexity = classified.Complexity,
                 Confidence = classified.Confidence,
+                IncludeUIComponents = classified.IncludeUIComponents,
                 RequiredFiles = new List<string>()
             };
 
@@ -788,6 +795,7 @@ Analyze the user request carefully and provide accurate classification.";
             public string ScopeReasoning { get; set; } = string.Empty;
             public Models.AI.ComplexityLevel Complexity { get; set; }
             public double Confidence { get; set; }
+            public bool IncludeUIComponents { get; set; }
         }
 
         #endregion

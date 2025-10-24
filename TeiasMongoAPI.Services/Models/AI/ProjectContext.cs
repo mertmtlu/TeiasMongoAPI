@@ -143,6 +143,12 @@ namespace TeiasMongoAPI.Services.Models.AI
         /// Useful for debugging and transparency
         /// </summary>
         public string? ScopeReasoning { get; set; }
+
+        /// <summary>
+        /// Whether UI component documentation should be included in context
+        /// Determined by LLM based on user prompt analysis
+        /// </summary>
+        public bool IncludeUIComponents { get; set; }
     }
 
     /// <summary>

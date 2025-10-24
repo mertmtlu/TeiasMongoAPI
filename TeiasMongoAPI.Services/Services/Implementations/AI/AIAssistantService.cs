@@ -1,11 +1,16 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using TeiasMongoAPI.Core.Interfaces.Repositories;
+using TeiasMongoAPI.Core.Models.Collaboration;
 using TeiasMongoAPI.Services.Configuration;
 using TeiasMongoAPI.Services.DTOs.Request.AI;
 using TeiasMongoAPI.Services.DTOs.Response.AI;
+using TeiasMongoAPI.Services.Helpers;
 using TeiasMongoAPI.Services.Interfaces;
 using TeiasMongoAPI.Services.Models.AI;
 
@@ -25,10 +30,12 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
         private readonly IUiComponentService _uiComponentService;
         private readonly ICodeIndexer _codeIndexer;
         private readonly ISemanticSearchService? _semanticSearchService;
+        private readonly IResponseEvaluator _responseEvaluator;
         private readonly LLMOptions _llmOptions;
         private readonly ILogger<AIAssistantService> _logger;
         private readonly UIComponentContextGenerator _uiComponentContextGenerator;
         private readonly ILoggerFactory _loggerFactory;
+        private readonly IUnitOfWork _unitOfWork;
 
         public AIAssistantService(
             ILLMClient llmClient,
@@ -38,10 +45,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             IProgramService programService,
             IUiComponentService uiComponentService,
             ICodeIndexer codeIndexer,
+            IResponseEvaluator responseEvaluator,
             IOptions<LLMOptions> llmOptions,
             ILogger<AIAssistantService> logger,
             ILoggerFactory loggerFactory,
-            ISemanticSearchService? semanticSearchService = null)
+            IUnitOfWork unitOfWork,
+            ISemanticSearchService? semanticSearchService = null
+            )
         {
             _llmClient = llmClient;
             _intentClassifier = intentClassifier;
@@ -51,12 +61,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             _uiComponentService = uiComponentService;
             _codeIndexer = codeIndexer;
             _semanticSearchService = semanticSearchService;
+            _responseEvaluator = responseEvaluator;
             _llmOptions = llmOptions.Value;
             _logger = logger;
             _loggerFactory = loggerFactory;
             _uiComponentContextGenerator = new UIComponentContextGenerator(
                 uiComponentService,
                 _loggerFactory.CreateLogger<UIComponentContextGenerator>());
+            _unitOfWork = unitOfWork;
         }
 
         public async Task<AIConversationResponseDto> ConverseAsync(
@@ -102,25 +114,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 var systemPrompt = BuildSystemPrompt(context, request.CurrentlyOpenFiles);
                 var conversationMessages = BuildConversationMessages(request.ConversationHistory, request.UserPrompt);
 
-                // Step 5: Call LLM with structured output schema
-                var responseSchema = GeminiSchemaBuilder.BuildAIAssistantResponseSchema();
-                var llmResponse = await _llmClient.ChatCompletionAsync(
+                // Step 5: Call LLM with evaluation and retry logic
+                var (aiResponse, totalTokens, retryCount, evaluationResult) = await GetAIResponseWithEvaluationAsync(
                     systemPrompt,
                     conversationMessages,
-                    request.Preferences?.Verbosity == "concise" ? 0.5 :
-                    request.Preferences?.Verbosity == "detailed" ? 0.9 : null,
-                    responseSchema: responseSchema,
-                    cancellationToken: cancellationToken);
+                    context,
+                    request,
+                    cancellationToken);
 
-                _logger.LogInformation("LLM response received. Tokens: {TotalTokens}", llmResponse.TotalTokens);
+                _logger.LogInformation("Final response received. Tokens: {TotalTokens}, Retries: {RetryCount}",
+                    totalTokens, retryCount);
 
-                // Step 6: Parse LLM response
-                var aiResponse = ParseLLMResponse(llmResponse.Content, context);
-
-                // Step 7: Build updated conversation history
+                // Step 6: Build updated conversation history
                 var updatedHistory = BuildUpdatedHistory(request.ConversationHistory, request.UserPrompt, aiResponse);
 
-                // Step 8: Generate suggested follow-ups
+                // Step 7: Generate suggested follow-ups
                 var suggestedFollowUps = GenerateSuggestedFollowUps(context.Intent, aiResponse.FileOperations);
 
                 stopwatch.Stop();
@@ -134,11 +142,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                     Warnings = aiResponse.Warnings,
                     Metadata = new AIResponseMetadata
                     {
-                        TokensUsed = llmResponse.TotalTokens,
+                        TokensUsed = totalTokens,
                         ProcessingTimeMs = (int)stopwatch.ElapsedMilliseconds,
                         FilesAnalyzed = context.FileContents.Keys.ToList(),
                         ConfidenceLevel = DetermineConfidenceLevel(context.Intent, aiResponse.FileOperations.Count),
-                        NeedsMoreContext = context.Intent?.Confidence < 0.6
+                        NeedsMoreContext = context.Intent?.Confidence < 0.6,
+                        EvaluationScore = evaluationResult?.ConfidenceScore,
+                        EvaluationFailed = evaluationResult?.IsAcceptable == false,
+                        RetryCount = retryCount,
+                        EvaluationIssues = evaluationResult?.Issues?.Count > 0 ? evaluationResult.Issues : null
                     }
                 };
             }
@@ -196,6 +208,111 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
         }
 
         #region Private Helper Methods
+
+        /// <summary>
+        /// Gets AI response with evaluation and retry logic
+        /// </summary>
+        private async Task<(ParsedAIResponse aiResponse, int totalTokens, int retryCount, ResponseEvaluationResult? evaluationResult)>
+            GetAIResponseWithEvaluationAsync(
+                string systemPrompt,
+                List<LLMMessage> conversationMessages,
+                ProjectContext context,
+                AIConversationRequestDto request,
+                CancellationToken cancellationToken)
+        {
+            var responseSchema = GeminiSchemaBuilder.BuildAIAssistantResponseSchema();
+            var baseTemperature = request.Preferences?.Verbosity == "concise" ? 0.5 :
+                                  request.Preferences?.Verbosity == "detailed" ? 0.9 :
+                                  _llmOptions.Temperature;
+
+            int retryCount = 0;
+            int maxEvaluationRetries = _llmOptions.EnableResponseEvaluation ? _llmOptions.MaxEvaluationRetries : 0;
+            ResponseEvaluationResult? lastEvaluationResult = null;
+            ParsedAIResponse? bestResponse = null;
+            int bestResponseTokens = 0;
+            double bestScore = 0.0;
+
+            for (int attempt = 0; attempt <= maxEvaluationRetries; attempt++)
+            {
+                // Adjust temperature for retries
+                var currentTemperature = baseTemperature + (attempt * _llmOptions.EvaluationRetryTemperatureIncrement);
+
+                // Adjust system prompt for retries
+                var currentSystemPrompt = systemPrompt;
+                if (attempt > 0)
+                {
+                    currentSystemPrompt += "\n\nIMPORTANT: Please provide a more detailed and comprehensive response that fully addresses the user's request.";
+                    _logger.LogInformation("Retry attempt {Attempt} with adjusted temperature {Temperature}", attempt, currentTemperature);
+                }
+
+                // Call LLM
+                var llmResponse = await _llmClient.ChatCompletionAsync(
+                    currentSystemPrompt,
+                    conversationMessages,
+                    currentTemperature,
+                    responseSchema: responseSchema,
+                    cancellationToken: cancellationToken);
+
+                _logger.LogInformation("LLM response received. Tokens: {TotalTokens}", llmResponse.TotalTokens);
+
+                // Parse response
+                var aiResponse = ParseLLMResponse(llmResponse.Content, context);
+
+                // Evaluate response if enabled
+                ResponseEvaluationResult? evaluationResult = null;
+                if (_llmOptions.EnableResponseEvaluation)
+                {
+                    var responseDto = new AIConversationResponseDto
+                    {
+                        DisplayText = aiResponse.DisplayText,
+                        FileOperations = aiResponse.FileOperations,
+                        Warnings = aiResponse.Warnings
+                    };
+
+                    evaluationResult = await _responseEvaluator.EvaluateResponseAsync(
+                        request.UserPrompt,
+                        responseDto,
+                        context: $"Project: {context.Structure?.Language} - Intent: {context.Intent?.Type}",
+                        cancellationToken: cancellationToken);
+
+                    lastEvaluationResult = evaluationResult;
+
+                    // Track best response
+                    if (evaluationResult.ConfidenceScore > bestScore)
+                    {
+                        bestScore = evaluationResult.ConfidenceScore;
+                        bestResponse = aiResponse;
+                        bestResponseTokens = llmResponse.TotalTokens;
+                    }
+
+                    // If evaluation passes, return immediately
+                    if (evaluationResult.IsAcceptable)
+                    {
+                        _logger.LogInformation("Response evaluation passed on attempt {Attempt}. Score: {Score}",
+                            attempt, evaluationResult.ConfidenceScore);
+                        return (aiResponse, llmResponse.TotalTokens, retryCount, evaluationResult);
+                    }
+
+                    // If not acceptable and we have retries left, continue
+                    if (attempt < maxEvaluationRetries)
+                    {
+                        retryCount++;
+                        _logger.LogWarning("Response evaluation failed on attempt {Attempt}. Score: {Score}. Issues: {Issues}. Retrying...",
+                            attempt, evaluationResult.ConfidenceScore, string.Join(", ", evaluationResult.Issues));
+                        continue;
+                    }
+                }
+                else
+                {
+                    // Evaluation disabled, return immediately
+                    return (aiResponse, llmResponse.TotalTokens, 0, null);
+                }
+            }
+
+            // All retries exhausted, return best response we got
+            _logger.LogWarning("All evaluation retries exhausted. Returning best response with score: {Score}", bestScore);
+            return (bestResponse ?? ParseLLMResponse("{}", context), bestResponseTokens, retryCount, lastEvaluationResult);
+        }
 
         private async Task<ProjectContext> GatherOptimizedContextAsync(
             string programId,
@@ -476,56 +593,29 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                     filesProcessed, filesSkipped);
             }
 
-            // Step 6: Add UI Component generator documentation to system prompt
+            // Step 6: Add UI Component generator documentation to system prompt based on intent
             // Include info about how UI components work in the system
-            var uiComponentSystemInfo = @"
-# SYSTEM: UI Component Generators
-
-The TeiasMongoAPI system includes automatic UI component code generation:
-
-**UIComponentPythonGenerator.cs**: Generates Python code for UI components
-- Creates Python classes with properties, methods, and event handlers
-- Includes DTO type definitions for structured data
-- Supports form elements, buttons, inputs, tables, charts
-
-**UIComponentCSharpGenerator.cs**: Generates C# code for UI components
-- Creates C# classes with properties, methods, and event handlers
-- Includes DTO class definitions for structured data
-- Supports form elements, buttons, inputs, tables, charts
-
-When users work with UI components in their projects:
-- They can reference 'UIComponent' module in Python or C#
-- The ui object provides access to registered components
-- Components are dynamically generated at runtime
-- Import statements like 'from UIComponent import ui' are valid
-
-If the AI needs to help users with UI components, it should:
-1. Understand these generators create the component code
-2. Know that UIComponent imports are runtime-generated (not source files)
-3. Help users use the 'ui' object to access their registered components
-";
-
-            fileContents["[SYSTEM] UI Component System Documentation"] = uiComponentSystemInfo;
-            estimatedTokens += _llmClient.EstimateTokenCount(uiComponentSystemInfo);
-
-            // Step 7: Generate virtual UIComponent module if UI components are registered
-            try
+            // Let the LLM decide via intent classification whether UI components are needed
+            if (intent?.IncludeUIComponents == true)
             {
-                var virtualUIComponent = await _uiComponentContextGenerator.GenerateVirtualUIComponentModuleAsync(
-                    programId,
-                    versionId,
-                    cancellationToken);
+                var latestComponent = await _unitOfWork.UiComponents.GetLatestActiveByProgramAsync(ObjectId.Parse(programId), cancellationToken);
 
-                if (!string.IsNullOrEmpty(virtualUIComponent))
+                if (latestComponent != null)
                 {
-                    fileContents["UIComponent.py (dynamically generated)"] = virtualUIComponent;
-                    estimatedTokens += _llmClient.EstimateTokenCount(virtualUIComponent);
-                    _logger.LogInformation("Added virtual UIComponent module to context");
+                    var uiComponentSystemInfo = GetUIModule(programId, structure.Language, latestComponent, cancellationToken);
+
+                    fileContents["[SYSTEM] UI Component System Documentation"] = uiComponentSystemInfo;
+                    estimatedTokens += _llmClient.EstimateTokenCount(uiComponentSystemInfo);
+                    _logger.LogInformation("Added UI Component system documentation (LLM decided: intent={IntentType})", intent.Type);
+                }
+                else
+                {
+                    _logger.LogDebug("Intent requested UI components but none found for program {ProgramId}", programId);
                 }
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogWarning(ex, "Failed to generate virtual UIComponent module");
+                _logger.LogDebug("Skipping UI Component documentation (LLM decision: IncludeUIComponents={Include})", intent?.IncludeUIComponents);
             }
 
             return new ProjectContext
@@ -539,11 +629,35 @@ If the AI needs to help users with UI components, it should:
             };
         }
 
+        private string GetUIModule(string programId, string language, UiComponent latestComponent, CancellationToken cancellationToken)
+        {
+            switch (language)
+            {
+                case "python":
+                    return UIComponentPythonGenerator.GenerateUIComponentPython(latestComponent);
+                case "C#":
+                    return UIComponentCSharpGenerator.GenerateUIComponentClass(latestComponent);
+                default:
+                    return "";
+            }
+        }
+
         private string BuildSystemPrompt(ProjectContext context, List<OpenFileContext>? openFiles = null)
         {
             var sb = new StringBuilder();
 
             sb.AppendLine("You are an expert programming assistant helping developers with their code projects.");
+            sb.AppendLine();
+            sb.AppendLine("# EXECUTION ENVIRONMENT");
+            sb.AppendLine("You are operating within an API platform that can create, manage, and execute code projects:");
+            sb.AppendLine("- Projects are executed in isolated Docker containers");
+            sb.AppendLine("- Python projects: Dependencies are installed automatically via 'pip install -r requirements.txt'");
+            sb.AppendLine("- C# projects: Dependencies are restored automatically via 'dotnet restore'");
+            sb.AppendLine("- Users do NOT need to install dependencies manually - the platform handles this");
+            sb.AppendLine("- When adding new dependencies:");
+            sb.AppendLine("  * Python: Add to requirements.txt file");
+            sb.AppendLine("  * C#: Add to .csproj file or use PackageReference");
+            sb.AppendLine("- The platform will automatically install dependencies before running the project");
             sb.AppendLine();
 
             // Show info about currently open files and unsaved changes
@@ -623,20 +737,6 @@ If the AI needs to help users with UI components, it should:
                 sb.AppendLine();
             }
 
-            // Check if UIComponent module is present
-            var hasUIComponents = context.FileContents.Any(f => f.Key.Contains("UIComponent"));
-            if (hasUIComponents)
-            {
-                sb.AppendLine("# IMPORTANT: UI COMPONENTS");
-                sb.AppendLine("This project uses dynamically-generated UI components:");
-                sb.AppendLine("- UIComponent.py is NOT a source file - it's generated at runtime");
-                sb.AppendLine("- The 'ui' object provides access to registered UI components");
-                sb.AppendLine("- Imports like 'from UIComponent import ui' or 'import UIComponent' are VALID and work at runtime");
-                sb.AppendLine("- DO NOT report UIComponent imports as errors");
-                sb.AppendLine("- The UIComponent module structure shown below represents what will be available at runtime");
-                sb.AppendLine();
-            }
-
             // Include semantic search results if available
             if (context.SemanticSearchResults != null && context.SemanticSearchResults.Any())
             {
@@ -695,10 +795,24 @@ If the AI needs to help users with UI components, it should:
             sb.AppendLine();
             sb.AppendLine("IMPORTANT RULES:");
             sb.AppendLine("- Use relative file paths from project root");
+            sb.AppendLine("- When specifying file paths always use forward slash (/)");
             sb.AppendLine("- Include FULL file content for CREATE/UPDATE operations (not just snippets)");
             sb.AppendLine("- Be concise but clear in explanations");
             sb.AppendLine("- Follow best practices for the programming language");
             sb.AppendLine("- If you need to modify a file, always include the complete updated content");
+            sb.AppendLine();
+            sb.AppendLine("FORMATTING REQUIREMENTS FOR displayText:");
+            sb.AppendLine("- ALWAYS use newline characters (\\n) to separate items in lists");
+            sb.AppendLine("- When listing items, put each item on a new line");
+            sb.AppendLine("- When showing multiple items, use proper line breaks for readability");
+            sb.AppendLine("- Format example for lists:");
+            sb.AppendLine("  'Here are the items:\\n- Item1\\n- Item2\\n- Item3'");
+            sb.AppendLine("- Never concatenate list items without newlines");
+            sb.AppendLine("- Use markdown formatting when appropriate (bullet points, headers, code blocks)");
+            sb.AppendLine();
+            sb.AppendLine("FORMATTING REQUIREMENTS:");
+            sb.AppendLine("- ALWAYS use newline characters (\\n) to separate lines.");
+            sb.AppendLine("- ALWAYS use tab characters (\\t) for indentation.");
 
             return sb.ToString();
         }
@@ -777,13 +891,26 @@ If the AI needs to help users with UI components, it should:
         {
             var updatedHistory = existingHistory.ToList();
 
-            // Add user message
-            updatedHistory.Add(new ConversationMessage
+            // Check if the user prompt is already the last message in history
+            var lastMessage = updatedHistory.LastOrDefault();
+            var isPromptAlreadyInHistory = lastMessage != null &&
+                                          lastMessage.Role == "user" &&
+                                          lastMessage.Content == userPrompt;
+
+            // Only add user message if it's not already there
+            if (!isPromptAlreadyInHistory)
             {
-                Role = "user",
-                Content = userPrompt,
-                Timestamp = DateTime.UtcNow
-            });
+                updatedHistory.Add(new ConversationMessage
+                {
+                    Role = "user",
+                    Content = userPrompt,
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                _logger.LogDebug("User prompt already exists in history, skipping duplicate addition");
+            }
 
             // Add assistant message
             updatedHistory.Add(new ConversationMessage

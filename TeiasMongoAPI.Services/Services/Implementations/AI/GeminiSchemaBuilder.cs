@@ -166,10 +166,15 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                     {
                         type = "number",
                         description = "Confidence score between 0.0 and 1.0"
+                    },
+                    includeUIComponents = new
+                    {
+                        type = "boolean",
+                        description = "Whether UI component documentation should be included. Set true if user's request involves UI, forms, components, interfaces, buttons, inputs, displays, widgets, or user-facing functionality. Set false for backend-only tasks."
                     }
                 },
-                required = new[] { "intentType", "fileScope", "scopeReasoning", "complexity", "confidence" },
-                propertyOrdering = new[] { "intentType", "fileScope", "relatedConcept", "mentionedFiles", "scopeReasoning", "complexity", "confidence" }
+                required = new[] { "intentType", "fileScope", "scopeReasoning", "complexity", "confidence", "includeUIComponents" },
+                propertyOrdering = new[] { "intentType", "fileScope", "relatedConcept", "mentionedFiles", "scopeReasoning", "complexity", "confidence", "includeUIComponents" }
             };
         }
     }
