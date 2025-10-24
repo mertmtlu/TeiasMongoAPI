@@ -35,5 +35,26 @@ namespace TeiasMongoAPI.Services.Interfaces
             UserIntent intent,
             ProjectStructureAnalysis projectStructure,
             int maxTokens);
+
+        /// <summary>
+        /// Select files based on intent scope with hybrid approach
+        /// Supports semantic search, AI suggestions, and heuristic fallback
+        /// </summary>
+        /// <param name="intent">Classified intent with scope information</param>
+        /// <param name="projectStructure">Project structure</param>
+        /// <param name="programId">Program ID for semantic search</param>
+        /// <param name="versionId">Version ID for semantic search</param>
+        /// <param name="maxTokens">Maximum tokens budget</param>
+        /// <param name="useSemanticSearch">Whether to use semantic search</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>List of selected files</returns>
+        Task<List<string>> SelectFilesBasedOnScopeAsync(
+            UserIntent intent,
+            ProjectStructureAnalysis projectStructure,
+            string programId,
+            string versionId,
+            int maxTokens,
+            bool useSemanticSearch = false,
+            CancellationToken cancellationToken = default);
     }
 }

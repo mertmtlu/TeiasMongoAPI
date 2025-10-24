@@ -97,5 +97,80 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 required = new[] { "response" }
             };
         }
+
+        /// <summary>
+        /// Creates the schema for AI-powered intent classification
+        /// Classifies user intent including type, scope, and relevant files
+        /// </summary>
+        public static object BuildIntentClassificationSchema()
+        {
+            return new
+            {
+                type = "object",
+                properties = new
+                {
+                    intentType = new
+                    {
+                        type = "string",
+                        @enum = new[]
+                        {
+                            "FileCreation",
+                            "FileUpdate",
+                            "FileDeletion",
+                            "Question",
+                            "BugFix",
+                            "Refactoring",
+                            "FeatureAddition",
+                            "CodeReview",
+                            "Other"
+                        },
+                        description = "The type of intent the user has"
+                    },
+                    fileScope = new
+                    {
+                        type = "string",
+                        @enum = new[] { "Specific", "Related", "AllFiles", "Pattern" },
+                        description = @"Scope of files the user wants to work with:
+- Specific: User mentions exact file(s) like 'update Login.cs'
+- Related: User wants files related to a concept like 'authentication system'
+- AllFiles: User wants entire codebase like 'all files', 'everything', 'whole project'
+- Pattern: User wants files matching a pattern like 'all .cs files', 'test files'"
+                    },
+                    relatedConcept = new
+                    {
+                        type = "string",
+                        description = "If scope is 'Related', extract the key concept/feature/system from the prompt. e.g., 'authentication', 'payment processing', 'user management'",
+                        nullable = true
+                    },
+                    mentionedFiles = new
+                    {
+                        type = "array",
+                        description = "List of explicitly mentioned filenames, patterns, or paths in the user prompt",
+                        items = new
+                        {
+                            type = "string"
+                        }
+                    },
+                    scopeReasoning = new
+                    {
+                        type = "string",
+                        description = "Brief explanation of why you classified this scope (for debugging and transparency)"
+                    },
+                    complexity = new
+                    {
+                        type = "string",
+                        @enum = new[] { "Low", "Medium", "High" },
+                        description = "Estimated complexity: Low (single file, simple), Medium (multiple files), High (many files, complex)"
+                    },
+                    confidence = new
+                    {
+                        type = "number",
+                        description = "Confidence score between 0.0 and 1.0"
+                    }
+                },
+                required = new[] { "intentType", "fileScope", "scopeReasoning", "complexity", "confidence" },
+                propertyOrdering = new[] { "intentType", "fileScope", "relatedConcept", "mentionedFiles", "scopeReasoning", "complexity", "confidence" }
+            };
+        }
     }
 }

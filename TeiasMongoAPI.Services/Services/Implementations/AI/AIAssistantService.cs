@@ -217,6 +217,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 EntryPoints = structureDto.EntryPoints,
                 SourceFiles = structureDto.SourceFiles,
                 ConfigFiles = structureDto.ConfigFiles,
+                BinaryFiles = structureDto.BinaryFiles,
                 Dependencies = structureDto.Dependencies,
                 Metadata = structureDto.Metadata
             };
@@ -366,13 +367,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 _ => 40000                 // Default to balanced
             };
 
-            // Step 4: Select files within budget (using intent-based selection only)
-            var filesToRead = _intentClassifier.SelectFilesForIntent(intent, structure, maxTokensForFiles);
+            // Step 4: Select files within budget using new scope-based selection
+            var filesToRead = await _intentClassifier.SelectFilesBasedOnScopeAsync(
+                intent,
+                structure,
+                programId,
+                versionId,
+                maxTokensForFiles,
+                preferences?.UseSemanticSearch ?? false,
+                cancellationToken);
 
             // Step 4.5: Add explicitly mentioned files from user prompt
             var allProjectFiles = structure.SourceFiles
                 .Concat(structure.ConfigFiles)
-                .Concat(structure.BinaryFiles)
                 .Concat(structure.BinaryFiles)
                 .ToList();
 

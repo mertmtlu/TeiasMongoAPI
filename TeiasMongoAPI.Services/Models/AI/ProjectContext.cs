@@ -120,6 +120,29 @@ namespace TeiasMongoAPI.Services.Models.AI
         /// Additional context about the intent
         /// </summary>
         public string? Context { get; set; }
+
+        /// <summary>
+        /// Scope of file selection for this intent (Specific, Related, AllFiles, Pattern)
+        /// </summary>
+        public FileSelectionScope FileScope { get; set; } = FileSelectionScope.Specific;
+
+        /// <summary>
+        /// If scope is Related, what concept/feature/system are the files related to?
+        /// e.g., "authentication system", "payment processing", "user management"
+        /// </summary>
+        public string? RelatedConcept { get; set; }
+
+        /// <summary>
+        /// AI-suggested files based on project structure and user prompt
+        /// Used when semantic search is not available
+        /// </summary>
+        public List<string>? SuggestedFiles { get; set; }
+
+        /// <summary>
+        /// Reasoning behind the scope classification
+        /// Useful for debugging and transparency
+        /// </summary>
+        public string? ScopeReasoning { get; set; }
     }
 
     /// <summary>
@@ -192,5 +215,31 @@ namespace TeiasMongoAPI.Services.Models.AI
         /// High complexity - many files, complex changes
         /// </summary>
         High
+    }
+
+    /// <summary>
+    /// Scope of file selection based on user intent
+    /// </summary>
+    public enum FileSelectionScope
+    {
+        /// <summary>
+        /// User wants specific file(s) - "update Login.cs", "fix AuthController.cs"
+        /// </summary>
+        Specific,
+
+        /// <summary>
+        /// User wants files related to a concept/feature - "files handling authentication", "payment processing code"
+        /// </summary>
+        Related,
+
+        /// <summary>
+        /// User wants all files in the project - "all files", "entire codebase", "everything"
+        /// </summary>
+        AllFiles,
+
+        /// <summary>
+        /// User wants files matching a pattern - "all .cs files", "test files", "config files"
+        /// </summary>
+        Pattern
     }
 }
