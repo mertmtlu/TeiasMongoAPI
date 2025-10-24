@@ -24,10 +24,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
         private readonly IProgramService _programService;
         private readonly IUiComponentService _uiComponentService;
         private readonly ICodeIndexer _codeIndexer;
-        private readonly IVectorStore? _vectorStore;
-        private readonly IEmbeddingService? _embeddingService;
+        private readonly ISemanticSearchService? _semanticSearchService;
         private readonly LLMOptions _llmOptions;
-        private readonly VectorStoreOptions _vectorStoreOptions;
         private readonly ILogger<AIAssistantService> _logger;
         private readonly UIComponentContextGenerator _uiComponentContextGenerator;
         private readonly ILoggerFactory _loggerFactory;
@@ -41,11 +39,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             IUiComponentService uiComponentService,
             ICodeIndexer codeIndexer,
             IOptions<LLMOptions> llmOptions,
-            IOptions<VectorStoreOptions> vectorStoreOptions,
             ILogger<AIAssistantService> logger,
             ILoggerFactory loggerFactory,
-            IVectorStore? vectorStore = null,
-            IEmbeddingService? embeddingService = null)
+            ISemanticSearchService? semanticSearchService = null)
         {
             _llmClient = llmClient;
             _intentClassifier = intentClassifier;
@@ -54,10 +50,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             _programService = programService;
             _uiComponentService = uiComponentService;
             _codeIndexer = codeIndexer;
-            _vectorStore = vectorStore;
-            _embeddingService = embeddingService;
+            _semanticSearchService = semanticSearchService;
             _llmOptions = llmOptions.Value;
-            _vectorStoreOptions = vectorStoreOptions.Value;
             _logger = logger;
             _loggerFactory = loggerFactory;
             _uiComponentContextGenerator = new UIComponentContextGenerator(
@@ -108,12 +102,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 var systemPrompt = BuildSystemPrompt(context, request.CurrentlyOpenFiles);
                 var conversationMessages = BuildConversationMessages(request.ConversationHistory, request.UserPrompt);
 
-                // Step 5: Call LLM
+                // Step 5: Call LLM with structured output schema
+                var responseSchema = GeminiSchemaBuilder.BuildAIAssistantResponseSchema();
                 var llmResponse = await _llmClient.ChatCompletionAsync(
                     systemPrompt,
                     conversationMessages,
                     request.Preferences?.Verbosity == "concise" ? 0.5 :
                     request.Preferences?.Verbosity == "detailed" ? 0.9 : null,
+                    responseSchema: responseSchema,
                     cancellationToken: cancellationToken);
 
                 _logger.LogInformation("LLM response received. Tokens: {TotalTokens}", llmResponse.TotalTokens);
@@ -187,7 +183,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 }
 
                 // Analyze project structure to provide context-aware suggestions
-                var structure = await _executionService.AnalyzeProjectStructureAsync(programId, versionId, cancellationToken);
+                // Use AI-specific method to work with unapproved/draft versions
+                var structure = await _executionService.AnalyzeProjectStructureForAIAsync(programId, versionId, cancellationToken);
 
                 return GenerateContextAwareSuggestions(structure);
             }
@@ -210,7 +207,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             CancellationToken cancellationToken)
         {
             // Step 1: Get project structure (low token cost ~500-1000)
-            var structureDto = await _executionService.AnalyzeProjectStructureAsync(programId, versionId, cancellationToken);
+            // Use AI-specific method to work with unapproved/draft versions
+            var structureDto = await _executionService.AnalyzeProjectStructureForAIAsync(programId, versionId, cancellationToken);
 
             var structure = new ProjectStructureAnalysis
             {
@@ -245,40 +243,118 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 cursorContext,
                 cancellationToken);
 
-            // Step 3: Semantic search using vector store (if enabled)
-            var vectorSearchFiles = new List<string>();
-            if (_vectorStore != null && _embeddingService != null && _vectorStoreOptions.EnableVectorSearch)
+            // Step 2.5: Perform semantic search if enabled and available
+            List<VectorSearchResult>? semanticSearchResults = null;
+            if (preferences?.UseSemanticSearch == true && _semanticSearchService != null)
             {
                 try
                 {
-                    // Generate embedding for user prompt
-                    var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(userPrompt, cancellationToken);
+                    // Check if project is indexed
+                    var isIndexed = await _semanticSearchService.IsProjectIndexedAsync(programId, versionId, cancellationToken);
 
-                    // Search for semantically similar code chunks
-                    var searchResults = await _vectorStore.SearchSimilarAsync(
-                        programId,
-                        versionId,
-                        queryEmbedding,
-                        _vectorStoreOptions.TopK,
-                        _vectorStoreOptions.MinimumSimilarityScore,
-                        cancellationToken);
+                    if (!isIndexed)
+                    {
+                        _logger.LogInformation("Project not indexed yet. Attempting auto-indexing for {ProgramId}/{VersionId}",
+                            programId, versionId);
 
-                    // Extract unique file paths from search results
-                    vectorSearchFiles = searchResults
-                        .Select(r => r.Chunk.FilePath)
-                        .Distinct()
-                        .ToList();
+                        // Auto-index the project in the background (don't block the conversation)
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var indexResult = await _semanticSearchService.IndexProjectAsync(
+                                    programId, versionId, forceReindex: false, CancellationToken.None);
 
-                    _logger.LogInformation("Vector search found {ResultCount} relevant chunks across {FileCount} files",
-                        searchResults.Count, vectorSearchFiles.Count);
+                                if (indexResult.Success)
+                                {
+                                    _logger.LogInformation("Auto-indexing completed: {Chunks} chunks in {Duration}",
+                                        indexResult.ChunksCreated, indexResult.Duration);
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("Auto-indexing failed: {Error}", indexResult.ErrorMessage);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Auto-indexing background task failed");
+                            }
+                        }, CancellationToken.None);
+
+                        _logger.LogInformation("Auto-indexing started in background. Using file-based context for this conversation.");
+                    }
+                    else
+                    {
+                        // Project is indexed - check for staleness before searching
+                        var shouldReindex = false;
+                        var indexTimestamp = await _semanticSearchService.GetIndexStatsAsync(programId, versionId, cancellationToken);
+
+                        if (indexTimestamp != null)
+                        {
+                            // Check if files were modified after indexing
+                            var modifiedFiles = await _fileStorageService.GetFilesModifiedSinceAsync(
+                                programId, versionId, indexTimestamp.CreatedAt, cancellationToken);
+
+                            if (modifiedFiles.Any())
+                            {
+                                _logger.LogWarning("Detected {Count} modified files since index creation at {IndexTime}. Index is stale!",
+                                    modifiedFiles.Count, indexTimestamp.CreatedAt);
+
+                                shouldReindex = true;
+
+                                // Trigger re-indexing in background
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        _logger.LogInformation("Starting re-indexing due to stale index for {ProgramId}/{VersionId}",
+                                            programId, versionId);
+
+                                        var indexResult = await _semanticSearchService.IndexProjectAsync(
+                                            programId, versionId, forceReindex: true, CancellationToken.None);
+
+                                        if (indexResult.Success)
+                                        {
+                                            _logger.LogInformation("Stale index re-indexed successfully: {Chunks} chunks in {Duration}",
+                                                indexResult.ChunksCreated, indexResult.Duration);
+                                        }
+                                        else
+                                        {
+                                            _logger.LogWarning("Re-indexing failed: {Error}", indexResult.ErrorMessage);
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Re-indexing background task failed");
+                                    }
+                                }, CancellationToken.None);
+
+                                _logger.LogInformation("Re-indexing started in background. Using current (stale) index for this conversation.");
+                            }
+                            else
+                            {
+                                _logger.LogDebug("Index is up-to-date (no files modified since {IndexTime})",
+                                    indexTimestamp.CreatedAt);
+                            }
+                        }
+
+                        // Perform semantic search (using current index, even if stale)
+                        _logger.LogInformation("Performing semantic search for query: '{Query}'", userPrompt);
+                        var topK = preferences.SemanticSearchTopK > 0 ? preferences.SemanticSearchTopK : 10;
+                        semanticSearchResults = await _semanticSearchService.SearchCodeAsync(
+                            programId, versionId, userPrompt, topK, cancellationToken: cancellationToken);
+
+                        _logger.LogInformation("Semantic search found {Count} relevant chunks{StaleWarning}",
+                            semanticSearchResults.Count, shouldReindex ? " (index is stale, re-indexing in background)" : "");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Vector search failed, continuing with intent-based selection only");
+                    _logger.LogWarning(ex, "Semantic search failed, falling back to file-based context");
                 }
             }
 
-            // Step 4: Determine token budget for file content
+            // Step 3: Determine token budget for file content
             // With Gemini 2.0 Flash's 100K context window, we can be much more generous
             var contextMode = preferences?.ContextMode ?? "balanced";
             var maxTokensForFiles = contextMode switch
@@ -290,14 +366,40 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 _ => 40000                 // Default to balanced
             };
 
-            // Step 5: Select files within budget (combining intent-based and vector search)
-            var intentBasedFiles = _intentClassifier.SelectFilesForIntent(intent, structure, maxTokensForFiles);
-            var filesToRead = intentBasedFiles.Union(vectorSearchFiles).Distinct().ToList();
+            // Step 4: Select files within budget (using intent-based selection only)
+            var filesToRead = _intentClassifier.SelectFilesForIntent(intent, structure, maxTokensForFiles);
 
-            _logger.LogInformation("File selection: {IntentFiles} from intent, {VectorFiles} from vector search, {TotalFiles} total unique files",
-                intentBasedFiles.Count, vectorSearchFiles.Count, filesToRead.Count);
+            // Step 4.5: Add explicitly mentioned files from user prompt
+            var allProjectFiles = structure.SourceFiles
+                .Concat(structure.ConfigFiles)
+                .Concat(structure.BinaryFiles)
+                .Concat(structure.BinaryFiles)
+                .ToList();
 
-            // Step 6: Read selected files (prioritizing live content from frontend)
+            foreach (var projectFile in allProjectFiles)
+            {
+                var fileName = Path.GetFileName(projectFile);
+                var fileExtension = Path.GetExtension(projectFile);
+                var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(projectFile);
+
+                // Check if user explicitly mentioned this file in their prompt
+                // Match full filename, extension, or filename without extension
+                var isExplicitlyMentioned =
+                    userPrompt.Contains(fileName, StringComparison.OrdinalIgnoreCase) ||  // "TestDll.sln"
+                    userPrompt.Contains(fileExtension, StringComparison.OrdinalIgnoreCase) ||  // ".sln"
+                    userPrompt.Contains(fileNameWithoutExtension, StringComparison.OrdinalIgnoreCase) ||  // "TestDll"
+                    userPrompt.Contains(projectFile, StringComparison.OrdinalIgnoreCase);  // Full path
+
+                if (isExplicitlyMentioned && !filesToRead.Contains(projectFile))
+                {
+                    filesToRead.Add(projectFile);
+                    _logger.LogInformation("Added explicitly mentioned file: {FileName}", projectFile);
+                }
+            }
+
+            _logger.LogInformation("File selection: {TotalFiles} files selected based on intent analysis", filesToRead.Count);
+
+            // Step 5: Read selected files (prioritizing live content from frontend)
             var fileContents = new Dictionary<string, string>();
             var estimatedTokens = 1000; // Base tokens for structure
 
@@ -367,7 +469,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                     filesProcessed, filesSkipped);
             }
 
-            // Step 7: Add UI Component generator documentation to system prompt
+            // Step 6: Add UI Component generator documentation to system prompt
             // Include info about how UI components work in the system
             var uiComponentSystemInfo = @"
 # SYSTEM: UI Component Generators
@@ -399,7 +501,7 @@ If the AI needs to help users with UI components, it should:
             fileContents["[SYSTEM] UI Component System Documentation"] = uiComponentSystemInfo;
             estimatedTokens += _llmClient.EstimateTokenCount(uiComponentSystemInfo);
 
-            // Step 8: Generate virtual UIComponent module if UI components are registered
+            // Step 7: Generate virtual UIComponent module if UI components are registered
             try
             {
                 var virtualUIComponent = await _uiComponentContextGenerator.GenerateVirtualUIComponentModuleAsync(
@@ -425,6 +527,7 @@ If the AI needs to help users with UI components, it should:
                 Index = projectIndex,
                 FileContents = fileContents,
                 Intent = intent,
+                SemanticSearchResults = semanticSearchResults,
                 EstimatedTokens = estimatedTokens
             };
         }
@@ -484,8 +587,27 @@ If the AI needs to help users with UI components, it should:
             sb.AppendLine($"Language: {context.Structure.Language}");
             sb.AppendLine($"Project Type: {context.Structure.ProjectType}");
             sb.AppendLine($"Entry Points: {string.Join(", ", context.Structure.EntryPoints)}");
-            sb.AppendLine($"Total Files: {context.Structure.SourceFiles.Count}");
+            sb.AppendLine($"Source Files: {context.Structure.SourceFiles.Count}");
+            sb.AppendLine($"Config Files: {context.Structure.ConfigFiles.Count}");
+            sb.AppendLine($"Binary/Other Files: {context.Structure.BinaryFiles.Count} (non-text-readable: images, DLLs, executables, etc.)");
+            sb.AppendLine($"Total Files: {context.Structure.SourceFiles.Count + context.Structure.ConfigFiles.Count + context.Structure.BinaryFiles.Count}");
             sb.AppendLine();
+
+            // List binary files so AI knows they exist
+            if (context.Structure.BinaryFiles.Any())
+            {
+                sb.AppendLine("# NON-TEXT-READABLE FILES (Binary/Media/Executables)");
+                sb.AppendLine("These files exist in the project but cannot be read as text:");
+                foreach (var binaryFile in context.Structure.BinaryFiles.Take(50)) // Limit to 50
+                {
+                    sb.AppendLine($"  - {binaryFile}");
+                }
+                if (context.Structure.BinaryFiles.Count > 50)
+                {
+                    sb.AppendLine($"  ... and {context.Structure.BinaryFiles.Count - 50} more binary files");
+                }
+                sb.AppendLine();
+            }
 
             if (context.Structure.Dependencies.Any())
             {
@@ -506,6 +628,29 @@ If the AI needs to help users with UI components, it should:
                 sb.AppendLine("- DO NOT report UIComponent imports as errors");
                 sb.AppendLine("- The UIComponent module structure shown below represents what will be available at runtime");
                 sb.AppendLine();
+            }
+
+            // Include semantic search results if available
+            if (context.SemanticSearchResults != null && context.SemanticSearchResults.Any())
+            {
+                sb.AppendLine("# SEMANTIC SEARCH RESULTS");
+                sb.AppendLine($"Found {context.SemanticSearchResults.Count} semantically relevant code chunks for your query:");
+                sb.AppendLine();
+
+                foreach (var result in context.SemanticSearchResults.Take(10)) // Limit to top 10 for prompt
+                {
+                    var chunk = result.Chunk;
+                    sb.AppendLine($"## {chunk.FilePath} (Relevance: {result.Score:F2})");
+                    sb.AppendLine($"**{chunk.Type}**: {chunk.Name} (Lines {chunk.StartLine}-{chunk.EndLine})");
+                    if (!string.IsNullOrEmpty(chunk.ParentContext))
+                    {
+                        sb.AppendLine($"**Context**: {chunk.ParentContext}");
+                    }
+                    sb.AppendLine("```");
+                    sb.AppendLine(chunk.Content);
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                }
             }
 
             if (context.FileContents.Any())
@@ -530,34 +675,23 @@ If the AI needs to help users with UI components, it should:
             }
 
             sb.AppendLine("# YOUR TASK");
-            sb.AppendLine("When the user asks for code changes, respond with a JSON object containing:");
-            sb.AppendLine("1. displayText: A conversational explanation of what you're doing");
-            sb.AppendLine("2. fileOperations: An array of file operations to apply");
+            sb.AppendLine("You are helping developers write and modify code. Your response will be structured automatically.");
             sb.AppendLine();
-            sb.AppendLine("RESPONSE FORMAT:");
-            sb.AppendLine("```json");
-            sb.AppendLine("{");
-            sb.AppendLine("  \"displayText\": \"Your explanation here\",");
-            sb.AppendLine("  \"fileOperations\": [");
-            sb.AppendLine("    {");
-            sb.AppendLine("      \"operationType\": \"CREATE\" | \"UPDATE\" | \"DELETE\",");
-            sb.AppendLine("      \"filePath\": \"relative/path/to/file.ext\",");
-            sb.AppendLine("      \"content\": \"Full file content for CREATE/UPDATE\",");
-            sb.AppendLine("      \"description\": \"What this operation does\",");
-            sb.AppendLine("      \"focusLine\": 42");
-            sb.AppendLine("    }");
-            sb.AppendLine("  ],");
-            sb.AppendLine("  \"warnings\": [\"Optional warnings\"]");
-            sb.AppendLine("}");
-            sb.AppendLine("```");
+            sb.AppendLine("When responding:");
+            sb.AppendLine("1. Provide a clear explanation in 'displayText' of what you're doing or answering");
+            sb.AppendLine("2. For code changes, include 'fileOperations' with the operations to apply:");
+            sb.AppendLine("   - CREATE: Create a new file with content");
+            sb.AppendLine("   - UPDATE: Modify an existing file with new content");
+            sb.AppendLine("   - DELETE: Remove a file");
+            sb.AppendLine("3. For questions without code changes, leave fileOperations empty");
+            sb.AppendLine("4. Add optional warnings if there are potential issues");
             sb.AppendLine();
             sb.AppendLine("IMPORTANT RULES:");
-            sb.AppendLine("- Always respond with valid JSON in the format above");
             sb.AppendLine("- Use relative file paths from project root");
-            sb.AppendLine("- Include full file content for CREATE/UPDATE operations");
-            sb.AppendLine("- For questions without code changes, set fileOperations to empty array");
+            sb.AppendLine("- Include FULL file content for CREATE/UPDATE operations (not just snippets)");
             sb.AppendLine("- Be concise but clear in explanations");
             sb.AppendLine("- Follow best practices for the programming language");
+            sb.AppendLine("- If you need to modify a file, always include the complete updated content");
 
             return sb.ToString();
         }
@@ -590,26 +724,24 @@ If the AI needs to help users with UI components, it should:
         {
             try
             {
-                // Try to extract JSON from the response
-                var jsonMatch = System.Text.RegularExpressions.Regex.Match(responseContent, @"\{[\s\S]*\}", System.Text.RegularExpressions.RegexOptions.Multiline);
-                if (jsonMatch.Success)
+                // With structured output, the response should be valid JSON directly
+                var options = new JsonSerializerOptions
                 {
-                    var jsonContent = jsonMatch.Value;
-                    var options = new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true,
-                        AllowTrailingCommas = true,
-                        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
-                    };
+                    PropertyNameCaseInsensitive = true,
+                    AllowTrailingCommas = true,
+                    Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+                };
 
-                    var parsed = JsonSerializer.Deserialize<ParsedAIResponse>(jsonContent, options);
-                    if (parsed != null && !string.IsNullOrEmpty(parsed.DisplayText))
-                    {
-                        return parsed;
-                    }
+                var parsed = JsonSerializer.Deserialize<ParsedAIResponse>(responseContent, options);
+                if (parsed != null && !string.IsNullOrEmpty(parsed.DisplayText))
+                {
+                    _logger.LogInformation("Successfully parsed structured response with {FileOpCount} file operations",
+                        parsed.FileOperations?.Count ?? 0);
+                    return parsed;
                 }
 
-                // Fallback: treat entire response as display text
+                // Fallback: treat entire response as display text (shouldn't happen with structured output)
+                _logger.LogWarning("Structured output returned null or empty displayText, using fallback");
                 return new ParsedAIResponse
                 {
                     DisplayText = responseContent,
@@ -617,14 +749,16 @@ If the AI needs to help users with UI components, it should:
                     Warnings = new List<string>()
                 };
             }
-            catch (Exception ex)
+            catch (JsonException ex)
             {
-                _logger.LogWarning(ex, "Failed to parse LLM response as JSON, using fallback");
+                _logger.LogError(ex, "Failed to parse structured JSON response: {Response}", responseContent);
+
+                // Fallback: treat entire response as display text
                 return new ParsedAIResponse
                 {
                     DisplayText = responseContent,
                     FileOperations = new List<FileOperationDto>(),
-                    Warnings = new List<string> { "Response format was not structured as expected" }
+                    Warnings = new List<string> { "Response format was not structured as expected. This may indicate an API issue." }
                 };
             }
         }

@@ -1716,6 +1716,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                     EntryPoints = analysis.EntryPoints,
                     ConfigFiles = analysis.ConfigFiles,
                     SourceFiles = analysis.SourceFiles,
+                    BinaryFiles = analysis.BinaryFiles,
                     Dependencies = analysis.Dependencies,
                     HasBuildFile = analysis.HasBuildFile,
                     MainEntryPoint = analysis.MainEntryPoint,
@@ -1742,6 +1743,71 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Project structure analysis failed for program {ProgramId}", programId);
+                throw;
+            }
+        }
+
+        public async Task<ProjectStructureAnalysisDto> AnalyzeProjectStructureForAIAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // If no versionId provided, use current version
+                if (string.IsNullOrEmpty(versionId))
+                {
+                    var program = await _unitOfWork.Programs.GetByIdAsync(ParseObjectId(programId), cancellationToken);
+                    if (program == null)
+                    {
+                        throw new KeyNotFoundException($"Program with ID {programId} not found");
+                    }
+
+                    if (string.IsNullOrEmpty(program.CurrentVersion))
+                    {
+                        var latestVersion = await _versionService.GetLatestVersionForProgramAsync(programId, cancellationToken);
+                        versionId = latestVersion.Id;
+                    }
+                    else
+                    {
+                        versionId = program.CurrentVersion;
+                    }
+                }
+
+                // Use internal method with skipValidation = true for AI assistant
+                var analysis = await _projectExecutionEngine.AnalyzeProjectStructureInternalAsync(programId, versionId, skipValidation: true, cancellationToken);
+
+                return new ProjectStructureAnalysisDto
+                {
+                    Language = analysis.Language,
+                    ProjectType = analysis.ProjectType,
+                    EntryPoints = analysis.EntryPoints,
+                    ConfigFiles = analysis.ConfigFiles,
+                    SourceFiles = analysis.SourceFiles,
+                    BinaryFiles = analysis.BinaryFiles,
+                    Dependencies = analysis.Dependencies,
+                    HasBuildFile = analysis.HasBuildFile,
+                    MainEntryPoint = analysis.MainEntryPoint,
+                    Files = analysis.Files.Select(f => new ProjectFileDto
+                    {
+                        Path = f.Path,
+                        Type = f.Type,
+                        Size = f.Size,
+                        Extension = f.Extension,
+                        IsEntryPoint = f.IsEntryPoint,
+                        LineCount = f.LineCount
+                    }).ToList(),
+                    Complexity = new ProjectComplexityDto
+                    {
+                        TotalFiles = analysis.Complexity.TotalFiles,
+                        TotalLines = analysis.Complexity.TotalLines,
+                        Dependencies = analysis.Complexity.Dependencies,
+                        ComplexityLevel = analysis.Complexity.ComplexityLevel,
+                        ComplexityScore = analysis.Complexity.ComplexityScore
+                    },
+                    Metadata = analysis.Metadata
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AI project structure analysis failed for program {ProgramId}", programId);
                 throw;
             }
         }

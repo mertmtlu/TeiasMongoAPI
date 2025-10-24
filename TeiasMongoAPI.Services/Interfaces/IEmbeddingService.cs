@@ -1,20 +1,20 @@
 namespace TeiasMongoAPI.Services.Interfaces
 {
     /// <summary>
-    /// Service for generating embeddings from text using LLM providers
+    /// Service for generating text embeddings using AI models
     /// </summary>
     public interface IEmbeddingService
     {
         /// <summary>
-        /// Generate embedding vector for a single text input
+        /// Generate an embedding vector for a single text
         /// </summary>
         /// <param name="text">Text to embed</param>
         /// <param name="cancellationToken">Cancellation token</param>
-        /// <returns>Embedding vector (dimensions depend on model)</returns>
+        /// <returns>Embedding vector (array of floats)</returns>
         Task<float[]> GenerateEmbeddingAsync(string text, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Generate embeddings for multiple texts in a single batch
+        /// Generate embedding vectors for multiple texts in a single batch request
         /// More efficient than calling GenerateEmbeddingAsync multiple times
         /// </summary>
         /// <param name="texts">Texts to embed</param>
@@ -23,15 +23,15 @@ namespace TeiasMongoAPI.Services.Interfaces
         Task<List<float[]>> GenerateEmbeddingsAsync(List<string> texts, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Get the dimension of embeddings produced by this service
+        /// Get the dimensionality of embeddings produced by this service
         /// </summary>
-        /// <returns>Embedding dimension (e.g., 768 for Google, 1536 for OpenAI)</returns>
-        int GetEmbeddingDimension();
+        /// <returns>Number of dimensions (e.g., 768 for text-embedding-004)</returns>
+        int GetEmbeddingDimensions();
 
         /// <summary>
-        /// Get the maximum number of tokens that can be embedded at once
+        /// Get the name of the model being used for embeddings
         /// </summary>
-        /// <returns>Maximum token limit</returns>
-        int GetMaxTokens();
+        /// <returns>Model name (e.g., "text-embedding-004")</returns>
+        string GetModelName();
     }
 }

@@ -209,13 +209,14 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
         {
             var files = new List<string>();
 
-            // Try to find mentioned file names in the prompt
-            foreach (var sourceFile in structure.SourceFiles)
+            // Try to find mentioned file names in the prompt (check all file types)
+            var allProjectFiles = structure.SourceFiles.Concat(structure.ConfigFiles).Concat(structure.BinaryFiles);
+            foreach (var projectFile in allProjectFiles)
             {
-                var fileName = Path.GetFileName(sourceFile);
+                var fileName = Path.GetFileName(projectFile);
                 if (prompt.Contains(fileName.ToLowerInvariant()))
                 {
-                    files.Add(sourceFile);
+                    files.Add(projectFile);
                 }
             }
 
@@ -240,8 +241,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
 
             if (!string.IsNullOrEmpty(targetFile))
             {
-                // Find the target file
-                var matchingFile = structure.SourceFiles.FirstOrDefault(f =>
+                // Find the target file (check all file types)
+                var allProjectFiles = structure.SourceFiles.Concat(structure.ConfigFiles).Concat(structure.BinaryFiles);
+                var matchingFile = allProjectFiles.FirstOrDefault(f =>
                     f.EndsWith(targetFile, StringComparison.OrdinalIgnoreCase) ||
                     f.Contains(targetFile, StringComparison.OrdinalIgnoreCase));
 

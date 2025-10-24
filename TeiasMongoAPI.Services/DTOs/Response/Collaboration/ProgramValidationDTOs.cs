@@ -23,6 +23,7 @@ namespace TeiasMongoAPI.Services.DTOs.Response.Collaboration
         public List<string> EntryPoints { get; set; } = new();
         public List<string> ConfigFiles { get; set; } = new();
         public List<string> SourceFiles { get; set; } = new();
+        public List<string> BinaryFiles { get; set; } = new();
         public List<string> Dependencies { get; set; } = new();
         public bool HasBuildFile { get; set; }
         public string? MainEntryPoint { get; set; }

@@ -322,27 +322,25 @@ namespace TeiasMongoAPI.API
                 options.ConversationHistoryLimit = int.Parse(Environment.GetEnvironmentVariable("AI_CONVERSATION_HISTORY_LIMIT") ?? "10");
             });
 
-            // Configure Vector Store Options
-            builder.Services.Configure<TeiasMongoAPI.Services.Configuration.VectorStoreOptions>(
-                builder.Configuration.GetSection(TeiasMongoAPI.Services.Configuration.VectorStoreOptions.SectionName));
+            // Configure Vector Store Settings
+            builder.Services.Configure<TeiasMongoAPI.Services.Configuration.VectorStoreSettings>(
+                builder.Configuration.GetSection("VectorStore"));
+
+            // Configure Embedding Settings
+            builder.Services.Configure<TeiasMongoAPI.Services.Configuration.EmbeddingSettings>(
+                builder.Configuration.GetSection("Embedding"));
 
             // Register AI Services
             builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ILLMClient, TeiasMongoAPI.Services.Services.Implementations.AI.GeminiLLMClient>();
             builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.IIntentClassifier, TeiasMongoAPI.Services.Services.Implementations.AI.IntentClassifier>();
             builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ICodeIndexer, TeiasMongoAPI.Services.Services.Implementations.AI.CodeIndexer>();
-
-            // Register Vector Store Services (optional - only if EnableVectorSearch is true)
-            var vectorStoreConfig = builder.Configuration.GetSection(TeiasMongoAPI.Services.Configuration.VectorStoreOptions.SectionName)
-                .Get<TeiasMongoAPI.Services.Configuration.VectorStoreOptions>();
-
-            if (vectorStoreConfig?.EnableVectorSearch == true)
-            {
-                builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.IEmbeddingService, TeiasMongoAPI.Services.Services.Implementations.AI.GoogleEmbeddingService>();
-                builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ICodeChunker, TeiasMongoAPI.Services.Services.Implementations.AI.CodeChunker>();
-                builder.Services.AddSingleton<TeiasMongoAPI.Services.Interfaces.IVectorStore, TeiasMongoAPI.Services.Services.Implementations.AI.QdrantVectorStore>();
-            }
-
             builder.Services.AddScoped<IAIAssistantService, TeiasMongoAPI.Services.Services.Implementations.AI.AIAssistantService>();
+
+            // Register Semantic Search Services (optional - gracefully handles if Qdrant is not available)
+            builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.IEmbeddingService, TeiasMongoAPI.Services.Services.Implementations.AI.GeminiEmbeddingService>();
+            builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ICodeChunker, TeiasMongoAPI.Services.Services.Implementations.AI.SmartCodeChunker>();
+            builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.IVectorStore, TeiasMongoAPI.Services.Services.Implementations.AI.QdrantVectorStore>();
+            builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ISemanticSearchService, TeiasMongoAPI.Services.Services.Implementations.AI.SemanticSearchService>();
 
             // Register Background Task Queue (Singleton for shared queue)
             builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();

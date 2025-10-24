@@ -28,6 +28,12 @@ namespace TeiasMongoAPI.Services.Models.AI
         public UserIntent? Intent { get; set; }
 
         /// <summary>
+        /// Semantic search results from vector database
+        /// Relevant code chunks found via semantic similarity
+        /// </summary>
+        public List<VectorSearchResult>? SemanticSearchResults { get; set; }
+
+        /// <summary>
         /// Estimated total tokens used for this context
         /// </summary>
         public int EstimatedTokens { get; set; }
@@ -59,9 +65,15 @@ namespace TeiasMongoAPI.Services.Models.AI
         public List<string> SourceFiles { get; set; } = new();
 
         /// <summary>
-        /// Configuration files
+        /// Configuration files (text-readable: .json, .xml, .yaml, .md, etc.)
         /// </summary>
         public List<string> ConfigFiles { get; set; } = new();
+
+        /// <summary>
+        /// Binary and non-text-readable files (images, DLLs, executables, etc.)
+        /// AI can see these exist but won't try to read their content
+        /// </summary>
+        public List<string> BinaryFiles { get; set; } = new();
 
         /// <summary>
         /// Dependencies/packages used

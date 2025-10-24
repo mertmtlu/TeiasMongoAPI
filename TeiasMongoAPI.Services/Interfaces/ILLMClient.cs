@@ -15,6 +15,7 @@ namespace TeiasMongoAPI.Services.Interfaces
         /// <param name="messages">Conversation messages (role + content)</param>
         /// <param name="temperature">Temperature for response generation (0.0 to 1.0)</param>
         /// <param name="maxTokens">Maximum tokens in the response</param>
+        /// <param name="responseSchema">Optional JSON schema for structured output</param>
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>LLM response</returns>
         Task<LLMResponse> ChatCompletionAsync(
@@ -22,6 +23,7 @@ namespace TeiasMongoAPI.Services.Interfaces
             List<LLMMessage> messages,
             double? temperature = null,
             int? maxTokens = null,
+            object? responseSchema = null,
             CancellationToken cancellationToken = default);
 
         /// <summary>

@@ -1211,6 +1211,56 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             };
         }
 
+        public async Task<List<string>> GetFilesModifiedSinceAsync(
+            string programId,
+            string versionId,
+            DateTime since,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var versionPath = Path.Combine(_settings.BasePath, programId, versionId, "files");
+
+                if (!Directory.Exists(versionPath))
+                {
+                    _logger.LogWarning("Version path does not exist: {Path}", versionPath);
+                    return new List<string>();
+                }
+
+                var modifiedFiles = new List<string>();
+
+                // Get all files in the version directory
+                var allFiles = Directory.GetFiles(versionPath, "*", SearchOption.AllDirectories);
+
+                foreach (var physicalPath in allFiles)
+                {
+                    var fileInfo = new FileInfo(physicalPath);
+
+                    // Check if file was modified after the given timestamp
+                    if (fileInfo.LastWriteTimeUtc > since)
+                    {
+                        // Convert physical path back to relative file path
+                        var relativePath = Path.GetRelativePath(versionPath, physicalPath);
+                        modifiedFiles.Add(relativePath);
+
+                        _logger.LogDebug("Found modified file: {FilePath} (modified: {Modified})",
+                            relativePath, fileInfo.LastWriteTimeUtc);
+                    }
+                }
+
+                _logger.LogInformation("Found {Count} files modified since {Since} for {ProgramId}/{VersionId}",
+                    modifiedFiles.Count, since, programId, versionId);
+
+                return await Task.FromResult(modifiedFiles);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get files modified since {Since} for {ProgramId}/{VersionId}",
+                    since, programId, versionId);
+                return new List<string>();
+            }
+        }
+
         #endregion
     }
 

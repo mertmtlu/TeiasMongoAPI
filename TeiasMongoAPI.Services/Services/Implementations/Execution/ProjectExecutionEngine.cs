@@ -303,13 +303,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
 
         public async Task<ProjectStructureAnalysis> AnalyzeProjectStructureAsync(string programId, string versionId, CancellationToken cancellationToken = default)
         {
+            // Call internal method with validation enabled (default behavior for execution)
+            return await AnalyzeProjectStructureInternalAsync(programId, versionId, skipValidation: false, cancellationToken);
+        }
+
+        public async Task<ProjectStructureAnalysis> AnalyzeProjectStructureInternalAsync(string programId, string versionId, bool skipValidation = false, CancellationToken cancellationToken = default)
+        {
             try
             {
                 // Resolve version if not provided
                 var resolvedVersionId = await ResolveExecutionVersionAsync(programId, versionId, cancellationToken);
 
-                // Validate program and version
-                await ValidateProgramAndVersionAsync(programId, resolvedVersionId, cancellationToken);
+                // Validate program and version (skip for AI assistant to allow unapproved/draft versions)
+                if (!skipValidation)
+                {
+                    await ValidateProgramAndVersionAsync(programId, resolvedVersionId, cancellationToken);
+                }
 
                 var tempDir = Path.Combine(_settings.WorkingDirectory, "analysis", Guid.NewGuid().ToString());
                 Directory.CreateDirectory(tempDir);
@@ -524,6 +533,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 }).ToList();
 
                 analysis.SourceFiles = allFiles.Where(f => IsSourceFile(f)).ToList();
+                analysis.ConfigFiles = allFiles.Where(f => IsConfigFile(f)).ToList();
+                analysis.BinaryFiles = allFiles.Where(f => !IsSourceFile(f) && !IsConfigFile(f)).ToList();
 
                 // Try each language runner to analyze
                 foreach (var runner in _languageRunners)
@@ -1024,6 +1035,50 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
         {
             var extension = Path.GetExtension(filePath).ToLowerInvariant();
             return new[] { ".cs", ".py", ".java", ".js", ".ts", ".cpp", ".c", ".h", ".hpp", ".rs", ".go" }.Contains(extension);
+        }
+
+        /// <summary>
+        /// Checks if a file is a config file
+        /// </summary>
+        private bool IsConfigFile(string filePath)
+        {
+            var extension = Path.GetExtension(filePath).ToLowerInvariant();
+            var fileName = Path.GetFileName(filePath).ToLowerInvariant();
+
+            // Handle files with no extension that are often text-readable (e.g., Dockerfile, LICENSE)
+            if (string.IsNullOrEmpty(extension))
+            {
+                return new[] {
+                    "license", "readme", "dockerfile", "makefile", ".gitattributes",
+                    ".gitignore", ".editorconfig", "requirements"
+                }.Contains(fileName);
+                    }
+
+                    // Check against a list of common text-readable extensions
+                    return new[] {
+                // --- Configuration Files ---
+                ".json", ".xml", ".yaml", ".yml", ".ini", ".toml", ".config", ".properties",
+                ".settings", ".env",
+
+                // --- Project & Solution Files ---
+                ".csproj", ".vbproj", ".fsproj", ".sln", ".suo", ".proj", ".props", ".targets",
+                ".user", ".mdproj", // For MonoDevelop
+
+                // --- Markup & Document Files ---
+                ".md", ".markdown", ".txt", ".rtf", ".html", ".htm", ".css", ".scss", ".less",
+                ".svg", // SVG is XML-based and readable
+
+                // --- Data Serialization Files ---
+                ".csv", ".tsv", ".log",
+
+                // --- Lock Files & Manifests ---
+                ".lock", "packages.config", "project.json", // Older .NET
+
+                // --- Other Common Text Files ---
+                ".gitignore", ".gitattributes", ".editorconfig", ".gitmodules",
+                ".dockerignore"
+
+            }.Contains(extension);
         }
 
         /// <summary>

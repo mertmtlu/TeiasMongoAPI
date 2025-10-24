@@ -35,20 +35,23 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 programId, versionId);
 
             // Get project structure
-            var structure = await _executionService.AnalyzeProjectStructureAsync(programId, versionId, cancellationToken);
+            // Use AI-specific method to work with unapproved/draft versions
+            var structure = await _executionService.AnalyzeProjectStructureForAIAsync(programId, versionId, cancellationToken);
+
+            List<string> allFiles = structure.SourceFiles.Concat(structure.ConfigFiles).ToList();
 
             var index = new ProjectIndex
             {
                 ProgramId = programId,
                 VersionId = versionId,
                 Language = structure.Language,
-                AllFiles = structure.SourceFiles
+                AllFiles = allFiles  // Include both source and config files
             };
 
             var totalSymbols = 0;
 
             // Process each source file
-            foreach (var filePath in structure.SourceFiles)
+            foreach (var filePath in allFiles)
             {
                 try
                 {
@@ -59,11 +62,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                     // Extract symbols
                     var symbols = ExtractSymbols(filePath, content, structure.Language);
 
-                    if (symbols.Any())
-                    {
-                        index.FileSymbols[filePath] = symbols;
-                        totalSymbols += symbols.Count;
-                    }
+                    // Always add file to index, even if no symbols (e.g., config files)
+                    index.FileSymbols[filePath] = symbols;
+                    totalSymbols += symbols.Count;
                 }
                 catch (Exception ex)
                 {

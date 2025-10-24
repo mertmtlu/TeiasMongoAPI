@@ -43,11 +43,13 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             List<LLMMessage> messages,
             double? temperature = null,
             int? maxTokens = null,
+            object? responseSchema = null,
             CancellationToken cancellationToken = default)
         {
             try
             {
-                _logger.LogInformation("Sending chat completion request to Gemini API with {MessageCount} messages", messages.Count);
+                _logger.LogInformation("Sending chat completion request to Gemini API with {MessageCount} messages (Structured: {IsStructured})",
+                    messages.Count, responseSchema != null);
 
                 // Build the prompt combining system prompt and conversation
                 var fullPrompt = new StringBuilder();
@@ -63,6 +65,20 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                     fullPrompt.AppendLine($"{(message.Role == "user" ? "User" : "Assistant")}: {message.Content}");
                 }
 
+                // Prepare generation config
+                var generationConfig = new Dictionary<string, object>
+                {
+                    { "temperature", temperature ?? _options.Temperature },
+                    { "maxOutputTokens", maxTokens ?? _options.MaxResponseTokens }
+                };
+
+                // Add structured output configuration if schema is provided
+                if (responseSchema != null)
+                {
+                    generationConfig["responseMimeType"] = "application/json";
+                    generationConfig["responseSchema"] = responseSchema;
+                }
+
                 // Prepare request body
                 var requestBody = new
                 {
@@ -76,11 +92,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                             }
                         }
                     },
-                    generationConfig = new
-                    {
-                        temperature = temperature ?? _options.Temperature,
-                        maxOutputTokens = maxTokens ?? _options.MaxResponseTokens
-                    }
+                    generationConfig = generationConfig
                 };
 
                 var jsonContent = JsonSerializer.Serialize(requestBody);

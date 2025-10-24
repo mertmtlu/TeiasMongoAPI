@@ -1,98 +1,110 @@
 namespace TeiasMongoAPI.Services.Configuration
 {
     /// <summary>
-    /// Configuration options for vector store (Qdrant) and embeddings
+    /// Configuration options for vector store functionality
     /// </summary>
-    public class VectorStoreOptions
+    public class VectorStoreSettings
     {
         /// <summary>
-        /// Configuration section name in appsettings.json
+        /// Vector store provider (currently only "Qdrant" supported)
         /// </summary>
-        public const string SectionName = "VectorStore";
+        public string Provider { get; set; } = "Qdrant";
 
         /// <summary>
-        /// Vector store provider: "Qdrant", "MongoDB", "InMemory"
+        /// Qdrant-specific settings
         /// </summary>
-        public string Provider { get; set; } = string.Empty;
+        public QdrantSettings Qdrant { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Qdrant vector database configuration
+    /// </summary>
+    public class QdrantSettings
+    {
+        /// <summary>
+        /// Qdrant server host (default: localhost for development)
+        /// </summary>
+        public string Host { get; set; } = "localhost";
 
         /// <summary>
-        /// Qdrant server URL
-        /// Default: http://localhost:6333
+        /// HTTP/REST API port (default: 6333)
         /// </summary>
-        public string QdrantUrl { get; set; } = string.Empty;
+        public int Port { get; set; } = 6333;
 
         /// <summary>
-        /// Qdrant API key (if authentication is enabled)
+        /// gRPC API port (default: 6334)
         /// </summary>
-        public string? QdrantApiKey { get; set; }
+        public int GrpcPort { get; set; } = 6334;
 
         /// <summary>
-        /// Collection name prefix for storing code embeddings
-        /// Actual collection name will be: {CollectionPrefix}_{programId}
+        /// Optional API key for authentication (null for development)
         /// </summary>
-        public string CollectionPrefix { get; set; } = string.Empty;
+        public string? ApiKey { get; set; }
 
         /// <summary>
-        /// Embedding provider: "Google", "OpenAI", "Local"
+        /// Whether to use TLS/SSL (false for local development)
         /// </summary>
-        public string EmbeddingProvider { get; set; } = string.Empty;
+        public bool UseTls { get; set; } = false;
 
         /// <summary>
-        /// Embedding model to use
-        /// Google: "gemini-embedding-001" (768/1536/3072 dimensions, recommended)
-        ///         "text-embedding-004" (768 dimensions, DEPRECATED - will be discontinued Nov 2025)
-        /// OpenAI: "text-embedding-3-small" (1536 dimensions)
-        ///         "text-embedding-3-large" (3072 dimensions)
+        /// Prefix for collection names (e.g., "teias_code_")
+        /// Final collection name: {prefix}{programId}_{versionId}
         /// </summary>
-        public string EmbeddingModel { get; set; } = string.Empty;
+        public string CollectionPrefix { get; set; } = "teias_code_";
 
         /// <summary>
-        /// Embedding vector dimension
-        /// Must match the model's output dimension
-        /// gemini-embedding-001: 768, 1536, or 3072 (recommended: 768 for balance, 3072 for quality)
-        /// text-embedding-004: 768 only
-        /// OpenAI text-embedding-3-small: 1536
-        /// OpenAI text-embedding-3-large: 3072
+        /// Connection timeout in seconds
         /// </summary>
-        public int EmbeddingDimension { get; set; }
+        public int TimeoutSeconds { get; set; } = 30;
+    }
+
+    /// <summary>
+    /// Embedding generation configuration
+    /// </summary>
+    public class EmbeddingSettings
+    {
+        /// <summary>
+        /// Embedding provider (currently only "Gemini" supported)
+        /// </summary>
+        public string Provider { get; set; } = "Gemini";
 
         /// <summary>
-        /// API key for embedding provider
-        /// For Google: use same API key as Gemini (from LLM config)
-        /// For OpenAI: separate API key
+        /// Gemini embedding model name
+        /// Options: "text-embedding-004" (768 dims), "gemini-embedding-001" (768-3072 dims)
         /// </summary>
-        public string? EmbeddingApiKey { get; set; }
+        public string Model { get; set; } = "text-embedding-004";
 
         /// <summary>
-        /// Number of results to retrieve from vector search
+        /// Embedding vector dimensions (must match model output)
+        /// text-embedding-004: 768
+        /// gemini-embedding-001: 768 (default) or up to 3072
         /// </summary>
-        public int TopK { get; set; }
+        public int Dimensions { get; set; } = 768;
 
         /// <summary>
-        /// Minimum similarity score threshold (0.0 to 1.0)
-        /// Results below this threshold will be filtered out
+        /// Maximum number of texts to embed in a single batch request
         /// </summary>
-        public double MinimumSimilarityScore { get; set; }
+        public int MaxBatchSize { get; set; } = 100;
 
         /// <summary>
-        /// Whether to enable vector search
-        /// If false, only uses code indexing without semantic search
+        /// Maximum chunk size in tokens for code chunking
         /// </summary>
-        public bool EnableVectorSearch { get; set; }
+        public int ChunkSize { get; set; } = 512;
 
         /// <summary>
-        /// Whether to automatically index new versions
+        /// Token overlap between adjacent chunks for sliding window approach
         /// </summary>
-        public bool AutoIndexVersions { get; set; }
+        public int ChunkOverlap { get; set; } = 50;
 
         /// <summary>
-        /// Batch size for embedding generation
+        /// Task type for embedding generation
+        /// Options: "RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT", "SEMANTIC_SIMILARITY"
         /// </summary>
-        public int EmbeddingBatchSize { get; set; }
+        public string TaskType { get; set; } = "RETRIEVAL_DOCUMENT";
 
         /// <summary>
-        /// Timeout for vector search queries in seconds
+        /// Optional title prefix for document embeddings
         /// </summary>
-        public int QueryTimeoutSeconds { get; set; }
+        public string? TitlePrefix { get; set; } = "Code: ";
     }
 }

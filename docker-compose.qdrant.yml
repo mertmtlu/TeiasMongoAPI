@@ -11,16 +11,25 @@ services:
     image: qdrant/qdrant:latest
     container_name: teias-qdrant
     ports:
-      - "6333:6333"  # HTTP API
-      - "6334:6334"  # gRPC API
+      - "6333:6333"  # HTTP/REST API (for host access)
+      - "6334:6334"  # gRPC API (for host access - used by .NET client)
     volumes:
-      - qdrant_storage:/qdrant/storage
+      - qdrant_storage:/qdrant/storage:z
     environment:
-      # Optional: Enable authentication (uncomment and set API key)
+      # Development mode - no authentication
+      # For production, uncomment and set API key
       # - QDRANT__SERVICE__API_KEY=your-secret-api-key-here
 
-      # Logging
+      # Logging level (DEBUG, INFO, WARN, ERROR)
       - QDRANT__LOG_LEVEL=INFO
+
+      # Performance settings for development
+      - QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS=4
+
+      # HNSW index settings (optimized for development)
+      - QDRANT__STORAGE__HNSW__M=16
+      - QDRANT__STORAGE__HNSW__EF_CONSTRUCT=100
+
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/"]
@@ -38,3 +47,10 @@ volumes:
 networks:
   teias-network:
     driver: bridge
+
+# Notes:
+# - HTTP API (6333): For REST operations, web UI (http://localhost:6333/dashboard)
+# - gRPC API (6334): For high-performance operations (used by .NET client)
+# - Data persists in named volume 'qdrant_storage'
+# - Access Qdrant dashboard at: http://localhost:6333/dashboard
+# - No authentication configured (suitable for local development only)

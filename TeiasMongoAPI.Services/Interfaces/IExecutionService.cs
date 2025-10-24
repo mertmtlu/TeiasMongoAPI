@@ -90,6 +90,12 @@ namespace TeiasMongoAPI.Services.Interfaces
 
         Task<List<string>> GetSupportedLanguagesAsync(CancellationToken cancellationToken = default);
         Task<ProjectStructureAnalysisDto> AnalyzeProjectStructureAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Analyze project structure for AI assistant (works with unapproved/draft versions)
+        /// </summary>
+        Task<ProjectStructureAnalysisDto> AnalyzeProjectStructureForAIAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default);
+
         Task<ProjectValidationResultDto> ValidateProjectAsync(string programId, string? versionId = null, CancellationToken cancellationToken = default);
     }
 }

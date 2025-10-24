@@ -123,6 +123,17 @@ namespace TeiasMongoAPI.Services.Interfaces
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>The physical disk path to the generated ZIP file.</returns>
         Task<string> CreateExecutionZipIfNotExistsAsync(ExecutionDetailDto execution, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Gets all files that were modified after a specific timestamp
+        /// Used for detecting stale indexes in semantic search
+        /// </summary>
+        /// <param name="programId">Program ID</param>
+        /// <param name="versionId">Version ID</param>
+        /// <param name="since">Timestamp to check modifications after</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>List of file paths that were modified after the given timestamp</returns>
+        Task<List<string>> GetFilesModifiedSinceAsync(string programId, string versionId, DateTime since, CancellationToken cancellationToken = default);
     }
 
     public class FileStorageResult

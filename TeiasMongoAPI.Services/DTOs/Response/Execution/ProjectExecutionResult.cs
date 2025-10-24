@@ -25,6 +25,7 @@
         public List<string> EntryPoints { get; set; } = new();
         public List<string> ConfigFiles { get; set; } = new();
         public List<string> SourceFiles { get; set; } = new();
+        public List<string> BinaryFiles { get; set; } = new();
         public List<string> Dependencies { get; set; } = new();
         public Dictionary<string, object> Metadata { get; set; } = new();
         public bool HasBuildFile { get; set; }
