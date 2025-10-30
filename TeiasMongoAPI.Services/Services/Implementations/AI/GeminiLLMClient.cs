@@ -21,16 +21,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
     {
         private readonly LLMOptions _options;
         private readonly ILogger<GeminiLLMClient> _logger;
-        private static readonly HttpClient _httpClient = new HttpClient();
+        private readonly HttpClient _httpClient;
         private readonly string _apiEndpoint;
         private readonly ResiliencePipeline<HttpResponseMessage> _retryPipeline;
 
         public string ModelName => _options.Model;
 
         public GeminiLLMClient(
+            HttpClient httpClient,
             IOptions<LLMOptions> options,
             ILogger<GeminiLLMClient> logger)
         {
+            _httpClient = httpClient;
             _options = options.Value;
             _logger = logger;
 

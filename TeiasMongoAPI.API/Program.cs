@@ -320,6 +320,8 @@ namespace TeiasMongoAPI.API
                 options.MaxResponseTokens = int.Parse(Environment.GetEnvironmentVariable("AI_MAX_RESPONSE_TOKENS") ?? "16384");
                 options.Temperature = double.Parse(Environment.GetEnvironmentVariable("GEMINI_TEMPERATURE") ?? "0.7");
                 options.ConversationHistoryLimit = int.Parse(Environment.GetEnvironmentVariable("AI_CONVERSATION_HISTORY_LIMIT") ?? "10");
+                options.RequestTimeoutSeconds = int.Parse(Environment.GetEnvironmentVariable("LLM_REQUEST_TIMEOUT_SECONDS") ??
+                    builder.Configuration.GetValue<string>("LLM:RequestTimeoutSeconds") ?? "300");
             });
 
             // Configure Vector Store Settings
@@ -330,8 +332,20 @@ namespace TeiasMongoAPI.API
             builder.Services.Configure<TeiasMongoAPI.Services.Configuration.EmbeddingSettings>(
                 builder.Configuration.GetSection("Embedding"));
 
-            // Register AI Services
-            builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ILLMClient, TeiasMongoAPI.Services.Services.Implementations.AI.GeminiLLMClient>();
+            // Register AI Services with HttpClient
+            builder.Services.AddHttpClient<TeiasMongoAPI.Services.Interfaces.ILLMClient, TeiasMongoAPI.Services.Services.Implementations.AI.GeminiLLMClient>((serviceProvider, client) =>
+            {
+                // Get the LLMOptions to read the timeout configuration
+                var llmOptions = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<TeiasMongoAPI.Services.Configuration.LLMOptions>>().Value;
+
+                // Configure the HttpClient timeout from the configuration
+                // Use the configured value with a safe fallback to 300 seconds (5 minutes)
+                var timeoutSeconds = llmOptions.RequestTimeoutSeconds > 0 ? llmOptions.RequestTimeoutSeconds : 300;
+                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
+                // Optional: Set other HttpClient properties
+                client.DefaultRequestHeaders.Add("User-Agent", "TeiasMongoAPI/2.0");
+            });
             builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.IIntentClassifier, TeiasMongoAPI.Services.Services.Implementations.AI.IntentClassifier>();
             builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.ICodeIndexer, TeiasMongoAPI.Services.Services.Implementations.AI.CodeIndexer>();
             builder.Services.AddScoped<TeiasMongoAPI.Services.Interfaces.IResponseEvaluator, TeiasMongoAPI.Services.Services.Implementations.AI.ResponseEvaluator>();
