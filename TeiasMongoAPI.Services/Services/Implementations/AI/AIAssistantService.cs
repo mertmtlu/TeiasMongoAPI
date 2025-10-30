@@ -257,6 +257,22 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
 
                 _logger.LogInformation("LLM response received. Tokens: {TotalTokens}", llmResponse.TotalTokens);
 
+                if (llmResponse.IsBlocked)
+                {
+                    _logger.LogWarning("LLM response was blocked. Reason: {BlockReason}. Aborting evaluation and returning friendly message.", llmResponse.BlockReason);
+                    
+                    // Create a ParsedAIResponse with the user-friendly error message from the client
+                    var blockedResponse = new ParsedAIResponse
+                    {
+                        DisplayText = llmResponse.Content, // This contains the safe error message like "I'm unable to..."
+                        FileOperations = new List<FileOperationDto>(),
+                        Warnings = new List<string> { $"Request was blocked by the API. Reason: {llmResponse.BlockReason}" }
+                    };
+
+                    // Return immediately from the function. There is no need to retry a blocked request.
+                    return (blockedResponse, llmResponse.TotalTokens, retryCount, null);
+                }
+
                 // Parse response
                 var aiResponse = ParseLLMResponse(llmResponse.Content, context);
 
