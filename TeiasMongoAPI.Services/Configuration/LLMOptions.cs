@@ -33,7 +33,7 @@ namespace TeiasMongoAPI.Services.Configuration
         /// <summary>
         /// Maximum tokens in the response
         /// </summary>
-        public int MaxResponseTokens { get; set; } = 8192;
+        public int MaxResponseTokens { get; set; } = 16384;
 
         /// <summary>
         /// Temperature for response generation (0.0 to 1.0)

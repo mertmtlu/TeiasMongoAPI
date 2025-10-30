@@ -317,7 +317,7 @@ namespace TeiasMongoAPI.API
                 options.ApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? string.Empty;
                 options.Model = Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "gemini-2.0-flash-exp";
                 options.MaxContextTokens = int.Parse(Environment.GetEnvironmentVariable("AI_MAX_CONTEXT_TOKENS") ?? "100000");
-                options.MaxResponseTokens = int.Parse(Environment.GetEnvironmentVariable("AI_MAX_RESPONSE_TOKENS") ?? "8192");
+                options.MaxResponseTokens = int.Parse(Environment.GetEnvironmentVariable("AI_MAX_RESPONSE_TOKENS") ?? "16384");
                 options.Temperature = double.Parse(Environment.GetEnvironmentVariable("GEMINI_TEMPERATURE") ?? "0.7");
                 options.ConversationHistoryLimit = int.Parse(Environment.GetEnvironmentVariable("AI_CONVERSATION_HISTORY_LIMIT") ?? "10");
             });
