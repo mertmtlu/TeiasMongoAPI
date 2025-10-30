@@ -86,8 +86,18 @@ namespace TeiasMongoAPI.Services.Interfaces
         public string Model { get; set; } = string.Empty;
 
         /// <summary>
-        /// Finish reason (e.g., "stop", "length", "content_filter")
+        /// Finish reason (e.g., "stop", "length", "content_filter", "SAFETY")
         /// </summary>
         public string? FinishReason { get; set; }
+
+        /// <summary>
+        /// Indicates if the response was blocked by safety filters
+        /// </summary>
+        public bool IsBlocked { get; set; }
+
+        /// <summary>
+        /// Reason for blocking (if IsBlocked is true)
+        /// </summary>
+        public string? BlockReason { get; set; }
     }
 }

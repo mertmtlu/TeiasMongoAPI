@@ -148,20 +148,107 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                     PropertyNameCaseInsensitive = true
                 });
 
-                if (geminiResponse?.Candidates == null || geminiResponse.Candidates.Length == 0)
+                if (geminiResponse == null)
                 {
-                    throw new InvalidOperationException("No response received from Gemini API");
+                    throw new InvalidOperationException("Failed to deserialize Gemini API response");
+                }
+
+                // Check for prompt-level safety blocks first
+                if (geminiResponse.PromptFeedback?.BlockReason != null)
+                {
+                    var blockReason = geminiResponse.PromptFeedback.BlockReason;
+                    var safetyInfo = FormatSafetyRatings(geminiResponse.PromptFeedback.SafetyRatings);
+
+                    _logger.LogWarning(
+                        "Gemini API blocked the prompt. BlockReason: {BlockReason}. Safety Ratings: {SafetyRatings}",
+                        blockReason,
+                        safetyInfo);
+
+                    return new LLMResponse
+                    {
+                        Content = $"I'm unable to process this request as it was blocked due to safety concerns. Reason: {blockReason}",
+                        TotalTokens = geminiResponse.UsageMetadata?.TotalTokenCount ?? 0,
+                        PromptTokens = geminiResponse.UsageMetadata?.PromptTokenCount ?? 0,
+                        CompletionTokens = 0,
+                        Model = _options.Model,
+                        FinishReason = "SAFETY",
+                        IsBlocked = true,
+                        BlockReason = blockReason
+                    };
+                }
+
+                // Check if we have candidates
+                if (geminiResponse.Candidates == null || geminiResponse.Candidates.Length == 0)
+                {
+                    // No candidates but no block reason - likely empty response
+                    _logger.LogWarning("Gemini API returned no candidates and no explicit block reason");
+
+                    return new LLMResponse
+                    {
+                        Content = "I'm unable to generate a response for this request. Please try rephrasing your question.",
+                        TotalTokens = geminiResponse.UsageMetadata?.TotalTokenCount ?? 0,
+                        PromptTokens = geminiResponse.UsageMetadata?.PromptTokenCount ?? 0,
+                        CompletionTokens = 0,
+                        Model = _options.Model,
+                        FinishReason = "OTHER",
+                        IsBlocked = true,
+                        BlockReason = "NO_CANDIDATES"
+                    };
                 }
 
                 var candidate = geminiResponse.Candidates[0];
-                var responseText = candidate.Content?.Parts?.FirstOrDefault()?.Text ?? string.Empty;
+
+                // Check for candidate-level safety blocks
+                if (candidate.FinishReason == "SAFETY")
+                {
+                    var safetyInfo = FormatSafetyRatings(candidate.SafetyRatings);
+
+                    _logger.LogWarning(
+                        "Gemini API blocked the response. FinishReason: SAFETY. Safety Ratings: {SafetyRatings}",
+                        safetyInfo);
+
+                    return new LLMResponse
+                    {
+                        Content = "I'm unable to complete this response as it was blocked due to safety concerns.",
+                        TotalTokens = geminiResponse.UsageMetadata?.TotalTokenCount ?? 0,
+                        PromptTokens = geminiResponse.UsageMetadata?.PromptTokenCount ?? 0,
+                        CompletionTokens = geminiResponse.UsageMetadata?.CandidatesTokenCount ?? 0,
+                        Model = _options.Model,
+                        FinishReason = "SAFETY",
+                        IsBlocked = true,
+                        BlockReason = "SAFETY_RATINGS"
+                    };
+                }
+
+                // Check if content exists and has parts
+                if (candidate.Content?.Parts == null || candidate.Content.Parts.Length == 0)
+                {
+                    _logger.LogWarning(
+                        "Gemini API returned candidate with no content. FinishReason: {FinishReason}",
+                        candidate.FinishReason ?? "UNKNOWN");
+
+                    return new LLMResponse
+                    {
+                        Content = "I'm unable to generate a response. The API returned no content.",
+                        TotalTokens = geminiResponse.UsageMetadata?.TotalTokenCount ?? 0,
+                        PromptTokens = geminiResponse.UsageMetadata?.PromptTokenCount ?? 0,
+                        CompletionTokens = geminiResponse.UsageMetadata?.CandidatesTokenCount ?? 0,
+                        Model = _options.Model,
+                        FinishReason = candidate.FinishReason ?? "OTHER",
+                        IsBlocked = true,
+                        BlockReason = "NO_CONTENT"
+                    };
+                }
+
+                // Successfully got content - extract it
+                var responseText = candidate.Content.Parts.FirstOrDefault()?.Text ?? string.Empty;
 
                 // Extract token usage
                 var promptTokens = geminiResponse.UsageMetadata?.PromptTokenCount ?? 0;
                 var completionTokens = geminiResponse.UsageMetadata?.CandidatesTokenCount ?? 0;
                 var totalTokens = geminiResponse.UsageMetadata?.TotalTokenCount ?? (promptTokens + completionTokens);
 
-                _logger.LogInformation("Gemini API response received. Tokens - Prompt: {PromptTokens}, Completion: {CompletionTokens}, Total: {TotalTokens}",
+                _logger.LogInformation("Gemini API response received successfully. Tokens - Prompt: {PromptTokens}, Completion: {CompletionTokens}, Total: {TotalTokens}",
                     promptTokens, completionTokens, totalTokens);
 
                 return new LLMResponse
@@ -171,7 +258,8 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                     PromptTokens = promptTokens,
                     CompletionTokens = completionTokens,
                     Model = _options.Model,
-                    FinishReason = candidate.FinishReason ?? "STOP"
+                    FinishReason = candidate.FinishReason ?? "STOP",
+                    IsBlocked = false
                 };
             }
             catch (HttpRequestException ex)
@@ -196,6 +284,23 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             return (int)Math.Ceiling(text.Length / 4.0);
         }
 
+        /// <summary>
+        /// Formats safety ratings array into a readable string for logging
+        /// </summary>
+        private string FormatSafetyRatings(GeminiSafetyRating[]? safetyRatings)
+        {
+            if (safetyRatings == null || safetyRatings.Length == 0)
+            {
+                return "No safety ratings available";
+            }
+
+            var ratings = safetyRatings
+                .Select(r => $"{r.Category}: {r.Probability}" + (r.Blocked == true ? " (BLOCKED)" : ""))
+                .ToArray();
+
+            return string.Join(", ", ratings);
+        }
+
         #region API Response Models
 
         private class GeminiApiResponse
@@ -205,6 +310,18 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
 
             [JsonPropertyName("usageMetadata")]
             public GeminiUsageMetadata? UsageMetadata { get; set; }
+
+            [JsonPropertyName("promptFeedback")]
+            public GeminiPromptFeedback? PromptFeedback { get; set; }
+        }
+
+        private class GeminiPromptFeedback
+        {
+            [JsonPropertyName("blockReason")]
+            public string? BlockReason { get; set; }
+
+            [JsonPropertyName("safetyRatings")]
+            public GeminiSafetyRating[]? SafetyRatings { get; set; }
         }
 
         private class GeminiCandidate
@@ -214,6 +331,21 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
 
             [JsonPropertyName("finishReason")]
             public string? FinishReason { get; set; }
+
+            [JsonPropertyName("safetyRatings")]
+            public GeminiSafetyRating[]? SafetyRatings { get; set; }
+        }
+
+        private class GeminiSafetyRating
+        {
+            [JsonPropertyName("category")]
+            public string? Category { get; set; }
+
+            [JsonPropertyName("probability")]
+            public string? Probability { get; set; }
+
+            [JsonPropertyName("blocked")]
+            public bool? Blocked { get; set; }
         }
 
         private class GeminiContent

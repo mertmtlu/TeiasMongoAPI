@@ -71,10 +71,19 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                         {
                             type = "string"
                         }
+                    },
+                    suggestedFollowUps = new
+                    {
+                        type = "array",
+                        description = "3-5 contextual follow-up questions or actions the user might want to take next, based on the current conversation and response",
+                        items = new
+                        {
+                            type = "string"
+                        }
                     }
                 },
                 required = new[] { "displayText", "fileOperations" },
-                propertyOrdering = new[] { "displayText", "fileOperations", "warnings" }
+                propertyOrdering = new[] { "displayText", "fileOperations", "warnings", "suggestedFollowUps" }
             };
         }
 

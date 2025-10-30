@@ -128,8 +128,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 // Step 6: Build updated conversation history
                 var updatedHistory = BuildUpdatedHistory(request.ConversationHistory, request.UserPrompt, aiResponse);
 
-                // Step 7: Generate suggested follow-ups
-                var suggestedFollowUps = GenerateSuggestedFollowUps(context.Intent, aiResponse.FileOperations);
+                // Step 7: Use AI-generated follow-ups (fallback to template-based if none provided)
+                var suggestedFollowUps = aiResponse.SuggestedFollowUps?.Any() == true
+                    ? aiResponse.SuggestedFollowUps
+                    : GenerateSuggestedFollowUps(context.Intent, aiResponse.FileOperations);
 
                 stopwatch.Stop();
 
@@ -792,6 +794,11 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             sb.AppendLine("   - DELETE: Remove a file");
             sb.AppendLine("3. For questions without code changes, leave fileOperations empty");
             sb.AppendLine("4. Add optional warnings if there are potential issues");
+            sb.AppendLine("5. Generate 3-5 contextual 'suggestedFollowUps' - natural next steps or questions based on what you just did:");
+            sb.AppendLine("   - Make them specific to the current conversation and code changes");
+            sb.AppendLine("   - Suggest testing, documentation, error handling, or related improvements");
+            sb.AppendLine("   - For questions, suggest deeper dives, examples, or clarifications");
+            sb.AppendLine("   - Keep them concise and actionable (e.g., 'Add unit tests for the login function')");
             sb.AppendLine();
             sb.AppendLine("IMPORTANT RULES:");
             sb.AppendLine("- Use relative file paths from project root");
@@ -1036,6 +1043,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             public string DisplayText { get; set; } = string.Empty;
             public List<FileOperationDto> FileOperations { get; set; } = new();
             public List<string> Warnings { get; set; } = new();
+            public List<string> SuggestedFollowUps { get; set; } = new();
         }
 
         #endregion
