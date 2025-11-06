@@ -88,7 +88,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 // Store metadata point with index creation timestamp
                 var metadataPoint = new PointStruct
                 {
-                    Id = new PointId { Uuid = "metadata_index_info" },
+                    Id = new PointId { Uuid = "00000000-0000-0000-0000-000000000001" },
                     Vectors = new float[dimensions], // Zero vector
                     Payload =
                     {
@@ -165,7 +165,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                 // Convert chunks to Qdrant points
                 var points = chunksWithEmbeddings.Select(chunk => new PointStruct
                 {
-                    Id = new PointId { Uuid = chunk.Id },
+                    Id = new PointId { Uuid = Guid.NewGuid().ToString() },
                     Vectors = chunk.Embedding!,
                     Payload =
                     {
@@ -419,7 +419,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             try
             {
                 // Search for the metadata point
-                var zeroVector = new float[768]; // Assuming 768 dims - could be made dynamic
+                var zeroVector = new float[3072]; // Assuming 768 dims - could be made dynamic
                 var results = await _client.SearchAsync(
                     collectionName: collectionName,
                     vector: zeroVector,

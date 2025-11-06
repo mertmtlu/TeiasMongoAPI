@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -36,6 +37,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
         private readonly UIComponentContextGenerator _uiComponentContextGenerator;
         private readonly ILoggerFactory _loggerFactory;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IServiceProvider _serviceProvider;
 
         public AIAssistantService(
             ILLMClient llmClient,
@@ -50,6 +52,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             ILogger<AIAssistantService> logger,
             ILoggerFactory loggerFactory,
             IUnitOfWork unitOfWork,
+            IServiceProvider serviceProvider,
             ISemanticSearchService? semanticSearchService = null
             )
         {
@@ -65,6 +68,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
             _llmOptions = llmOptions.Value;
             _logger = logger;
             _loggerFactory = loggerFactory;
+            _serviceProvider = serviceProvider;
             _uiComponentContextGenerator = new UIComponentContextGenerator(
                 uiComponentService,
                 _loggerFactory.CreateLogger<UIComponentContextGenerator>());
@@ -396,24 +400,41 @@ namespace TeiasMongoAPI.Services.Services.Implementations.AI
                         // Auto-index the project in the background (don't block the conversation)
                         _ = Task.Run(async () =>
                         {
-                            try
+                            // Create a new, independent DI scope for this background task
+                            using (var scope = _serviceProvider.CreateScope())
                             {
-                                var indexResult = await _semanticSearchService.IndexProjectAsync(
-                                    programId, versionId, forceReindex: false, CancellationToken.None);
+                                try
+                                {
+                                    // Resolve a FRESH instance of the service from the new scope
+                                    var scopedSemanticSearchService = scope.ServiceProvider.GetRequiredService<ISemanticSearchService>();
 
-                                if (indexResult.Success)
-                                {
-                                    _logger.LogInformation("Auto-indexing completed: {Chunks} chunks in {Duration}",
-                                        indexResult.ChunksCreated, indexResult.Duration);
+                                    // Use the new, scoped instance. It will live until this task is done.
+                                    var indexResult = await scopedSemanticSearchService.IndexProjectAsync(
+                                        programId, versionId, forceReindex: false, CancellationToken.None);
+
+                                    if (indexResult.Success)
+                                    {
+                                        // Note: You may also need to resolve a fresh logger instance from the scope
+                                        // if you want to log information from the background thread.
+                                        var logger = scope.ServiceProvider.GetRequiredService<ILogger<AIAssistantService>>();
+                                        logger.LogInformation("Auto-indexing completed: {Chunks} chunks in {Duration}",
+                                            indexResult.ChunksCreated, indexResult.Duration);
+                                    }
+                                    else
+                                    {
+                                        var logger = scope.ServiceProvider.GetRequiredService<ILogger<AIAssistantService>>();
+                                        logger.LogWarning("Auto-indexing failed: {Error}", indexResult.ErrorMessage);
+                                    }
                                 }
-                                else
+                                catch (Exception ex)
                                 {
-                                    _logger.LogWarning("Auto-indexing failed: {Error}", indexResult.ErrorMessage);
+                                    // Also resolve a logger here to log the exception
+                                    using (var errorScope = _serviceProvider.CreateScope())
+                                    {
+                                        var logger = errorScope.ServiceProvider.GetRequiredService<ILogger<AIAssistantService>>();
+                                        logger.LogError(ex, "Auto-indexing background task failed");
+                                    }
                                 }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Auto-indexing background task failed");
                             }
                         }, CancellationToken.None);
 

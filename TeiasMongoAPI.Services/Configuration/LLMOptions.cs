@@ -23,7 +23,7 @@ namespace TeiasMongoAPI.Services.Configuration
         /// <summary>
         /// Model name/ID to use
         /// </summary>
-        public string Model { get; set; } = "gemini-2.0-flash-exp";
+        public string Model { get; set; } = "gemini-2.5-flash-latest";
 
         /// <summary>
         /// Maximum tokens to use for context

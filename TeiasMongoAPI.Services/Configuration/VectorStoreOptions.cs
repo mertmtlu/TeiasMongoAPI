@@ -72,14 +72,14 @@ namespace TeiasMongoAPI.Services.Configuration
         /// Gemini embedding model name
         /// Options: "text-embedding-004" (768 dims), "gemini-embedding-001" (768-3072 dims)
         /// </summary>
-        public string Model { get; set; } = "text-embedding-004";
+        public string Model { get; set; } = "gemini-embedding-001";
 
         /// <summary>
         /// Embedding vector dimensions (must match model output)
         /// text-embedding-004: 768
         /// gemini-embedding-001: 768 (default) or up to 3072
         /// </summary>
-        public int Dimensions { get; set; } = 768;
+        public int Dimensions { get; set; } = 3072;
 
         /// <summary>
         /// Maximum number of texts to embed in a single batch request
