@@ -64,6 +64,20 @@ namespace TeiasMongoAPI.API
                     options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
                 });
 
+            // Configure Kestrel server limits for large file uploads
+            builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
+            {
+                options.Limits.MaxRequestBodySize = 524288000; // 500 MB (524,288,000 bytes)
+            });
+
+            // Configure Form options for multipart/form-data requests
+            builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+            {
+                options.MultipartBodyLengthLimit = 524288000; // 500 MB
+                options.ValueLengthLimit = 524288000;
+                options.MultipartHeadersLengthLimit = 524288000;
+            });
+
             // Configure API Explorer
             builder.Services.AddEndpointsApiExplorer();
 
