@@ -365,18 +365,9 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 throw new KeyNotFoundException($"Program with ID {programId} not found.");
             }
 
-            // Determine version to execute
-            string versionId;
-            if (!string.IsNullOrEmpty(program.CurrentVersion))
-            {
-                versionId = program.CurrentVersion;
-            }
-            else
-            {
-                // Get latest approved version
-                var latestVersion = await _versionService.GetLatestVersionForProgramAsync(programId, cancellationToken);
-                versionId = latestVersion.Id;
-            }
+            // Get latest version
+            var latestVersion = await _versionService.GetLatestVersionForProgramAsync(programId, cancellationToken);
+            string versionId = latestVersion.Id;
 
             var versionObjectId = ParseObjectId(versionId);
             var version = await _unitOfWork.Versions.GetByIdAsync(versionObjectId, cancellationToken);
@@ -384,11 +375,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (version == null)
             {
                 throw new KeyNotFoundException($"No executable version found for program {programId}.");
-            }
-
-            if (version.Status != "approved")
-            {
-                throw new InvalidOperationException("Can only execute approved versions.");
             }
 
             string user = "Undefined";
@@ -435,11 +421,6 @@ namespace TeiasMongoAPI.Services.Services.Implementations
             if (version == null)
             {
                 throw new KeyNotFoundException($"Version with ID {versionId} not found.");
-            }
-
-            if (version.Status != "approved")
-            {
-                throw new InvalidOperationException("Can only execute approved versions.");
             }
 
             // Check execution limits

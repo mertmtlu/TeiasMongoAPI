@@ -395,7 +395,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                     return program.CurrentVersion;
                 }
 
-                // Fall back to latest approved version
+                // Fall back to latest version
                 var latestVersion = await _versionService.GetLatestVersionForProgramAsync(programId, cancellationToken);
                 return latestVersion.Id;
             }
@@ -424,14 +424,10 @@ namespace TeiasMongoAPI.Services.Services.Implementations.Execution
                 throw new KeyNotFoundException($"Program with ID {programId} not found");
             }
 
-            // Validate version exists and is approved
+            // Validate version exists
             try
             {
-                var version = await _versionService.GetByIdAsync(versionId, cancellationToken);
-                if (version.Status != "approved")
-                {
-                    throw new InvalidOperationException($"Can only execute approved versions. Version {versionId} has status: {version.Status}");
-                }
+                await _versionService.GetByIdAsync(versionId, cancellationToken);
             }
             catch (KeyNotFoundException)
             {

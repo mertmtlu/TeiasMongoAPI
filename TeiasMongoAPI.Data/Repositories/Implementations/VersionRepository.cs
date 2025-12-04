@@ -29,7 +29,7 @@ namespace TeiasMongoAPI.Data.Repositories.Implementations
         {
             return await _context.Database.GetCollection<Version>("versions")
                 .Find(v => v.ProgramId == programId)
-                .SortByDescending(v => v.VersionNumber)
+                .SortByDescending(v => v.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
