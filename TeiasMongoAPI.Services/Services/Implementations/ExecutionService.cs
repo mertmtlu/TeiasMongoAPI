@@ -743,7 +743,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 ExecutionType = "web_app_deploy",
                 StartedAt = DateTime.UtcNow,
                 Status = "running",
-                Parameters = dto.Configuration,
+                Parameters = ConvertJsonElementToBson(dto.Configuration),
                 Results = new ExecutionResults(),
                 ResourceUsage = new ResourceUsage()
             };
@@ -1367,7 +1367,7 @@ namespace TeiasMongoAPI.Services.Services.Implementations
                 ExecutionType = "scheduled_execution",
                 StartedAt = dto.ScheduledTime,
                 Status = "scheduled",
-                Parameters = dto.Parameters,
+                Parameters = ConvertJsonElementToBson(dto.Parameters),
                 Results = new ExecutionResults(),
                 ResourceUsage = new ResourceUsage()
             };
@@ -2478,22 +2478,183 @@ namespace TeiasMongoAPI.Services.Services.Implementations
         {
             if (parameters == null) return null;
 
+            // Sanitize parameters to remove large file contents before conversion
+            var sanitized = SanitizeParameters(parameters);
+
             // If it's already a simple type or Dictionary, return as-is
-            if (parameters is string || parameters is int || parameters is double || parameters is bool || parameters is Dictionary<string, object>)
+            if (sanitized is string || sanitized is int || sanitized is double || sanitized is bool || sanitized is Dictionary<string, object>)
             {
-                return parameters;
+                return sanitized;
             }
 
             // Serialize to JSON string then deserialize with proper type handling
-            var json = System.Text.Json.JsonSerializer.Serialize(parameters);
+            var json = System.Text.Json.JsonSerializer.Serialize(sanitized);
             var options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             };
-            
+
             // Use JsonDocument to properly handle nested objects and convert JsonElement to proper types
             using var document = JsonDocument.Parse(json);
             return ConvertJsonElementToObject(document.RootElement);
+        }
+
+        /// <summary>
+        /// Sanitizes parameters by removing or truncating large content fields.
+        /// This prevents MongoDB document size limit (16MB) errors when file contents
+        /// are included in parameters. File contents should be saved to disk, not MongoDB.
+        /// </summary>
+        private object SanitizeParameters(object parameters)
+        {
+            if (parameters == null) return null;
+
+            // Simple types pass through
+            if (parameters is string || parameters is int || parameters is double || parameters is bool)
+            {
+                return parameters;
+            }
+
+            // Serialize to JSON for manipulation
+            var json = System.Text.Json.JsonSerializer.Serialize(parameters);
+            using var document = JsonDocument.Parse(json);
+
+            return SanitizeJsonElement(document.RootElement);
+        }
+
+        /// <summary>
+        /// Recursively sanitizes JsonElement by removing large content fields
+        /// </summary>
+        private object SanitizeJsonElement(JsonElement element)
+        {
+            const int MaxStringLength = 10000; // 10KB max for any string field
+            var fileContentFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "content", "fileContent", "file_content", "data", "fileData", "file_data",
+                "body", "payload", "source", "sourceCode", "source_code"
+            };
+
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.String:
+                    var strValue = element.GetString();
+                    // Truncate very large strings
+                    if (strValue != null && strValue.Length > MaxStringLength)
+                    {
+                        return $"[Content truncated - {strValue.Length} bytes, saved to execution directory]";
+                    }
+                    return strValue;
+
+                case JsonValueKind.Number:
+                    if (element.TryGetInt32(out int intValue))
+                        return intValue;
+                    if (element.TryGetInt64(out long longValue))
+                        return longValue;
+                    return element.GetDouble();
+
+                case JsonValueKind.True:
+                    return true;
+
+                case JsonValueKind.False:
+                    return false;
+
+                case JsonValueKind.Null:
+                    return null;
+
+                case JsonValueKind.Object:
+                    var dictionary = new Dictionary<string, object>();
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        // Skip known file content fields entirely
+                        if (fileContentFields.Contains(property.Name))
+                        {
+                            dictionary[property.Name] = "[File content removed - saved to execution directory]";
+                            continue;
+                        }
+
+                        // Handle "files" array specially - keep metadata only
+                        if (property.Name.Equals("files", StringComparison.OrdinalIgnoreCase) &&
+                            property.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            dictionary[property.Name] = SanitizeFilesArray(property.Value);
+                            continue;
+                        }
+
+                        dictionary[property.Name] = SanitizeJsonElement(property.Value);
+                    }
+                    return dictionary;
+
+                case JsonValueKind.Array:
+                    var array = new List<object>();
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        array.Add(SanitizeJsonElement(item));
+                    }
+                    return array;
+
+                default:
+                    return element.ToString();
+            }
+        }
+
+        /// <summary>
+        /// Sanitizes a files array by keeping only metadata (name, path, size) and removing content
+        /// </summary>
+        private object SanitizeFilesArray(JsonElement filesArray)
+        {
+            var sanitizedFiles = new List<object>();
+
+            foreach (var fileElement in filesArray.EnumerateArray())
+            {
+                if (fileElement.ValueKind == JsonValueKind.Object)
+                {
+                    var fileMetadata = new Dictionary<string, object>();
+
+                    foreach (var property in fileElement.EnumerateObject())
+                    {
+                        // Keep only metadata fields, exclude content
+                        switch (property.Name.ToLowerInvariant())
+                        {
+                            case "name":
+                            case "filename":
+                            case "file_name":
+                            case "path":
+                            case "filepath":
+                            case "file_path":
+                            case "size":
+                            case "type":
+                            case "mimetype":
+                            case "mime_type":
+                            case "extension":
+                                fileMetadata[property.Name] = SanitizeJsonElement(property.Value);
+                                break;
+
+                            case "content":
+                            case "data":
+                            case "body":
+                                // Skip content fields
+                                fileMetadata[property.Name] = "[Content saved to execution directory]";
+                                break;
+
+                            default:
+                                // Include other small fields
+                                var sanitized = SanitizeJsonElement(property.Value);
+                                if (sanitized is string str && str.Length <= 1000)
+                                {
+                                    fileMetadata[property.Name] = sanitized;
+                                }
+                                break;
+                        }
+                    }
+
+                    sanitizedFiles.Add(fileMetadata);
+                }
+                else
+                {
+                    sanitizedFiles.Add(SanitizeJsonElement(fileElement));
+                }
+            }
+
+            return sanitizedFiles;
         }
 
         private object ConvertJsonElementToObject(JsonElement element)
